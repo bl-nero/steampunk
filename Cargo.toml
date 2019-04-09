@@ -1,0 +1,7 @@
+[package]
+name = "atari-emulator"
+version = "0.1.0"
+authors = ["domin"]
+edition = "2018"
+
+[dependencies]
