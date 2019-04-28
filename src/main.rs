@@ -10,11 +10,12 @@ impl<'a> CPU<'a> {
     fn tick(&mut self) {
         let opcode = self.memory.read(self.program_counter); //it creates opcode variable then finds memory, reads what is written in it and writes it to opcode
         match opcode {
-            Opcodes::LDA => {
+            opcodes::LDA => {
                 self.accumulator = self.memory.read(self.program_counter + 1);
-            },
-            //Opcodes::STA => {},
-            _ => { //_ means whatever else
+            }
+            //opcodes::STA => {},
+            _ => {
+                //_ means whatever else
                 panic!("unknown opcode");
             }
         }
@@ -34,20 +35,27 @@ impl RAM {
     //fn write
 }
 
-mod Opcodes {
-    //Opcodes are instruction in program codes
+mod opcodes {
+    //opcodes are instruction in program codes
     pub const LDA: u8 = 0xa9; //0x means hexadecimal number
 }
-
-fn main() {
-    let mut memory = RAM { bytes: [Opcodes::LDA, 6, 0, 0, 0, 0, 0, 0, 0, 0] };
-    let mut cpu = CPU {
-        program_counter: 0,
-        accumulator: 0,
-        memory: &mut memory,
-    };
-    println!("{:#?}", cpu); //{:#?} formats cpu using #[derive(Debug)]
-    println!("Welcome player ONE!");
-    cpu.tick();
-    println!("{:#?}", cpu);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn loads_accumulator() {
+        let mut memory = RAM {
+            bytes: [opcodes::LDA, 6, 0, 0, 0, 0, 0, 0, 0, 0],
+        };
+        let mut cpu = CPU {
+            program_counter: 0,
+            accumulator: 0,
+            memory: &mut memory,
+        };
+        println!("Welcome player ONE!");
+        cpu.tick();
+        assert_eq!(cpu.accumulator, 6);
+    }
 }
+
+fn main() {}
