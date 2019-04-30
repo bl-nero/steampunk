@@ -13,7 +13,12 @@ impl<'a> CPU<'a> {
             opcodes::LDA => {
                 self.accumulator = self.memory.read(self.program_counter + 1);
             }
-            //opcodes::STA => {},
+            opcodes::STA => {
+                self.memory.write(5, 199);
+                let address = self.memory.read(self.program_counter + 1);
+                self.memory.write(address as u16, self.accumulator);
+
+            }
             _ => {
                 //_ means whatever else
                 panic!("unknown opcode");
@@ -21,6 +26,7 @@ impl<'a> CPU<'a> {
         }
     }
 }
+
 
 #[derive(Debug)]
 struct RAM {
@@ -32,12 +38,15 @@ impl RAM {
         // this arrow means we give u16 they return u8
         self.bytes[address as usize]
     }
-    //fn write
+    fn write(&mut self, address: u16, value: u8){
+        self.bytes[address as usize] = value;
+    }
 }
 
 mod opcodes {
     //opcodes are instruction in program codes
     pub const LDA: u8 = 0xa9; //0x means hexadecimal number
+    pub const STA: u8 = 0x85;
 }
 #[cfg(test)]
 mod tests {
@@ -52,10 +61,50 @@ mod tests {
             accumulator: 0,
             memory: &mut memory,
         };
-        println!("Welcome player ONE!");
         cpu.tick();
         assert_eq!(cpu.accumulator, 6);
     }
+    #[test]
+    fn stores_accumulator(){
+        let mut memory = RAM {
+            bytes: [opcodes::STA, 4, 0, 0, 0, 0, 0, 0, 0, 0],
+        };
+        let mut cpu = CPU {
+            program_counter: 0,
+            accumulator: 100,
+            memory: &mut memory,
+        };
+        cpu.tick();
+        println!("{:?}", memory);
+        assert_eq!(memory.bytes[4], 100);
+
+        let mut memory = RAM {
+            bytes: [opcodes::STA, 4, 0, 0, 0, 0, 0, 0, 0, 0],
+        };
+        let mut cpu = CPU {
+            program_counter: 0,
+            accumulator: 50,
+            memory: &mut memory,
+        };
+        cpu.tick();
+        assert_eq!(memory.bytes[4], 50);
+
+        let mut memory = RAM {
+            bytes: [opcodes::STA, 5, 0, 0, 0, 0, 0, 0, 0, 0],
+        };
+        let mut cpu = CPU {
+            program_counter: 0,
+            accumulator: 199,
+            memory: &mut memory,
+        };
+        cpu.tick();
+        assert_eq!(memory.bytes[5], 199);
+    }
+    
 }
 
-fn main() {}
+
+
+fn main() {
+    println!("Welcome player ONE!");
+}
