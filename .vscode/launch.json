@@ -4,11 +4,25 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+    {
+        "type": "gdb",
+        "request": "launch",
+        "name": "Debug Microcontroller",
+        "target": "extended-remote /dev/cu.usbmodem00000000",
+        "executable": "./bin/executable.elf",
+        "cwd": "${workspaceRoot}",
+        "autorun": [
+            "monitor tpwr enable",
+            "monitor swdp_scan",
+            "attach 1",
+            "load ./bin/executable.elf"
+        ]
+    },
         {
-            "name": "(Windows) Launch",
+            "name": "Tests",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "target/debug/atari-emulator.exe",
+            "program": "target/debug/deps/atari_emulator-7ba0e486ce25ba16.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

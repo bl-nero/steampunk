@@ -12,12 +12,12 @@ impl<'a> CPU<'a> {
         match opcode {
             opcodes::LDA => {
                 self.accumulator = self.memory.read(self.program_counter + 1);
+                self.program_counter = self.program_counter + 2;
             }
             opcodes::STA => {
                 self.memory.write(5, 199);
                 let address = self.memory.read(self.program_counter + 1);
                 self.memory.write(address as u16, self.accumulator);
-
             }
             _ => {
                 //_ means whatever else
@@ -26,7 +26,6 @@ impl<'a> CPU<'a> {
         }
     }
 }
-
 
 #[derive(Debug)]
 struct RAM {
@@ -38,7 +37,7 @@ impl RAM {
         // this arrow means we give u16 they return u8
         self.bytes[address as usize]
     }
-    fn write(&mut self, address: u16, value: u8){
+    fn write(&mut self, address: u16, value: u8) {
         self.bytes[address as usize] = value;
     }
 }
@@ -65,7 +64,7 @@ mod tests {
         assert_eq!(cpu.accumulator, 6);
     }
     #[test]
-    fn stores_accumulator(){
+    fn stores_accumulator() {
         let mut memory = RAM {
             bytes: [opcodes::STA, 4, 0, 0, 0, 0, 0, 0, 0, 0],
         };
@@ -75,7 +74,6 @@ mod tests {
             memory: &mut memory,
         };
         cpu.tick();
-        println!("{:?}", memory);
         assert_eq!(memory.bytes[4], 100);
 
         let mut memory = RAM {
@@ -100,10 +98,22 @@ mod tests {
         cpu.tick();
         assert_eq!(memory.bytes[5], 199);
     }
-    
+    #[test]
+    fn lda_sta() {
+        let mut memory = RAM {
+            bytes: [opcodes::LDA, 65, opcodes::STA, 6, 0, 0, 0, 0, 0, 0],
+        };
+        let mut cpu = CPU {
+            program_counter: 0,
+            accumulator: 0,
+            memory: &mut memory,
+        };
+        cpu.tick();
+        cpu.tick();
+        println!("{:?}", memory);
+        assert_eq!(memory.bytes[6], 65);
+    }
 }
-
-
 
 fn main() {
     println!("Welcome player ONE!");
