@@ -2,7 +2,7 @@
 struct CPU<'a> {
     program_counter: u16, // u means unsigned and 16 means it is 16 bit
     accumulator: u8,
-    memory: &'a mut RAM, // & means reference
+    memory: &'a mut RAM<'a>, // & means reference
 }
 
 impl<'a> CPU<'a> {
@@ -27,11 +27,11 @@ impl<'a> CPU<'a> {
 }
 
 #[derive(Debug)]
-struct RAM {
-    bytes: [u8; 10], //this means that computer has 25 u8's
+struct RAM<'a> {
+    bytes: &'a mut [u8], //this means that computer has 25 u8's
 }
 
-impl RAM {
+impl<'a> RAM<'a> {
     fn read(&self, address: u16) -> u8 {
         // this arrow means we give u16 they return u8
         self.bytes[address as usize]
@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn loads_accumulator() {
         let mut memory = RAM {
-            bytes: [opcodes::LDA, 6, 0, 0, 0, 0, 0, 0, 0, 0],
+            bytes: &mut [opcodes::LDA, 6],
         };
         let mut cpu = CPU {
             program_counter: 0,
@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn stores_accumulator() {
         let mut memory = RAM {
-            bytes: [opcodes::STA, 4, 0, 0, 0, 0, 0, 0, 0, 0],
+            bytes: &mut [opcodes::STA, 4, 0, 0, 0],
         };
         let mut cpu = CPU {
             program_counter: 0,
@@ -73,10 +73,10 @@ mod tests {
             memory: &mut memory,
         };
         cpu.tick();
-        assert_eq!(memory.bytes[4], 100);
+        assert_eq!(cpu.memory.bytes[4], 100);
 
         let mut memory = RAM {
-            bytes: [opcodes::STA, 4, 0, 0, 0, 0, 0, 0, 0, 0],
+            bytes: &mut [opcodes::STA, 4, 0, 0, 0],
         };
         let mut cpu = CPU {
             program_counter: 0,
@@ -84,10 +84,10 @@ mod tests {
             memory: &mut memory,
         };
         cpu.tick();
-        assert_eq!(memory.bytes[4], 50);
+        assert_eq!(cpu.memory.bytes[4], 50);
 
         let mut memory = RAM {
-            bytes: [opcodes::STA, 5, 0, 0, 0, 0, 0, 0, 0, 0],
+            bytes: &mut [opcodes::STA, 5, 0, 0, 0, 0],
         };
         let mut cpu = CPU {
             program_counter: 0,
@@ -95,12 +95,12 @@ mod tests {
             memory: &mut memory,
         };
         cpu.tick();
-        assert_eq!(memory.bytes[5], 199);
+        assert_eq!(cpu.memory.bytes[5], 199);
     }
     #[test]
     fn lda_sta() {
         let mut memory = RAM {
-            bytes: [opcodes::LDA, 65, opcodes::STA, 6, 0, 0, 0, 0, 0, 0],
+            bytes: &mut [opcodes::LDA, 65, opcodes::STA, 6, 0, 0, 0],
         };
         let mut cpu = CPU {
             program_counter: 0,
@@ -109,8 +109,7 @@ mod tests {
         };
         cpu.tick();
         cpu.tick();
-        println!("{:?}", memory);
-        assert_eq!(memory.bytes[6], 65);
+        assert_eq!(cpu.memory.bytes[6], 65);
     }
 }
 
