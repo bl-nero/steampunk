@@ -15,7 +15,6 @@ impl<'a> CPU<'a> {
                 self.program_counter = self.program_counter + 2;
             }
             opcodes::STA => {
-                self.memory.write(5, 199);
                 let address = self.memory.read(self.program_counter + 1);
                 self.memory.write(address as u16, self.accumulator);
             }
