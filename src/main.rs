@@ -6,6 +6,13 @@ struct CPU<'a> {
 }
 
 impl<'a> CPU<'a> {
+    fn new(memory: &'a mut RAM<'a>) -> CPU<'a> {
+        CPU {
+            program_counter: 0,
+            accumulator: 0,
+            memory: memory,
+        }
+    }
     // self is CPU object we execute functiion on
     fn tick(&mut self) {
         let opcode = self.memory.read(self.program_counter); //it creates opcode variable then finds memory, reads what is written in it and writes it to opcode
@@ -17,6 +24,7 @@ impl<'a> CPU<'a> {
             opcodes::STA => {
                 let address = self.memory.read(self.program_counter + 1);
                 self.memory.write(address as u16, self.accumulator);
+                self.program_counter = self.program_counter + 2;
             }
             _ => {
                 //_ means whatever else
@@ -100,16 +108,33 @@ mod tests {
     #[test]
     fn lda_sta() {
         let mut memory = RAM {
-            bytes: &mut [opcodes::LDA, 65, opcodes::STA, 6, 0, 0, 0],
+            bytes: &mut [
+                opcodes::LDA,
+                65,
+                opcodes::STA,
+                12,
+                opcodes::LDA,
+                73,
+                opcodes::STA,
+                12,
+                opcodes::LDA,
+                12,
+                opcodes::STA,
+                13,
+                0,
+                0,
+            ],
         };
-        let mut cpu = CPU {
-            program_counter: 0,
-            accumulator: 0,
-            memory: &mut memory,
-        };
+        let mut cpu = CPU::new(&mut memory);
         cpu.tick();
         cpu.tick();
-        assert_eq!(cpu.memory.bytes[6], 65);
+        assert_eq!(cpu.memory.bytes[12..14], [65, 0]);
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[12..14], [73, 0]);
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[12..14], [73, 12]);
     }
 }
 
