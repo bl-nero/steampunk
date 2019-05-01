@@ -47,54 +47,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn loads_accumulator() {
-        let mut memory = RAM {
-            bytes: &mut [opcodes::LDA, 6],
-        };
-        let mut cpu = CPU {
-            program_counter: 0,
-            accumulator: 0,
-            memory: &mut memory,
-        };
-        cpu.tick();
-        assert_eq!(cpu.accumulator, 6);
-    }
-    #[test]
-    fn stores_accumulator() {
-        let mut memory = RAM {
-            bytes: &mut [opcodes::STA, 4, 0, 0, 0],
-        };
-        let mut cpu = CPU {
-            program_counter: 0,
-            accumulator: 100,
-            memory: &mut memory,
-        };
-        cpu.tick();
-        assert_eq!(cpu.memory.bytes[4], 100);
-
-        let mut memory = RAM {
-            bytes: &mut [opcodes::STA, 4, 0, 0, 0],
-        };
-        let mut cpu = CPU {
-            program_counter: 0,
-            accumulator: 50,
-            memory: &mut memory,
-        };
-        cpu.tick();
-        assert_eq!(cpu.memory.bytes[4], 50);
-
-        let mut memory = RAM {
-            bytes: &mut [opcodes::STA, 5, 0, 0, 0, 0],
-        };
-        let mut cpu = CPU {
-            program_counter: 0,
-            accumulator: 199,
-            memory: &mut memory,
-        };
-        cpu.tick();
-        assert_eq!(cpu.memory.bytes[5], 199);
-    }
-    #[test]
     fn lda_sta() {
         let mut memory = RAM {
             bytes: &mut [
