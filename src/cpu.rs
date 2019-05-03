@@ -4,17 +4,23 @@ use crate::memory::RAM;
 pub struct CPU<'a> {
     program_counter: u16, // u means unsigned and 16 means it is 16 bit
     accumulator: u8,
-    memory: &'a mut RAM<'a>, // & means reference
+    memory: &'a mut RAM, // & means reference
 }
 
 impl<'a> CPU<'a> {
-    pub fn new(memory: &'a mut RAM<'a>) -> CPU<'a> {
+    pub fn new(memory: &'a mut RAM) -> CPU<'a> {
         CPU {
             program_counter: 0,
             accumulator: 0,
             memory: memory,
         }
     }
+
+    pub fn reset(&mut self) {
+        self.program_counter =
+            self.memory.read(0xFFFA) as u16 | ((self.memory.read(0xFFFB) as u16) << 8);
+    }
+
     // self is CPU object we execute functiion on
     pub fn tick(&mut self) {
         let opcode = self.memory.read(self.program_counter); //it creates opcode variable then finds memory, reads what is written in it and writes it to opcode
@@ -28,9 +34,12 @@ impl<'a> CPU<'a> {
                 self.memory.write(address as u16, self.accumulator);
                 self.program_counter = self.program_counter + 2;
             }
-            _ => {
-                //_ means whatever else
-                panic!("unknown opcode");
+            other => {
+                // Matches everything else.
+                panic!(
+                    "unknown opcode: ${:02X} at ${:04X}",
+                    other, self.program_counter
+                );
             }
         }
     }
@@ -47,34 +56,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lda_sta() {
-        let mut memory = RAM {
-            bytes: &mut [
-                opcodes::LDA,
-                65,
-                opcodes::STA,
-                12,
-                opcodes::LDA,
-                73,
-                opcodes::STA,
-                12,
-                opcodes::LDA,
-                12,
-                opcodes::STA,
-                13,
-                0,
-                0,
-            ],
-        };
+    fn it_resets() {
+        let mut program = vec![opcodes::LDA, 1, opcodes::STA, 0];
+        program.resize(0x101, 0);
+        program.extend_from_slice(&[opcodes::LDA, 2, opcodes::STA, 0]);
+
+        let mut memory = RAM::new(&program);
         let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
         cpu.tick();
         cpu.tick();
-        assert_eq!(cpu.memory.bytes[12..14], [65, 0]);
+        assert_eq!(cpu.memory.bytes[0], 1);
+
+        cpu.memory.bytes[0xFFFA] = 0x01;
+        cpu.memory.bytes[0xFFFB] = 0xF1;
+        cpu.reset();
         cpu.tick();
         cpu.tick();
-        assert_eq!(cpu.memory.bytes[12..14], [73, 0]);
+        assert_eq!(memory.bytes[0], 2);
+    }
+
+    #[test]
+    fn lda_sta() {
+        let mut memory = RAM::new(&mut [
+            opcodes::LDA,
+            65,
+            opcodes::STA,
+            4,
+            opcodes::LDA,
+            73,
+            opcodes::STA,
+            4,
+            opcodes::LDA,
+            12,
+            opcodes::STA,
+            5,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
         cpu.tick();
         cpu.tick();
-        assert_eq!(cpu.memory.bytes[12..14], [73, 12]);
+        assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
     }
 }

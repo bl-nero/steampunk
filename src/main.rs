@@ -6,6 +6,7 @@ fn main() {
     use memory::RAM;
 
     println!("Welcome player ONE!");
-    let mut memory = RAM { bytes: &mut [] };
+    let mut memory = RAM::new(&[]);
     let cpu = CPU::new(&mut memory);
+    println!("{:#?}", cpu);
 }
