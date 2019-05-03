@@ -17,8 +17,9 @@ impl<'a> CPU<'a> {
     }
 
     pub fn reset(&mut self) {
-        self.program_counter =
-            self.memory.read(0xFFFA) as u16 | ((self.memory.read(0xFFFB) as u16) << 8);
+        let lsb = self.memory.read(0xFFFA) as u16;
+        let msb = self.memory.read(0xFFFB) as u16;
+        self.program_counter = msb << 8 | lsb;
     }
 
     // self is CPU object we execute functiion on
