@@ -8,6 +8,9 @@ pub struct CPU<'a> {
 }
 
 impl<'a> CPU<'a> {
+    /// Creates a new `CPU` that owns given `memory`. The newly created `CPU` is
+    /// not yet ready for executing programs; it first needs to be reset using
+    /// the [`reset`](#method.reset) method.
     pub fn new(memory: &'a mut RAM) -> CPU<'a> {
         CPU {
             program_counter: 0,
@@ -16,15 +19,21 @@ impl<'a> CPU<'a> {
         }
     }
 
+    /// Reinitialize the CPU. It reads an address from 0xFFFA and stores it in
+    /// the `PC` register. Next [`tick`](#method.tick) will effectively resume
+    /// program from this address.
     pub fn reset(&mut self) {
         let lsb = self.memory.read(0xFFFA) as u16;
         let msb = self.memory.read(0xFFFB) as u16;
         self.program_counter = msb << 8 | lsb;
     }
 
+    /// Performs a single CPU cycle.
     // self is CPU object we execute functiion on
     pub fn tick(&mut self) {
-        let opcode = self.memory.read(self.program_counter); //it creates opcode variable then finds memory, reads what is written in it and writes it to opcode
+        // Read memory from address stored in program_counter. Store the value
+        // in the opcode variable.
+        let opcode = self.memory.read(self.program_counter);
         match opcode {
             opcodes::LDA => {
                 self.accumulator = self.memory.read(self.program_counter + 1);
