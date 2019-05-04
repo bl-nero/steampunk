@@ -67,8 +67,15 @@ mod tests {
 
     #[test]
     fn it_resets() {
+        // We test resetting the CPU by providing a memory image with two
+        // separate programs. The first starts, as usually, at 0xF000, and it
+        // will store a value of 1 at 0x0000.
         let mut program = vec![opcodes::LDA, 1, opcodes::STA, 0];
+        // The next one will start exactly 0x101 bytes later, at 0xF101. This is
+        // because we want to change both bytes of the program's address. We
+        // resize the memory so that it contains zeros until 0xF101.
         program.resize(0x101, 0);
+        // Finally, the second program. It stores 2 at 0x0000.
         program.extend_from_slice(&[opcodes::LDA, 2, opcodes::STA, 0]);
 
         let mut memory = RAM::new(&program);
@@ -76,14 +83,14 @@ mod tests {
         cpu.reset();
         cpu.tick();
         cpu.tick();
-        assert_eq!(cpu.memory.bytes[0], 1);
+        assert_eq!(cpu.memory.bytes[0], 1); // The first program has been executed.
 
         cpu.memory.bytes[0xFFFA] = 0x01;
         cpu.memory.bytes[0xFFFB] = 0xF1;
         cpu.reset();
         cpu.tick();
         cpu.tick();
-        assert_eq!(memory.bytes[0], 2);
+        assert_eq!(memory.bytes[0], 2); // The second program has been executed.
     }
 
     #[test]
