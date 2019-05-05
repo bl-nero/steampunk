@@ -25,7 +25,7 @@ impl<'a> CPU<'a> {
     pub fn reset(&mut self) {
         let lsb = self.memory.read(0xFFFA) as u16;
         let msb = self.memory.read(0xFFFB) as u16;
-        self.program_counter = msb << 8 | lsb;
+        self.program_counter = (msb << 8) | lsb;
     }
 
     /// Performs a single CPU cycle.
