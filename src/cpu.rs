@@ -29,7 +29,7 @@ impl<'a> CPU<'a> {
     }
 
     /// Performs a single CPU cycle.
-    // self is CPU object we execute functiion on
+    // self is CPU object we execute function on
     pub fn tick(&mut self) {
         // Read memory from address stored in program_counter. Store the value
         // in the opcode variable.
