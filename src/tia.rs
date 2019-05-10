@@ -1,5 +1,6 @@
 pub struct TIA {
     // Registers
+    reg_vsync: u8,
     reg_colubk: u8,
 
     column: i32,
@@ -9,6 +10,7 @@ pub struct TIA {
 impl TIA {
     pub fn new() -> TIA {
         TIA {
+            reg_vsync: 0,
             reg_colubk: 0,
             column: 0,
             scanline: 0,
@@ -17,26 +19,39 @@ impl TIA {
 
     pub fn tick(&mut self) -> TickResult {
         let vo = self.video_output();
-        self.column += 1;
+        self.column = (self.column + 1) % TOTAL_WIDTH;
         return vo;
     }
 
     fn video_output(&self) -> TickResult {
-        if (self.column < 16) {
-            return TickResult::empty();
-        }
-        if (self.column < 32) {
+        let vsync = self.reg_vsync & flags::VSYNC_ON != 0;
+        if self.column < 16 {
             return TickResult {
-                horizontal_sync: true,
-                vertical_sync: false,
+                horizontal_sync: false,
+                vertical_sync: vsync,
                 pixel: None,
             };
         }
-        if (self.column < H_BLANK_WIDTH) {
-            return TickResult::empty();
+        if self.column < 32 {
+            return TickResult {
+                horizontal_sync: true,
+                vertical_sync: vsync,
+                pixel: None,
+            };
+        }
+        if self.column < H_BLANK_WIDTH {
+            return TickResult {
+                horizontal_sync: false,
+                vertical_sync: vsync,
+                pixel: None,
+            };
         }
 
-        return TickResult::from_pixel(self.reg_colubk);
+        return TickResult {
+            horizontal_sync: false,
+            vertical_sync: vsync,
+            pixel: if vsync { None } else { Some(self.reg_colubk) },
+        };
     }
 
     pub fn read(&self, address: u16) -> u8 {
@@ -44,7 +59,11 @@ impl TIA {
     }
 
     pub fn write(&mut self, address: u16, value: u8) {
-        self.reg_colubk = value;
+        match address {
+            registers::COLUBK => self.reg_colubk = value,
+            registers::VSYNC => self.reg_vsync = value,
+            _ => {}
+        }
     }
 }
 
@@ -106,33 +125,142 @@ mod tests {
         }
 
         tia.write(registers::COLUBK, 0x02);
-        assert_eq!(TickResult::from_pixel(0x02), tia.tick());
+        assert_eq!(tia.tick(), TickResult::from_pixel(0x02));
 
-        tia.write(registers::COLUBK, 0xFE);
-        assert_eq!(TickResult::from_pixel(0xFE), tia.tick());
+        tia.write(registers::COLUBK, 0xfe);
+        assert_eq!(tia.tick(), TickResult::from_pixel(0xfe));
     }
 
     #[test]
-    fn generates_hsync() {
+    fn generates_hsync_and_horizontal_blank() {
         let mut tia = TIA::new();
-        tia.write(registers::COLUBK, 0x80);
         for i in 0..16 {
-            assert_eq!(TickResult::empty(), tia.tick(), "at index {}", i);
+            assert_eq!(tia.tick(), TickResult::empty(), "at index {}", i);
         }
         for i in 16..32 {
             assert_eq!(
+                tia.tick(),
                 TickResult {
                     horizontal_sync: true,
                     vertical_sync: false,
                     pixel: None
                 },
-                tia.tick(),
                 "at index {}",
                 i
             );
         }
         for i in 32..H_BLANK_WIDTH {
-            assert_eq!(TickResult::empty(), tia.tick(), "at index {}", i);
+            assert_eq!(tia.tick(), TickResult::empty(), "at index {}", i);
         }
+    }
+
+    #[test]
+    fn draws_scanlines() {
+        let mut tia = TIA::new();
+        tia.write(registers::COLUBK, 0x80);
+        for i in 0..16 {
+            assert_eq!(tia.tick(), TickResult::empty(), "at index {}", i);
+        }
+        for i in 16..32 {
+            assert_eq!(
+                tia.tick(),
+                TickResult {
+                    horizontal_sync: true,
+                    vertical_sync: false,
+                    pixel: None
+                },
+                "at index {}",
+                i
+            );
+        }
+        for i in 32..H_BLANK_WIDTH {
+            assert_eq!(tia.tick(), TickResult::empty(), "at index {}", i);
+        }
+        for i in H_BLANK_WIDTH..TOTAL_WIDTH {
+            assert_eq!(tia.tick(), TickResult::from_pixel(0x80), "at index {}", i);
+        }
+
+        for i in 0..16 {
+            assert_eq!(tia.tick(), TickResult::empty(), "at index {}", i);
+        }
+        for i in 16..32 {
+            assert_eq!(
+                tia.tick(),
+                TickResult {
+                    horizontal_sync: true,
+                    vertical_sync: false,
+                    pixel: None
+                },
+                "at index {}",
+                i
+            );
+        }
+        for i in 32..H_BLANK_WIDTH {
+            assert_eq!(tia.tick(), TickResult::empty(), "at index {}", i);
+        }
+        for i in H_BLANK_WIDTH..TOTAL_WIDTH {
+            assert_eq!(tia.tick(), TickResult::from_pixel(0x80), "at index {}", i);
+        }
+    }
+
+    #[test]
+    fn generates_vsync() {
+        let mut tia = TIA::new();
+        tia.write(registers::VSYNC, flags::VSYNC_ON);
+
+        for i in 0..16 {
+            assert_eq!(
+                tia.tick(),
+                TickResult {
+                    horizontal_sync: false,
+                    vertical_sync: true,
+                    pixel: None
+                },
+                "at index {}",
+                i
+            );
+        }
+
+        for i in 16..32 {
+            assert_eq!(
+                tia.tick(),
+                TickResult {
+                    horizontal_sync: true,
+                    vertical_sync: true,
+                    pixel: None
+                },
+                "at index {}",
+                i
+            );
+        }
+
+        for i in 32..H_BLANK_WIDTH {
+            assert_eq!(
+                tia.tick(),
+                TickResult {
+                    horizontal_sync: false,
+                    vertical_sync: true,
+                    pixel: None
+                },
+                "at index {}",
+                i
+            );
+        }
+
+        for i in H_BLANK_WIDTH..TOTAL_WIDTH {
+            assert_eq!(
+                tia.tick(),
+                TickResult {
+                    horizontal_sync: false,
+                    vertical_sync: true,
+                    pixel: None
+                },
+                "at index {}",
+                i
+            );
+        }
+
+        tia.write(registers::VSYNC, !flags::VSYNC_ON);
+        assert_eq!(tia.tick(), TickResult::empty());
     }
 }
