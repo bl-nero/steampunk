@@ -2,6 +2,7 @@
 pub struct TIA {
     // Registers
     reg_vsync: u8,
+    reg_vblank: u8,
     reg_colubk: u8,
 
     column: i32,
@@ -14,6 +15,7 @@ impl TIA {
     pub fn new() -> TIA {
         TIA {
             reg_vsync: 0,
+            reg_vblank: 0,
             reg_colubk: 0,
             column: 0,
             scanline: 0,
@@ -28,19 +30,22 @@ impl TIA {
             H_SYNC_START => self.hsync_on = true,
             H_SYNC_END => self.hsync_on = false,
             H_BLANK_WIDTH => self.hblank_on = false,
-            TOTAL_WIDTH => self.column = 0,
             _ => {}
         }
+
+        let vsync_on = self.reg_vsync & flags::VSYNC_ON != 0;
+        let vblank_on = self.reg_vblank & flags::VBLANK_ON != 0;
         let output = Output {
             horizontal_sync: self.hsync_on,
-            vertical_sync: self.reg_vsync & flags::VSYNC_ON != 0,
-            pixel: if self.column < H_BLANK_WIDTH {
+            vertical_sync: vsync_on,
+            pixel: if self.hblank_on || vblank_on {
                 None
             } else {
                 Some(self.reg_colubk)
             },
         };
-        self.column += 1;
+
+        self.column = (self.column + 1) % TOTAL_WIDTH;
         return output;
     }
 
@@ -50,8 +55,9 @@ impl TIA {
 
     pub fn write(&mut self, address: u16, value: u8) {
         match address {
-            registers::COLUBK => self.reg_colubk = value,
             registers::VSYNC => self.reg_vsync = value,
+            registers::VBLANK => self.reg_vblank = value,
+            registers::COLUBK => self.reg_colubk = value,
             _ => {}
         }
     }
@@ -66,7 +72,7 @@ pub struct Output {
 }
 
 impl Output {
-    pub fn from_pixel(pixel: u8) -> Output {
+    pub fn pixel(pixel: u8) -> Output {
         Output {
             vertical_sync: false,
             horizontal_sync: false,
@@ -74,7 +80,7 @@ impl Output {
         }
     }
 
-    pub fn empty() -> Output {
+    pub fn blank() -> Output {
         Output {
             vertical_sync: false,
             horizontal_sync: false,
@@ -113,6 +119,7 @@ mod registers {
 
 mod flags {
     pub const VSYNC_ON: u8 = 0b0000_0010;
+    pub const VBLANK_ON: u8 = 0b0000_0010;
 }
 
 #[cfg(test)]
@@ -139,19 +146,19 @@ mod tests {
         }
 
         tia.write(registers::COLUBK, 0x02);
-        assert_eq!(tia.tick(), Output::from_pixel(0x02));
+        assert_eq!(tia.tick(), Output::pixel(0x02));
 
         tia.write(registers::COLUBK, 0xfe);
-        assert_eq!(tia.tick(), Output::from_pixel(0xfe));
+        assert_eq!(tia.tick(), Output::pixel(0xfe));
     }
 
     #[test]
     fn draws_scanlines() {
         let mut expected_output = Vec::new();
-        expected_output.resize(H_SYNC_START as usize, Output::empty());
-        expected_output.resize(H_SYNC_END as usize, Output::empty().with_horizontal_sync());
-        expected_output.resize(H_BLANK_WIDTH as usize, Output::empty());
-        expected_output.resize(TOTAL_WIDTH as usize, Output::from_pixel(0x80));
+        expected_output.resize(H_SYNC_START as usize, Output::blank());
+        expected_output.resize(H_SYNC_END as usize, Output::blank().with_horizontal_sync());
+        expected_output.resize(H_BLANK_WIDTH as usize, Output::blank());
+        expected_output.resize(TOTAL_WIDTH as usize, Output::pixel(0x80));
         expected_output.append(&mut expected_output.clone());
 
         let mut tia = TIA::new();
@@ -163,15 +170,15 @@ mod tests {
     #[test]
     fn emits_vsync() {
         let mut expected_output = Vec::new();
-        expected_output.resize(H_SYNC_START as usize, Output::empty().with_vertical_sync());
+        expected_output.resize(H_SYNC_START as usize, Output::blank().with_vertical_sync());
         expected_output.resize(
             H_SYNC_END as usize,
-            Output::empty().with_vertical_sync().with_horizontal_sync(),
+            Output::blank().with_vertical_sync().with_horizontal_sync(),
         );
-        expected_output.resize(H_BLANK_WIDTH as usize, Output::empty().with_vertical_sync());
+        expected_output.resize(H_BLANK_WIDTH as usize, Output::blank().with_vertical_sync());
         expected_output.resize(
             TOTAL_WIDTH as usize,
-            Output::from_pixel(0x12).with_vertical_sync(),
+            Output::pixel(0x12).with_vertical_sync(),
         );
 
         let mut tia = TIA::new();
@@ -180,7 +187,47 @@ mod tests {
         let output = OutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
 
+        // Note: we turn off VSYNC not by writing 0, but by setting all bits but
+        // bit 1. This is to make sure that all other bits are ignored.
         tia.write(registers::VSYNC, !flags::VSYNC_ON);
-        assert_eq!(tia.tick(), Output::empty());
+        assert_eq!(tia.tick(), Output::blank());
+    }
+
+    #[test]
+    fn emits_vblank() {
+        let mut expected_output = Vec::new();
+        expected_output.resize(H_SYNC_START as usize, Output::blank());
+        expected_output.resize(H_SYNC_END as usize, Output::blank().with_horizontal_sync());
+        expected_output.resize(TOTAL_WIDTH as usize, Output::blank());
+
+        let mut tia = TIA::new();
+        tia.write(registers::COLUBK, 0x32);
+        tia.write(registers::VBLANK, flags::VBLANK_ON);
+        let output = OutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
+        itertools::assert_equal(output, expected_output);
+
+        // Make sure that only bit 1 of VBLANK counts.
+        tia.write(registers::VBLANK, !flags::VBLANK_ON);
+        for _ in 0..H_BLANK_WIDTH {
+            tia.tick();
+        }
+        assert_eq!(tia.tick(), Output::pixel(0x32));
+    }
+
+    #[test]
+    fn emits_vblank_with_vsync() {
+        let mut expected_output = Vec::new();
+        expected_output.resize(H_SYNC_START as usize, Output::blank().with_vertical_sync());
+        expected_output.resize(
+            H_SYNC_END as usize,
+            Output::blank().with_vertical_sync().with_horizontal_sync(),
+        );
+        expected_output.resize(TOTAL_WIDTH as usize, Output::blank().with_vertical_sync());
+
+        let mut tia = TIA::new();
+        tia.write(registers::VSYNC, flags::VSYNC_ON);
+        tia.write(registers::VBLANK, flags::VBLANK_ON);
+        let output = OutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
+        itertools::assert_equal(output, expected_output);
     }
 }
