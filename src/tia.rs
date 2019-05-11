@@ -6,6 +6,8 @@ pub struct TIA {
 
     column: i32,
     scanline: i32,
+    hblank_on: bool,
+    hsync_on: bool,
 }
 
 impl TIA {
@@ -15,44 +17,31 @@ impl TIA {
             reg_colubk: 0,
             column: 0,
             scanline: 0,
+            hsync_on: false,
+            hblank_on: false,
         }
     }
 
     pub fn tick(&mut self) -> Output {
-        let vo = self.video_output();
-        self.column = (self.column + 1) % TOTAL_WIDTH;
-        return vo;
-    }
-
-    fn video_output(&self) -> Output {
-        let vsync = self.reg_vsync & flags::VSYNC_ON != 0;
-        if self.column < H_SYNC_START {
-            return Output {
-                horizontal_sync: false,
-                vertical_sync: vsync,
-                pixel: None,
-            };
+        match self.column {
+            0 => self.hblank_on = true,
+            H_SYNC_START => self.hsync_on = true,
+            H_SYNC_END => self.hsync_on = false,
+            H_BLANK_WIDTH => self.hblank_on = false,
+            TOTAL_WIDTH => self.column = 0,
+            _ => {}
         }
-        if self.column < H_SYNC_END {
-            return Output {
-                horizontal_sync: true,
-                vertical_sync: vsync,
-                pixel: None,
-            };
-        }
-        if self.column < H_BLANK_WIDTH {
-            return Output {
-                horizontal_sync: false,
-                vertical_sync: vsync,
-                pixel: None,
-            };
-        }
-
-        return Output {
-            horizontal_sync: false,
-            vertical_sync: vsync,
-            pixel: if vsync { None } else { Some(self.reg_colubk) },
+        let output = Output {
+            horizontal_sync: self.hsync_on,
+            vertical_sync: self.reg_vsync & flags::VSYNC_ON != 0,
+            pixel: if self.column < H_BLANK_WIDTH {
+                None
+            } else {
+                Some(self.reg_colubk)
+            },
         };
+        self.column += 1;
+        return output;
     }
 
     pub fn read(&self, address: u16) -> u8 {
