@@ -1,12 +1,18 @@
 #[derive(Clone)]
 pub struct TIA {
-    // Registers
+    // *** REGISTERS ***
+
+    /// If bit 1 (`flags::VSYNC_ON`) is set, TIA emits a VSYNC signal.
     reg_vsync: u8,
+    /// If bit 1 (`flags::VBLANK_ON`) is set, TIA doesn't emit pixels.
     reg_vblank: u8,
+    /// Color and luminance of background. See
+    /// [`Output::pixel`](struct.Output.html#structfield.pixel) for details.
     reg_colubk: u8,
 
-    column: i32,
-    scanline: i32,
+    /// Each frame has 228 cycles, including 160 cycles that actually emit
+    /// pixels.
+    column_counter: i32,
     hblank_on: bool,
     hsync_on: bool,
 }
@@ -17,15 +23,16 @@ impl TIA {
             reg_vsync: 0,
             reg_vblank: 0,
             reg_colubk: 0,
-            column: 0,
-            scanline: 0,
+            column_counter: 0,
             hsync_on: false,
             hblank_on: false,
         }
     }
 
+    /// Processes a single TIA clock cycle. Returns a TIA output structure. A
+    /// single cycle is the time needed to render a single pixel.
     pub fn tick(&mut self) -> Output {
-        match self.column {
+        match self.column_counter {
             0 => self.hblank_on = true,
             HSYNC_START => self.hsync_on = true,
             HSYNC_END => self.hsync_on = false,
@@ -45,7 +52,7 @@ impl TIA {
             },
         };
 
-        self.column = (self.column + 1) % TOTAL_WIDTH;
+        self.column_counter = (self.column_counter + 1) % TOTAL_WIDTH;
         return output;
     }
 
@@ -63,15 +70,26 @@ impl TIA {
     }
 }
 
-// We need to derive PartialEq to easily perform assertions in tests.
+/// TIA output. The TIA chip actually produces a composite sync signal, but it
+/// doesn't make sense to encode it only to decode it downstream in the emulation
+/// process.
+/// 
+/// Note: We need to derive `PartialEq` to easily perform assertions in tests.
 #[derive(PartialEq, Clone, Debug)]
 pub struct Output {
-    vsync: bool,
-    hsync: bool,
-    pixel: Option<u8>,
+    /// If set to `true`, the vertical synchronization signal is being emitted.
+    pub vsync: bool,
+    /// If set to `true`, the horizontal synchronization signal is being emitted.
+    pub hsync: bool,
+    /// If outside horizontal and vertical blanking area, this field contains a
+    /// currently emitted pixel. Bits 7-4 denote color, bits 3-1 are the
+    /// luminance. Bit 0 is unused.
+    pub pixel: Option<u8>,
 }
 
 impl Output {
+    /// Creates a new `Output` instance that contains pixel with a given color.
+    /// See [`pixel`](#structfield.pixel) for details.
     pub fn pixel(pixel: u8) -> Output {
         Output {
             vsync: false,
@@ -80,6 +98,7 @@ impl Output {
         }
     }
 
+    /// Creates a new blank `Output` that doesn't contain any signals or pixel color.
     pub fn blank() -> Output {
         Output {
             vsync: false,
@@ -88,37 +107,48 @@ impl Output {
         }
     }
 
+    /// Sets the HSYNC flag on an existing `Output` instance.
     pub fn with_hsync(mut self) -> Self {
         self.hsync = true;
         self
     }
 
+    /// Sets the VSYNC flag on an existing `Output` instance.
     pub fn with_vsync(mut self) -> Self {
         self.vsync = true;
         self
     }
 }
 
+// Some constants that describe the scanline geometry.
 const HSYNC_START: i32 = 16;
 const HSYNC_END: i32 = 32; // 1 cycle after, to make it easy to construct a range.
 const HBLANK_WIDTH: i32 = 68;
 const FRAME_WIDTH: i32 = 160;
 const TOTAL_WIDTH: i32 = FRAME_WIDTH + HBLANK_WIDTH;
 
+// On the second thought, these constants will probably be more needed
+// elsewhere...
 // const FRAME_HEIGHT: i32 = 192;
 // const VSYNC_HEIGHT: i32 = 3;
 // const V_BLANK_HEIGHT: i32 = 37;
 // const OVERSCAN_HEIGHT: i32 = 30;
 // const TOTAL_HEIGHT: i32 = FRAME_HEIGHT + VSYNC_HEIGHT + V_BLANK_HEIGHT;
 
-mod registers {
+/// Constants in this module represent addresses of TIA registers. To be used
+/// with the `TIA::read()` and `TIA::write()` methods.
+pub mod registers {
     pub const VSYNC: u16 = 0x00;
     pub const VBLANK: u16 = 0x01;
     pub const COLUBK: u16 = 0x09;
 }
 
-mod flags {
+/// Constants in this module are bit masks for setting and testing register
+/// values.
+pub mod flags {
+    /// Bit mask for turning on VSYNC signal using `VSYNC` registry.
     pub const VSYNC_ON: u8 = 0b0000_0010;
+    /// Bit mask for turning on vertical blanking using `VBLANK` registry.
     pub const VBLANK_ON: u8 = 0b0000_0010;
 }
 
@@ -126,6 +156,8 @@ mod flags {
 mod tests {
     use super::*;
 
+    /// A utility that produces a sequence of TIA outputs. Useful for comparing
+    /// with expected sequences in tests.
     struct OutputIterator<'a> {
         tia: &'a mut TIA,
     }
@@ -155,14 +187,20 @@ mod tests {
     #[test]
     fn draws_scanlines() {
         let mut expected_output = Vec::new();
+        // Horizontal blanking until HSYNC.
         expected_output.resize(HSYNC_START as usize, Output::blank());
+        // HSYNC.
         expected_output.resize(HSYNC_END as usize, Output::blank().with_hsync());
+        // Horizontal blanking until the visible part starts.
         expected_output.resize(HBLANK_WIDTH as usize, Output::blank());
+        // Actual pixels.
         expected_output.resize(TOTAL_WIDTH as usize, Output::pixel(0x80));
+        // Repeat the line twice to make sure that TIA repeats the pattern.
         expected_output.append(&mut expected_output.clone());
 
         let mut tia = TIA::new();
         tia.write(registers::COLUBK, 0x80);
+        // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = OutputIterator { tia: &mut tia }.take(2 * TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
     }
