@@ -29,7 +29,7 @@ impl TIA {
 
     /// Processes a single TIA clock cycle. Returns a TIA output structure. A
     /// single cycle is the time needed to render a single pixel.
-    pub fn tick(&mut self) -> VideoOutput {
+    pub fn tick(&mut self) -> TIAOutput {
         match self.column_counter {
             0 => self.hblank_on = true,
             HSYNC_START => self.hsync_on = true,
@@ -40,13 +40,15 @@ impl TIA {
 
         let vsync_on = self.reg_vsync & flags::VSYNC_ON != 0;
         let vblank_on = self.reg_vblank & flags::VBLANK_ON != 0;
-        let output = VideoOutput {
-            hsync: self.hsync_on,
-            vsync: vsync_on,
-            pixel: if self.hblank_on || vblank_on {
-                None
-            } else {
-                Some(self.reg_colubk)
+        let output = TIAOutput {
+            video: VideoOutput {
+                hsync: self.hsync_on,
+                vsync: vsync_on,
+                pixel: if self.hblank_on || vblank_on {
+                    None
+                } else {
+                    Some(self.reg_colubk)
+                },
             },
         };
 
@@ -66,6 +68,10 @@ impl TIA {
             _ => {}
         }
     }
+}
+
+pub struct TIAOutput {
+    pub video: VideoOutput,
 }
 
 /// TIA video output. The TIA chip actually produces a composite sync signal, but
@@ -156,17 +162,17 @@ mod tests {
     use super::*;
     use crate::test_utils;
 
-    /// A utility that produces a sequence of TIA outputs. Useful for comparing
-    /// with expected sequences in tests.
-    struct OutputIterator<'a> {
+    /// A utility that produces a sequence of TIA video outputs. Useful for
+    /// comparing with expected sequences in tests.
+    struct VideoOutputIterator<'a> {
         tia: &'a mut TIA,
     }
 
-    impl<'a> Iterator for OutputIterator<'a> {
+    impl<'a> Iterator for VideoOutputIterator<'a> {
         type Item = VideoOutput;
 
         fn next(&mut self) -> Option<VideoOutput> {
-            return Some(self.tia.tick());
+            return Some(self.tia.tick().video);
         }
     }
 
@@ -178,10 +184,10 @@ mod tests {
         }
 
         tia.write(registers::COLUBK, 0x02);
-        assert_eq!(tia.tick(), VideoOutput::pixel(0x02));
+        assert_eq!(tia.tick().video, VideoOutput::pixel(0x02));
 
         tia.write(registers::COLUBK, 0xfe);
-        assert_eq!(tia.tick(), VideoOutput::pixel(0xfe));
+        assert_eq!(tia.tick().video, VideoOutput::pixel(0xfe));
     }
 
     #[test]
@@ -198,7 +204,7 @@ mod tests {
         let mut tia = TIA::new();
         tia.write(registers::COLUBK, 0x08);
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
-        let output = OutputIterator { tia: &mut tia }.take(2 * TOTAL_WIDTH as usize);
+        let output = VideoOutputIterator { tia: &mut tia }.take(2 * TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
     }
 
@@ -213,13 +219,13 @@ mod tests {
         let mut tia = TIA::new();
         tia.write(registers::COLUBK, 0x00);
         tia.write(registers::VSYNC, flags::VSYNC_ON);
-        let output = OutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
+        let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
 
         // Note: we turn off VSYNC not by writing 0, but by setting all bits but
         // bit 1. This is to make sure that all other bits are ignored.
         tia.write(registers::VSYNC, !flags::VSYNC_ON);
-        assert_eq!(tia.tick(), VideoOutput::blank());
+        assert_eq!(tia.tick().video, VideoOutput::blank());
     }
 
     #[test]
@@ -233,7 +239,7 @@ mod tests {
         let mut tia = TIA::new();
         tia.write(registers::COLUBK, 0x32);
         tia.write(registers::VBLANK, flags::VBLANK_ON);
-        let output = OutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
+        let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
 
         // Make sure that only bit 1 of VBLANK counts.
@@ -241,7 +247,7 @@ mod tests {
         for _ in 0..HBLANK_WIDTH {
             tia.tick();
         }
-        assert_eq!(tia.tick(), VideoOutput::pixel(0x32));
+        assert_eq!(tia.tick().video, VideoOutput::pixel(0x32));
     }
 
     #[test]
@@ -255,7 +261,7 @@ mod tests {
         let mut tia = TIA::new();
         tia.write(registers::VSYNC, flags::VSYNC_ON);
         tia.write(registers::VBLANK, flags::VBLANK_ON);
-        let output = OutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
+        let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
     }
 }
