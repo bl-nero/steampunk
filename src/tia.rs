@@ -13,6 +13,7 @@ pub struct TIA {
     column_counter: u32,
     hblank_on: bool,
     hsync_on: bool,
+    wait_for_sync: bool,
 }
 
 impl TIA {
@@ -24,6 +25,7 @@ impl TIA {
             column_counter: 0,
             hsync_on: false,
             hblank_on: false,
+            wait_for_sync: false,
         }
     }
 
@@ -31,7 +33,10 @@ impl TIA {
     /// single cycle is the time needed to render a single pixel.
     pub fn tick(&mut self) -> TIAOutput {
         match self.column_counter {
-            0 => self.hblank_on = true,
+            0 => {
+                self.hblank_on = true;
+                self.wait_for_sync = false;
+            }
             HSYNC_START => self.hsync_on = true,
             HSYNC_END => self.hsync_on = false,
             HBLANK_WIDTH => self.hblank_on = false,
@@ -50,6 +55,7 @@ impl TIA {
                     Some(self.reg_colubk)
                 },
             },
+            cpu_tick: !self.wait_for_sync && self.column_counter % 3 == 0,
         };
 
         self.column_counter = (self.column_counter + 1) % TOTAL_WIDTH;
@@ -64,6 +70,7 @@ impl TIA {
         match address {
             registers::VSYNC => self.reg_vsync = value,
             registers::VBLANK => self.reg_vblank = value,
+            registers::WSYNC => self.wait_for_sync = true,
             registers::COLUBK => self.reg_colubk = value,
             _ => {}
         }
@@ -72,6 +79,7 @@ impl TIA {
 
 pub struct TIAOutput {
     pub video: VideoOutput,
+    pub cpu_tick: bool,
 }
 
 /// TIA video output. The TIA chip actually produces a composite sync signal, but
@@ -145,6 +153,7 @@ pub const TOTAL_WIDTH: u32 = FRAME_WIDTH + HBLANK_WIDTH;
 pub mod registers {
     pub const VSYNC: u16 = 0x00;
     pub const VBLANK: u16 = 0x01;
+    pub const WSYNC: u16 = 0x02;
     pub const COLUBK: u16 = 0x09;
 }
 
@@ -263,5 +272,31 @@ mod tests {
         tia.write(registers::VBLANK, flags::VBLANK_ON);
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
+    }
+
+    #[test]
+    fn tells_to_tick_cpu_every_three_cycles() {
+        let mut tia = TIA::new();
+        assert_eq!(tia.tick().cpu_tick, true);
+        assert_eq!(tia.tick().cpu_tick, false);
+        assert_eq!(tia.tick().cpu_tick, false);
+        assert_eq!(tia.tick().cpu_tick, true);
+        assert_eq!(tia.tick().cpu_tick, false);
+        assert_eq!(tia.tick().cpu_tick, false);
+        assert_eq!(tia.tick().cpu_tick, true);
+    }
+
+    #[test]
+    fn freezes_cpu_until_wsync() {
+        let mut tia = TIA::new();
+        tia.tick();
+        tia.write(registers::WSYNC, 0x00);
+        for i in 1..TOTAL_WIDTH {
+            assert_eq!(tia.tick().cpu_tick, false, "for index {}", i);
+        }
+        assert_eq!(tia.tick().cpu_tick, true);
+        assert_eq!(tia.tick().cpu_tick, false);
+        assert_eq!(tia.tick().cpu_tick, false);
+        assert_eq!(tia.tick().cpu_tick, true);
     }
 }
