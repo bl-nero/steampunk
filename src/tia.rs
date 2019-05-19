@@ -5,7 +5,7 @@ pub struct TIA {
     /// If bit 1 (`flags::VBLANK_ON`) is set, TIA doesn't emit pixels.
     reg_vblank: u8,
     /// Color and luminance of background. See
-    /// [`Output::pixel`](struct.Output.html#structfield.pixel) for details.
+    /// [`VideoOutput::pixel`](struct.VideoOutput.html#structfield.pixel) for details.
     reg_colubk: u8,
 
     /// Each frame has 228 cycles, including 160 cycles that actually emit
@@ -29,7 +29,7 @@ impl TIA {
 
     /// Processes a single TIA clock cycle. Returns a TIA output structure. A
     /// single cycle is the time needed to render a single pixel.
-    pub fn tick(&mut self) -> TIAOutput {
+    pub fn tick(&mut self) -> VideoOutput {
         match self.column_counter {
             0 => self.hblank_on = true,
             HSYNC_START => self.hsync_on = true,
@@ -40,7 +40,7 @@ impl TIA {
 
         let vsync_on = self.reg_vsync & flags::VSYNC_ON != 0;
         let vblank_on = self.reg_vblank & flags::VBLANK_ON != 0;
-        let output = TIAOutput {
+        let output = VideoOutput {
             hsync: self.hsync_on,
             vsync: vsync_on,
             pixel: if self.hblank_on || vblank_on {
@@ -68,13 +68,13 @@ impl TIA {
     }
 }
 
-/// TIA output. The TIA chip actually produces a composite sync signal, but it
-/// doesn't make sense to encode it only to decode it downstream in the emulation
-/// process.
+/// TIA video output. The TIA chip actually produces a composite sync signal, but
+/// it doesn't make sense to encode it only to decode it downstream in the
+/// emulation process.
 ///
 /// Note: We need to derive `PartialEq` to easily perform assertions in tests.
 #[derive(PartialEq, Clone, Debug)]
-pub struct TIAOutput {
+pub struct VideoOutput {
     /// If set to `true`, the vertical synchronization signal is being emitted.
     pub vsync: bool,
     /// If set to `true`, the horizontal synchronization signal is being emitted.
@@ -85,33 +85,34 @@ pub struct TIAOutput {
     pub pixel: Option<u8>,
 }
 
-impl TIAOutput {
-    /// Creates a new `Output` instance that contains pixel with a given color.
-    /// See [`pixel`](#structfield.pixel) for details.
-    pub fn pixel(pixel: u8) -> TIAOutput {
-        TIAOutput {
+impl VideoOutput {
+    /// Creates a new `VideoOutput` instance that contains pixel with a given
+    /// color. See [`pixel`](#structfield.pixel) for details.
+    pub fn pixel(pixel: u8) -> VideoOutput {
+        VideoOutput {
             vsync: false,
             hsync: false,
             pixel: Some(pixel),
         }
     }
 
-    /// Creates a new blank `Output` that doesn't contain any signals or pixel color.
-    pub fn blank() -> TIAOutput {
-        TIAOutput {
+    /// Creates a new blank `VideoOutput` that doesn't contain any signals or
+    /// pixel color.
+    pub fn blank() -> VideoOutput {
+        VideoOutput {
             vsync: false,
             hsync: false,
             pixel: None,
         }
     }
 
-    /// Sets the HSYNC flag on an existing `Output` instance.
+    /// Sets the HSYNC flag on an existing `VideoOutput` instance.
     pub fn with_hsync(mut self) -> Self {
         self.hsync = true;
         self
     }
 
-    /// Sets the VSYNC flag on an existing `Output` instance.
+    /// Sets the VSYNC flag on an existing `VideoOutput` instance.
     pub fn with_vsync(mut self) -> Self {
         self.vsync = true;
         self
@@ -162,9 +163,9 @@ mod tests {
     }
 
     impl<'a> Iterator for OutputIterator<'a> {
-        type Item = TIAOutput;
+        type Item = VideoOutput;
 
-        fn next(&mut self) -> Option<TIAOutput> {
+        fn next(&mut self) -> Option<VideoOutput> {
             return Some(self.tia.tick());
         }
     }
@@ -177,15 +178,15 @@ mod tests {
         }
 
         tia.write(registers::COLUBK, 0x02);
-        assert_eq!(tia.tick(), TIAOutput::pixel(0x02));
+        assert_eq!(tia.tick(), VideoOutput::pixel(0x02));
 
         tia.write(registers::COLUBK, 0xfe);
-        assert_eq!(tia.tick(), TIAOutput::pixel(0xfe));
+        assert_eq!(tia.tick(), VideoOutput::pixel(0xfe));
     }
 
     #[test]
     fn draws_scanlines() {
-        let expected_output = test_utils::decode_tia_outputs(
+        let expected_output = test_utils::decode_video_outputs(
             "................||||||||||||||||....................................\
              88888888888888888888888888888888888888888888888888888888888888888888888888888888\
              88888888888888888888888888888888888888888888888888888888888888888888888888888888\
@@ -203,7 +204,7 @@ mod tests {
 
     #[test]
     fn emits_vsync() {
-        let expected_output = test_utils::decode_tia_outputs(
+        let expected_output = test_utils::decode_video_outputs(
             "----------------++++++++++++++++------------------------------------\
              ================================================================================\
              ================================================================================",
@@ -218,12 +219,12 @@ mod tests {
         // Note: we turn off VSYNC not by writing 0, but by setting all bits but
         // bit 1. This is to make sure that all other bits are ignored.
         tia.write(registers::VSYNC, !flags::VSYNC_ON);
-        assert_eq!(tia.tick(), TIAOutput::blank());
+        assert_eq!(tia.tick(), VideoOutput::blank());
     }
 
     #[test]
     fn emits_vblank() {
-        let expected_output = test_utils::decode_tia_outputs(
+        let expected_output = test_utils::decode_video_outputs(
             "................||||||||||||||||....................................\
              ................................................................................\
              ................................................................................",
@@ -240,12 +241,12 @@ mod tests {
         for _ in 0..HBLANK_WIDTH {
             tia.tick();
         }
-        assert_eq!(tia.tick(), TIAOutput::pixel(0x32));
+        assert_eq!(tia.tick(), VideoOutput::pixel(0x32));
     }
 
     #[test]
     fn emits_vblank_with_vsync() {
-        let expected_output = test_utils::decode_tia_outputs(
+        let expected_output = test_utils::decode_video_outputs(
             "----------------++++++++++++++++------------------------------------\
              --------------------------------------------------------------------------------\
              --------------------------------------------------------------------------------",
