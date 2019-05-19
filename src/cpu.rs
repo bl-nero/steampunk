@@ -4,6 +4,7 @@ use crate::memory::RAM;
 pub struct CPU<'a> {
     program_counter: u16, // u means unsigned and 16 means it is 16 bit
     accumulator: u8,
+    xreg: u8,
     memory: &'a mut RAM, // & means reference
 }
 
@@ -15,6 +16,7 @@ impl<'a> CPU<'a> {
         CPU {
             program_counter: 0,
             accumulator: 0,
+            xreg: 0,
             memory: memory,
         }
     }
@@ -44,6 +46,19 @@ impl<'a> CPU<'a> {
                 self.memory.write(address as u16, self.accumulator);
                 self.program_counter = self.program_counter + 2;
             }
+            opcodes::LDX => {
+                self.xreg = self.memory.read(self.program_counter + 1);
+                self.program_counter = self.program_counter + 2;
+            }
+            opcodes::STX => {
+                let address = self.memory.read(self.program_counter + 1);
+                self.memory.write(address as u16, self.xreg);
+                self.program_counter = self.program_counter + 2;
+            }
+            opcodes::INX => {
+                self.xreg = self.xreg + 1;
+                self.program_counter = self.program_counter + 1;
+            }
             other => {
                 // Matches everything else.
                 panic!(
@@ -59,6 +74,9 @@ mod opcodes {
     //opcodes are instruction in program codes
     pub const LDA: u8 = 0xa9; //0x means hexadecimal number
     pub const STA: u8 = 0x85;
+    pub const LDX: u8 = 0xa2;
+    pub const STX: u8 = 0x44;
+    pub const INX: u8 = 0xe8;
 }
 
 #[cfg(test)]
@@ -94,6 +112,56 @@ mod tests {
     }
 
     #[test]
+    fn inx() {
+        let mut memory = RAM::new(&mut [
+            opcodes::LDX,
+            32,
+            opcodes::INX,
+            opcodes::STX,
+            5,
+            opcodes::INX,
+            opcodes::STX,
+            6,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[5..7], [33, 34]);
+    }
+    #[test]
+    fn ldx_stx() {
+        let mut memory = RAM::new(&mut [
+            opcodes::LDX,
+            65,
+            opcodes::STX,
+            4,
+            opcodes::LDX,
+            73,
+            opcodes::STX,
+            4,
+            opcodes::LDX,
+            12,
+            opcodes::STX,
+            5,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
+    }
+
+    #[test]
     fn lda_sta() {
         let mut memory = RAM::new(&mut [
             opcodes::LDA,
@@ -120,5 +188,26 @@ mod tests {
         cpu.tick();
         cpu.tick();
         assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
+    }
+
+    #[test]
+    fn multiple_registers() {
+        let mut memory = RAM::new(&mut [
+            opcodes::LDA,
+            10,
+            opcodes::LDX,
+            20,
+            opcodes::STA,
+            0,
+            opcodes::STX,
+            1,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[0..2], [10, 20]);
     }
 }
