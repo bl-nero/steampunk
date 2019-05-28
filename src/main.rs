@@ -1,3 +1,4 @@
+pub mod atari;
 pub mod colors;
 pub mod cpu;
 pub mod frame_renderer;
