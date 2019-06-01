@@ -1,7 +1,5 @@
-#[derive(Clone)]
 pub struct TIA {
     // *** REGISTERS ***
-
     /// If bit 1 (`flags::VSYNC_ON`) is set, TIA emits a VSYNC signal.
     reg_vsync: u8,
     /// If bit 1 (`flags::VBLANK_ON`) is set, TIA doesn't emit pixels.
@@ -12,7 +10,7 @@ pub struct TIA {
 
     /// Each frame has 228 cycles, including 160 cycles that actually emit
     /// pixels.
-    column_counter: i32,
+    column_counter: u32,
     hblank_on: bool,
     hsync_on: bool,
 }
@@ -31,7 +29,7 @@ impl TIA {
 
     /// Processes a single TIA clock cycle. Returns a TIA output structure. A
     /// single cycle is the time needed to render a single pixel.
-    pub fn tick(&mut self) -> Output {
+    pub fn tick(&mut self) -> TIAOutput {
         match self.column_counter {
             0 => self.hblank_on = true,
             HSYNC_START => self.hsync_on = true,
@@ -42,7 +40,7 @@ impl TIA {
 
         let vsync_on = self.reg_vsync & flags::VSYNC_ON != 0;
         let vblank_on = self.reg_vblank & flags::VBLANK_ON != 0;
-        let output = Output {
+        let output = TIAOutput {
             hsync: self.hsync_on,
             vsync: vsync_on,
             pixel: if self.hblank_on || vblank_on {
@@ -73,10 +71,10 @@ impl TIA {
 /// TIA output. The TIA chip actually produces a composite sync signal, but it
 /// doesn't make sense to encode it only to decode it downstream in the emulation
 /// process.
-/// 
+///
 /// Note: We need to derive `PartialEq` to easily perform assertions in tests.
 #[derive(PartialEq, Clone, Debug)]
-pub struct Output {
+pub struct TIAOutput {
     /// If set to `true`, the vertical synchronization signal is being emitted.
     pub vsync: bool,
     /// If set to `true`, the horizontal synchronization signal is being emitted.
@@ -87,11 +85,11 @@ pub struct Output {
     pub pixel: Option<u8>,
 }
 
-impl Output {
+impl TIAOutput {
     /// Creates a new `Output` instance that contains pixel with a given color.
     /// See [`pixel`](#structfield.pixel) for details.
-    pub fn pixel(pixel: u8) -> Output {
-        Output {
+    pub fn pixel(pixel: u8) -> TIAOutput {
+        TIAOutput {
             vsync: false,
             hsync: false,
             pixel: Some(pixel),
@@ -99,8 +97,8 @@ impl Output {
     }
 
     /// Creates a new blank `Output` that doesn't contain any signals or pixel color.
-    pub fn blank() -> Output {
-        Output {
+    pub fn blank() -> TIAOutput {
+        TIAOutput {
             vsync: false,
             hsync: false,
             pixel: None,
@@ -121,11 +119,11 @@ impl Output {
 }
 
 // Some constants that describe the scanline geometry.
-const HSYNC_START: i32 = 16;
-const HSYNC_END: i32 = 32; // 1 cycle after, to make it easy to construct a range.
-const HBLANK_WIDTH: i32 = 68;
-const FRAME_WIDTH: i32 = 160;
-const TOTAL_WIDTH: i32 = FRAME_WIDTH + HBLANK_WIDTH;
+pub const HSYNC_START: u32 = 16;
+pub const HSYNC_END: u32 = 32; // 1 cycle after, to make it easy to construct a range.
+pub const HBLANK_WIDTH: u32 = 68;
+pub const FRAME_WIDTH: u32 = 160;
+pub const TOTAL_WIDTH: u32 = FRAME_WIDTH + HBLANK_WIDTH;
 
 // On the second thought, these constants will probably be more needed
 // elsewhere...
@@ -155,6 +153,7 @@ pub mod flags {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils;
 
     /// A utility that produces a sequence of TIA outputs. Useful for comparing
     /// with expected sequences in tests.
@@ -163,9 +162,9 @@ mod tests {
     }
 
     impl<'a> Iterator for OutputIterator<'a> {
-        type Item = Output;
+        type Item = TIAOutput;
 
-        fn next(&mut self) -> Option<Output> {
+        fn next(&mut self) -> Option<TIAOutput> {
             return Some(self.tia.tick());
         }
     }
@@ -178,28 +177,25 @@ mod tests {
         }
 
         tia.write(registers::COLUBK, 0x02);
-        assert_eq!(tia.tick(), Output::pixel(0x02));
+        assert_eq!(tia.tick(), TIAOutput::pixel(0x02));
 
         tia.write(registers::COLUBK, 0xfe);
-        assert_eq!(tia.tick(), Output::pixel(0xfe));
+        assert_eq!(tia.tick(), TIAOutput::pixel(0xfe));
     }
 
     #[test]
     fn draws_scanlines() {
-        let mut expected_output = Vec::new();
-        // Horizontal blanking until HSYNC.
-        expected_output.resize(HSYNC_START as usize, Output::blank());
-        // HSYNC.
-        expected_output.resize(HSYNC_END as usize, Output::blank().with_hsync());
-        // Horizontal blanking until the visible part starts.
-        expected_output.resize(HBLANK_WIDTH as usize, Output::blank());
-        // Actual pixels.
-        expected_output.resize(TOTAL_WIDTH as usize, Output::pixel(0x80));
-        // Repeat the line twice to make sure that TIA repeats the pattern.
-        expected_output.append(&mut expected_output.clone());
+        let expected_output = test_utils::decode_tia_outputs(
+            "................||||||||||||||||....................................\
+             88888888888888888888888888888888888888888888888888888888888888888888888888888888\
+             88888888888888888888888888888888888888888888888888888888888888888888888888888888\
+             ................||||||||||||||||....................................\
+             88888888888888888888888888888888888888888888888888888888888888888888888888888888\
+             88888888888888888888888888888888888888888888888888888888888888888888888888888888",
+        );
 
         let mut tia = TIA::new();
-        tia.write(registers::COLUBK, 0x80);
+        tia.write(registers::COLUBK, 0x08);
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = OutputIterator { tia: &mut tia }.take(2 * TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
@@ -207,17 +203,14 @@ mod tests {
 
     #[test]
     fn emits_vsync() {
-        let mut expected_output = Vec::new();
-        expected_output.resize(HSYNC_START as usize, Output::blank().with_vsync());
-        expected_output.resize(
-            HSYNC_END as usize,
-            Output::blank().with_vsync().with_hsync(),
+        let expected_output = test_utils::decode_tia_outputs(
+            "----------------++++++++++++++++------------------------------------\
+             ================================================================================\
+             ================================================================================",
         );
-        expected_output.resize(HBLANK_WIDTH as usize, Output::blank().with_vsync());
-        expected_output.resize(TOTAL_WIDTH as usize, Output::pixel(0x12).with_vsync());
 
         let mut tia = TIA::new();
-        tia.write(registers::COLUBK, 0x12);
+        tia.write(registers::COLUBK, 0x00);
         tia.write(registers::VSYNC, flags::VSYNC_ON);
         let output = OutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
@@ -225,15 +218,16 @@ mod tests {
         // Note: we turn off VSYNC not by writing 0, but by setting all bits but
         // bit 1. This is to make sure that all other bits are ignored.
         tia.write(registers::VSYNC, !flags::VSYNC_ON);
-        assert_eq!(tia.tick(), Output::blank());
+        assert_eq!(tia.tick(), TIAOutput::blank());
     }
 
     #[test]
     fn emits_vblank() {
-        let mut expected_output = Vec::new();
-        expected_output.resize(HSYNC_START as usize, Output::blank());
-        expected_output.resize(HSYNC_END as usize, Output::blank().with_hsync());
-        expected_output.resize(TOTAL_WIDTH as usize, Output::blank());
+        let expected_output = test_utils::decode_tia_outputs(
+            "................||||||||||||||||....................................\
+             ................................................................................\
+             ................................................................................",
+        );
 
         let mut tia = TIA::new();
         tia.write(registers::COLUBK, 0x32);
@@ -246,18 +240,16 @@ mod tests {
         for _ in 0..HBLANK_WIDTH {
             tia.tick();
         }
-        assert_eq!(tia.tick(), Output::pixel(0x32));
+        assert_eq!(tia.tick(), TIAOutput::pixel(0x32));
     }
 
     #[test]
     fn emits_vblank_with_vsync() {
-        let mut expected_output = Vec::new();
-        expected_output.resize(HSYNC_START as usize, Output::blank().with_vsync());
-        expected_output.resize(
-            HSYNC_END as usize,
-            Output::blank().with_vsync().with_hsync(),
+        let expected_output = test_utils::decode_tia_outputs(
+            "----------------++++++++++++++++------------------------------------\
+             --------------------------------------------------------------------------------\
+             --------------------------------------------------------------------------------",
         );
-        expected_output.resize(TOTAL_WIDTH as usize, Output::blank().with_vsync());
 
         let mut tia = TIA::new();
         tia.write(registers::VSYNC, flags::VSYNC_ON);
