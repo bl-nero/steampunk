@@ -1,18 +1,19 @@
 use crate::memory::RAM;
+use crate::memory::Memory;
 
 #[derive(Debug)] //this generates function that translates CPU to text
-pub struct CPU<'a> {
+pub struct CPU<'a, M: Memory> {
     program_counter: u16, // u means unsigned and 16 means it is 16 bit
     accumulator: u8,
     xreg: u8,
-    memory: &'a mut RAM, // & means reference
+    memory: &'a mut M, // & means reference
 }
 
-impl<'a> CPU<'a> {
+impl<'a, M> CPU<'a, M> where M: Memory {
     /// Creates a new `CPU` that owns given `memory`. The newly created `CPU` is
     /// not yet ready for executing programs; it first needs to be reset using
     /// the [`reset`](#method.reset) method.
-    pub fn new(memory: &'a mut RAM) -> CPU<'a> {
+    pub fn new(memory: &'a mut M) -> CPU<'a, M> {
         CPU {
             program_counter: 0,
             accumulator: 0,

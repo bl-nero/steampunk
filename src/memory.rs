@@ -2,6 +2,11 @@ use std::fmt;
 
 const RAM_SIZE: usize = 0x10000; // 64 kB (64 * 1024)
 
+pub trait Memory {
+    fn write(&mut self, address: u16, value: u8);
+    fn read(&self, address: u16) -> u8;
+}
+
 /// A very simple memory structure. At the moment, it's just a 64-kilobyte chunk of RAM, for simplicity of addressing.
 pub struct RAM {
     pub bytes: [u8; RAM_SIZE], // computer has RAM_SIZE (64k) bytes (unsigned 8-bit integers)
@@ -24,11 +29,14 @@ impl RAM {
         ram.bytes[0xFFFB] = 0xF0; // most-significant byte
         return ram;
     }
-    pub fn read(&self, address: u16) -> u8 {
+}
+
+impl Memory for RAM {
+    fn read(&self, address: u16) -> u8 {
         // this arrow means we give u16 they return u8
         self.bytes[address as usize]
     }
-    pub fn write(&mut self, address: u16, value: u8) {
+    fn write(&mut self, address: u16, value: u8) {
         self.bytes[address as usize] = value;
     }
 }
