@@ -15,14 +15,11 @@ fn main() {
     use address_space::AddressSpace;
 
     println!("Welcome player ONE!");
-    let mut memory = RAM::new(&[]);
     let mut address_space = AddressSpace{
-        tia: RAM::new(&[]),
-        ram: RAM::new(&[]),
-        rom: RAM::new(&[]),
+        tia: TIA::new(),
+        ram: RAM::new(),
+        rom: RAM::new(),
     };
     let cpu = CPU::new(&mut address_space);
     println!("{:#?}", cpu);
-
-    let tia = TIA::new();
 }

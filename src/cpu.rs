@@ -1,4 +1,3 @@
-use crate::memory::RAM;
 use crate::memory::Memory;
 
 #[derive(Debug)] //this generates function that translates CPU to text
@@ -9,7 +8,7 @@ pub struct CPU<'a, M: Memory> {
     memory: &'a mut M, // & means reference
 }
 
-impl<'a, M> CPU<'a, M> where M: Memory {
+impl<'a, M: Memory> CPU<'a, M> {
     /// Creates a new `CPU` that owns given `memory`. The newly created `CPU` is
     /// not yet ready for executing programs; it first needs to be reset using
     /// the [`reset`](#method.reset) method.
@@ -89,6 +88,7 @@ mod opcodes {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::RAM;
 
     #[test]
     fn it_resets() {
@@ -103,7 +103,7 @@ mod tests {
         // Finally, the second program. It stores 2 at 0x0000.
         program.extend_from_slice(&[opcodes::LDA, 2, opcodes::STA, 0]);
 
-        let mut memory = RAM::new(&program);
+        let mut memory = RAM::with_program(&program);
         let mut cpu = CPU::new(&mut memory);
         cpu.reset();
         cpu.tick();
@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn inx() {
-        let mut memory = RAM::new(&mut [
+        let mut memory = RAM::with_program(&mut [
             opcodes::LDX,
             0xFE,
             opcodes::INX,
@@ -141,7 +141,7 @@ mod tests {
     }
     #[test]
     fn ldx_stx() {
-        let mut memory = RAM::new(&mut [
+        let mut memory = RAM::with_program(&mut [
             opcodes::LDX,
             65,
             opcodes::STX,
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn lda_sta() {
-        let mut memory = RAM::new(&mut [
+        let mut memory = RAM::with_program(&mut [
             opcodes::LDA,
             65,
             opcodes::STA,
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn multiple_registers() {
-        let mut memory = RAM::new(&mut [
+        let mut memory = RAM::with_program(&mut [
             opcodes::LDA,
             10,
             opcodes::LDX,

@@ -1,3 +1,8 @@
+use crate::memory::Memory;
+
+/// TIA is responsible for generating the video signal, sound (not yet
+/// implemented) and for synchronizing CPU with the screen's electron beam.
+#[derive(Debug)]
 pub struct TIA {
     // *** REGISTERS ***
     /// If bit 1 (`flags::VSYNC_ON`) is set, TIA emits a VSYNC signal.
@@ -61,12 +66,14 @@ impl TIA {
         self.column_counter = (self.column_counter + 1) % TOTAL_WIDTH;
         return output;
     }
+}
 
-    pub fn read(&self, address: u16) -> u8 {
+impl Memory for TIA {
+    fn read(&self, _address: u16) -> u8 {
         0
     }
 
-    pub fn write(&mut self, address: u16, value: u8) {
+    fn write(&mut self, address: u16, value: u8) {
         match address {
             registers::VSYNC => self.reg_vsync = value,
             registers::VBLANK => self.reg_vblank = value,
