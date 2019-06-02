@@ -1,3 +1,10 @@
+use crate::address_space::AddressSpace;
+use crate::cpu::CPU;
+use crate::memory::RAM;
+use crate::tia::TIA;
+use crate::frame_renderer::FrameRenderer;
+use crate::frame_renderer::FrameRendererBuilder;
+use crate::colors;
 use image;
 use image::DynamicImage;
 use image::GenericImageView;
@@ -8,15 +15,22 @@ use lcs_image_diff;
 use std::fs;
 use std::path::Path;
 
-struct Atari {
-    img: RgbaImage,
+type AtariAddressSpace = AddressSpace<TIA, RAM, RAM>;
+
+struct Atari<'a> {
+    cpu: CPU<'a, AtariAddressSpace>,
+    frame_renderer: FrameRenderer,
 }
 
-impl Atari {
-    pub fn new(rom: &[u8]) -> Atari {
+impl<'a> Atari<'a> {
+    pub fn new(address_space: &mut AtariAddressSpace) -> Atari {
+        let colors: Vec<u32> = (0x00..0x80).collect();
+        let palette = colors::create_palette(&colors[..]);
         Atari {
+            cpu: CPU::new(address_space),
+            frame_renderer: FrameRendererBuilder::new().with_palette(palette).build(),
             // img: RgbaImage::new(160, 192),
-            img: RgbaImage::from_pixel(1970, 1540, Rgba::from_channels(0, 0, 0, 255)),
+            // img: RgbaImage::from_pixel(1970, 1540, Rgba::from_channels(0, 0, 0, 255)),
             // img: image::open("src/test_data/horizontal_stripes.png")
             //     .unwrap()
             //     .to_rgba(),
@@ -24,7 +38,15 @@ impl Atari {
     }
 
     pub fn next_frame(&mut self) -> &RgbaImage {
-        &self.img
+        loop {
+            let tia_result = self.cpu.memory().tia.tick();
+            if tia_result.cpu_tick {
+                self.cpu.tick();
+            }
+            if self.frame_renderer.consume(tia_result.video) {
+                return self.frame_renderer.frame_image();
+            }
+        }
     }
 }
 
@@ -67,13 +89,19 @@ mod tests {
 
     #[test]
     fn shows_horizontal_stripes() {
-        let rom = std::fs::read(
+        let rom_image = std::fs::read(
             Path::new(env!("OUT_DIR"))
                 .join("roms")
                 .join("horizontal_stripes.bin"),
         )
         .unwrap();
-        let mut atari = Atari::new(&rom[..]);
+        let mut address_space = AtariAddressSpace {
+            tia: TIA::new(),
+            ram: RAM::new(),
+            rom: RAM::with_program(&rom_image[..]),
+        };
+        let mut atari = Atari::new(&mut address_space);
+        atari.cpu.reset();
         let img1 = DynamicImage::ImageRgba8(atari.next_frame().clone());
         let img2 = image::open(
             Path::new("src")

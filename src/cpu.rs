@@ -21,6 +21,10 @@ impl<'a, M: Memory> CPU<'a, M> {
         }
     }
 
+    pub fn memory(&mut self) -> &mut M {
+        self.memory
+    }
+
     /// Reinitialize the CPU. It reads an address from 0xFFFA and stores it in
     /// the `PC` register. Next [`tick`](#method.tick) will effectively resume
     /// program from this address.
@@ -80,7 +84,7 @@ mod opcodes {
     pub const LDA: u8 = 0xa9; //0x means hexadecimal number
     pub const STA: u8 = 0x85;
     pub const LDX: u8 = 0xa2;
-    pub const STX: u8 = 0x44;
+    pub const STX: u8 = 0x86;
     pub const INX: u8 = 0xe8;
     pub const JMP: u8 = 0x4c;
 }
