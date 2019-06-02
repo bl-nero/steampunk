@@ -77,8 +77,12 @@ impl TIA {
     }
 }
 
+/// TIA output structure. It indicates how a single TIA clock tick influences
+/// other parts of the system.
 pub struct TIAOutput {
     pub video: VideoOutput,
+    /// If `true`, TIA allows CPU to perform a tick. Otherwise, the CPU is put on
+    /// hold.
     pub cpu_tick: bool,
 }
 
