@@ -56,7 +56,7 @@ impl<'a> CPU<'a> {
                 self.program_counter = self.program_counter + 2;
             }
             opcodes::INX => {
-                self.xreg = self.xreg + 1;
+                self.xreg = self.xreg.wrapping_add(1);
                 self.program_counter = self.program_counter + 1;
             }
             other => {
@@ -115,7 +115,7 @@ mod tests {
     fn inx() {
         let mut memory = RAM::new(&mut [
             opcodes::LDX,
-            32,
+            0xFE,
             opcodes::INX,
             opcodes::STX,
             5,
@@ -130,7 +130,7 @@ mod tests {
         cpu.tick();
         cpu.tick();
         cpu.tick();
-        assert_eq!(cpu.memory.bytes[5..7], [33, 34]);
+        assert_eq!(cpu.memory.bytes[5..7], [0xFF, 0x00]);
     }
     #[test]
     fn ldx_stx() {
