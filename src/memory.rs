@@ -13,11 +13,15 @@ pub struct RAM {
 }
 
 impl RAM {
-    /// Creates a new `RAM`, putting given `program` at address 0xF000. It also sets the reset pointer to 0xF000.
-    pub fn new(program: &[u8]) -> RAM {
-        let mut ram = RAM {
+    pub fn new() -> RAM {
+        RAM {
             bytes: [0; RAM_SIZE], // Fill the entire RAM with 0x00.
-        };
+        }
+    }
+
+    /// Creates a new `RAM`, putting given `program` at address 0xF000. It also sets the reset pointer to 0xF000.
+    pub fn with_program(program: &[u8]) -> RAM {
+        let mut ram = RAM::new();
 
         // Copy the program into memory, starting from address 0xF000.
         for (i, byte) in program.iter().enumerate() {
@@ -42,7 +46,8 @@ impl Memory for RAM {
 }
 
 impl fmt::Debug for RAM {
-    /// Prints out only the zero page, because come on, who would scroll through a dump of entire 64 kibibytes...
+    /// Prints out only the zero page, because come on, who would scroll through
+    /// a dump of entire 64 kibibytes...
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{{zero page: {:?}}}", &self.bytes[..255])
     }
@@ -54,13 +59,13 @@ mod tests {
 
     #[test]
     fn it_creates_empty_ram() {
-        let ram = RAM::new(&[]);
+        let ram = RAM::with_program(&[]);
         assert_eq!(ram.bytes[..0xFFFA], [0u8; 0xFFFA][..]);
     }
 
     #[test]
     fn it_places_program_in_memory() {
-        let ram = RAM::new(&[10, 56, 72, 255]);
+        let ram = RAM::with_program(&[10, 56, 72, 255]);
         // Bytes until 0xF000 (exclusively) should have been zeroed.
         assert_eq!(ram.bytes[..0xF000], [0u8; 0xF000][..]);
         // Next, there should be our program.
@@ -71,7 +76,7 @@ mod tests {
 
     #[test]
     fn it_sets_reset_address() {
-        let ram = RAM::new(&[0xFF; 0x1000]);
+        let ram = RAM::with_program(&[0xFF; 0x1000]);
         assert_eq!(ram.bytes[0xFFFA..0xFFFC], [0x00, 0xF0]); // 0xF000
     }
 }
