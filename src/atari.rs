@@ -24,11 +24,9 @@ struct Atari<'a> {
 
 impl<'a> Atari<'a> {
     pub fn new(address_space: &mut AtariAddressSpace) -> Atari {
-        let colors: Vec<u32> = (0x00..0x80).collect();
-        let palette = colors::create_palette(&colors[..]);
         Atari {
             cpu: CPU::new(address_space),
-            frame_renderer: FrameRendererBuilder::new().with_palette(palette).build(),
+            frame_renderer: FrameRendererBuilder::new().with_palette(colors::ntsc_palette_1()).build(),
             // img: RgbaImage::new(160, 192),
             // img: RgbaImage::from_pixel(1970, 1540, Rgba::from_channels(0, 0, 0, 255)),
             // img: image::open("src/test_data/horizontal_stripes.png")
@@ -61,10 +59,8 @@ mod tests {
             return;
         }
 
-        let diff = lcs_image_diff::compare(&mut actual, &mut expected, 0.5).unwrap();
         let dir_path = Path::new(env!("OUT_DIR")).join("test_results");
         fs::create_dir_all(&dir_path).unwrap();
-
         let actual_path = dir_path
             .join(String::from(test_name) + "-actual")
             .with_extension("png");
@@ -74,16 +70,24 @@ mod tests {
         let diff_path = dir_path
             .join(String::from(test_name) + "-diff")
             .with_extension("png");
+        let new_golden_path = dir_path
+            .join(String::from(test_name) + "-new-golden")
+            .with_extension("png");
+        
+        actual.save(&new_golden_path).unwrap();
+
+        let diff = lcs_image_diff::compare(&mut actual, &mut expected, 0.5).unwrap();
 
         actual.save(&actual_path).unwrap();
         expected.save(&expected_path).unwrap();
         diff.save(&diff_path).unwrap();
         panic!(
-            "Images differ for test {}\nActual: {}\nExpected: {}\nDiff: {}",
+            "Images differ for test {}\nActual: {}\nExpected: {}\nDiff: {}\nNew golden: {}",
             test_name,
             actual_path.display(),
             expected_path.display(),
-            diff_path.display()
+            diff_path.display(),
+            new_golden_path.display(),
         );
     }
 
