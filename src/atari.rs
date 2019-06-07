@@ -26,7 +26,7 @@ impl<'a> Atari<'a> {
     pub fn new(address_space: &mut AtariAddressSpace) -> Atari {
         Atari {
             cpu: CPU::new(address_space),
-            frame_renderer: FrameRendererBuilder::new().with_palette(colors::ntsc_palette_1()).build(),
+            frame_renderer: FrameRendererBuilder::new().with_palette(colors::ntsc_palette_2()).build(),
             // img: RgbaImage::new(160, 192),
             // img: RgbaImage::from_pixel(1970, 1540, Rgba::from_channels(0, 0, 0, 255)),
             // img: image::open("src/test_data/horizontal_stripes.png")
