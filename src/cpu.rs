@@ -59,6 +59,11 @@ impl<'a> CPU<'a> {
                 self.xreg = self.xreg + 1;
                 self.program_counter = self.program_counter + 1;
             }
+            opcodes::JMP => {
+                let lsb = self.memory.read(self.program_counter + 1);
+                let msb = self.memory.read(self.program_counter + 2);
+                self.program_counter = (lsb as u16)|((msb as u16)<<8);
+            }
             other => {
                 // Matches everything else.
                 panic!(
@@ -77,6 +82,7 @@ mod opcodes {
     pub const LDX: u8 = 0xa2;
     pub const STX: u8 = 0x44;
     pub const INX: u8 = 0xe8;
+    pub const JMP: u8 = 0x4c;
 }
 
 #[cfg(test)]
@@ -210,4 +216,25 @@ mod tests {
         cpu.tick();
         assert_eq!(cpu.memory.bytes[0..2], [10, 20]);
     }
-}
+    #[test]
+    fn jmp_working() {
+        let mut memory = RAM::new(&mut [
+            opcodes::LDX,
+            1,
+            opcodes::STX,
+            9,
+            opcodes::INX,
+            opcodes::JMP,
+            0x02,
+            0xf0,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[9], 2);
+    }
+}    
