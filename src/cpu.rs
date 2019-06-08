@@ -219,7 +219,7 @@ mod tests {
     }
     #[test]
     fn jmp_working() {
-        let mut memory = RAM::new(&mut [
+        let mut memory = RAM::with_program(&mut [
             opcodes::LDX,
             1,
             opcodes::STX,
