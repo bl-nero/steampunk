@@ -1,12 +1,13 @@
 use crate::colors::Palette;
 use crate::tia;
-use crate::tia::TIAOutput;
+use crate::tia::VideoOutput;
 use image::{Pixel, Rgba, RgbaImage};
 
 /// This structure simulates a TV display. It consumes
-/// [`TIAOutput`](../tia/struct.TIAOutput.html) structures and renders them on an
-/// image surface. Use [`FrameRendererBuilder`](struct.FrameRendererBuilder.html)
-/// to create an instance of this class.
+/// [`VideoOutput`](../tia/struct.VideoOutput.html) structures and renders them
+/// on an image surface. Use
+/// [`FrameRendererBuilder`](struct.FrameRendererBuilder.html) to create an
+/// instance of this class.
 pub struct FrameRenderer {
     // *** CONFIGURATION ***
     palette: Palette,
@@ -31,14 +32,14 @@ pub struct FrameRenderer {
 }
 
 impl FrameRenderer {
-    /// Consumes a single `TIAOutput` structure and interprets its contents.
+    /// Consumes a single `VideoOutput` structure and interprets its contents.
     /// Returns `true` if this particular cycle marks the frame as ready to be
     /// rendered on screen.
-    pub fn consume(&mut self, tia_output: TIAOutput) -> bool {
+    pub fn consume(&mut self, video_output: VideoOutput) -> bool {
         // Handle the VSYNC signal by resetting the CRT beam to point at the top
         // of the screen. If it's not the first time, we return `true` to mark
         // the completion of a single frame.
-        if tia_output.vsync {
+        if video_output.vsync {
             if !self.in_vsync {
                 // This quirk is one reason why `self.y` is a signed number.
                 // Because the "first visible scanline index" is counted
@@ -60,7 +61,7 @@ impl FrameRenderer {
         // Handle the HSYNC signal. If encountered, move to the next scanline.
         // Because HSYNC lasts for a couple of cycles, we use `self.in_hsync` to
         // make sure that we move vertically only once per given HSYNC signal.
-        if tia_output.hsync {
+        if video_output.hsync {
             if !self.in_hsync {
                 self.y += 1;
                 self.x = tia::HSYNC_END as i32;
@@ -71,7 +72,7 @@ impl FrameRenderer {
         self.in_hsync = false;
 
         // Actually handle pixel data.
-        if let Some(pixel) = tia_output.pixel {
+        if let Some(pixel) = video_output.pixel {
             let color = self.palette[pixel as usize];
             // Calculate coordinates in the viewport space.
             let x = self.x - tia::HBLANK_WIDTH as i32;
@@ -102,7 +103,7 @@ pub const VBLANK_HEIGHT: u32 = 37;
 /// ```
 /// let mut frame_renderer = FrameRendererBuilder::new().build();
 /// ```
-/// 
+///
 /// ## Creating a more customized version
 /// ```
 /// let mut frame_renderer = FrameRendererBuilder::new()
@@ -182,9 +183,9 @@ mod tests {
 
     /// Decodes a character-based representation of TIA video output signal and
     /// feeds it to a given `FrameRenderer`. For the record of the string
-    /// representation, see `test_utils::decode_tia_outputs`.
+    /// representation, see `test_utils::decode_video_outputs`.
     fn decode_and_consume(renderer: &mut FrameRenderer, encoded_signal: &str) {
-        for output in test_utils::decode_tia_outputs(encoded_signal) {
+        for output in test_utils::decode_video_outputs(encoded_signal) {
             renderer.consume(output);
         }
     }
@@ -213,9 +214,9 @@ mod tests {
         );
 
         // Consume the actual pixels for testing.
-        fr.consume(TIAOutput::pixel(0x00));
-        fr.consume(TIAOutput::pixel(0x04));
-        fr.consume(TIAOutput::pixel(0x02));
+        fr.consume(VideoOutput::pixel(0x00));
+        fr.consume(VideoOutput::pixel(0x04));
+        fr.consume(VideoOutput::pixel(0x02));
 
         let img = fr.frame_image();
         assert_eq!(
@@ -345,10 +346,10 @@ mod tests {
             .with_height(1)
             .with_first_visible_scanline_index(0)
             .build();
-        
+
         // This time, because we want to repeat the sequence more than once, we
         // collect it into a vector.
-        let outputs: Vec<TIAOutput> = test_utils::decode_tia_outputs(
+        let outputs: Vec<VideoOutput> = test_utils::decode_video_outputs(
             "----------------++++++++++++++++------------------------------------\
              --------------------------------------------------------------------------------\
              --------------------------------------------------------------------------------\
@@ -444,7 +445,7 @@ mod tests {
             .with_height(3)
             .with_first_visible_scanline_index(0)
             .build();
-        
+
         // This case is "weird", but may occur if the program strobes the TIA
         // RSYNC register.
         //
