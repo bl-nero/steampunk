@@ -10,7 +10,7 @@ pub struct TIA {
     /// If bit 1 (`flags::VBLANK_ON`) is set, TIA doesn't emit pixels.
     reg_vblank: u8,
     /// Color and luminance of background. See
-    /// [`Output::pixel`](struct.Output.html#structfield.pixel) for details.
+    /// [`VideoOutput::pixel`](struct.VideoOutput.html#structfield.pixel) for details.
     reg_colubk: u8,
 
     /// Each frame has 228 cycles, including 160 cycles that actually emit
@@ -18,6 +18,7 @@ pub struct TIA {
     column_counter: u32,
     hblank_on: bool,
     hsync_on: bool,
+    wait_for_sync: bool,
 }
 
 impl TIA {
@@ -29,6 +30,7 @@ impl TIA {
             column_counter: 0,
             hsync_on: false,
             hblank_on: false,
+            wait_for_sync: false,
         }
     }
 
@@ -36,7 +38,10 @@ impl TIA {
     /// single cycle is the time needed to render a single pixel.
     pub fn tick(&mut self) -> TIAOutput {
         match self.column_counter {
-            0 => self.hblank_on = true,
+            0 => {
+                self.hblank_on = true;
+                self.wait_for_sync = false;
+            }
             HSYNC_START => self.hsync_on = true,
             HSYNC_END => self.hsync_on = false,
             HBLANK_WIDTH => self.hblank_on = false,
@@ -46,13 +51,16 @@ impl TIA {
         let vsync_on = self.reg_vsync & flags::VSYNC_ON != 0;
         let vblank_on = self.reg_vblank & flags::VBLANK_ON != 0;
         let output = TIAOutput {
-            hsync: self.hsync_on,
-            vsync: vsync_on,
-            pixel: if self.hblank_on || vblank_on {
-                None
-            } else {
-                Some(self.reg_colubk)
+            video: VideoOutput {
+                hsync: self.hsync_on,
+                vsync: vsync_on,
+                pixel: if self.hblank_on || vblank_on {
+                    None
+                } else {
+                    Some(self.reg_colubk)
+                },
             },
+            cpu_tick: !self.wait_for_sync && self.column_counter % 3 == 0,
         };
 
         self.column_counter = (self.column_counter + 1) % TOTAL_WIDTH;
@@ -69,19 +77,29 @@ impl Memory for TIA {
         match address {
             registers::VSYNC => self.reg_vsync = value,
             registers::VBLANK => self.reg_vblank = value,
+            registers::WSYNC => self.wait_for_sync = true,
             registers::COLUBK => self.reg_colubk = value,
             _ => {}
         }
     }
 }
 
-/// TIA output. The TIA chip actually produces a composite sync signal, but it
-/// doesn't make sense to encode it only to decode it downstream in the emulation
-/// process.
+/// TIA output structure. It indicates how a single TIA clock tick influences
+/// other parts of the system.
+pub struct TIAOutput {
+    pub video: VideoOutput,
+    /// If `true`, TIA allows CPU to perform a tick. Otherwise, the CPU is put on
+    /// hold.
+    pub cpu_tick: bool,
+}
+
+/// TIA video output. The TIA chip actually produces a composite sync signal, but
+/// it doesn't make sense to encode it only to decode it downstream in the
+/// emulation process.
 ///
 /// Note: We need to derive `PartialEq` to easily perform assertions in tests.
 #[derive(PartialEq, Clone, Debug)]
-pub struct TIAOutput {
+pub struct VideoOutput {
     /// If set to `true`, the vertical synchronization signal is being emitted.
     pub vsync: bool,
     /// If set to `true`, the horizontal synchronization signal is being emitted.
@@ -92,33 +110,34 @@ pub struct TIAOutput {
     pub pixel: Option<u8>,
 }
 
-impl TIAOutput {
-    /// Creates a new `Output` instance that contains pixel with a given color.
-    /// See [`pixel`](#structfield.pixel) for details.
-    pub fn pixel(pixel: u8) -> TIAOutput {
-        TIAOutput {
+impl VideoOutput {
+    /// Creates a new `VideoOutput` instance that contains pixel with a given
+    /// color. See [`pixel`](#structfield.pixel) for details.
+    pub fn pixel(pixel: u8) -> VideoOutput {
+        VideoOutput {
             vsync: false,
             hsync: false,
             pixel: Some(pixel),
         }
     }
 
-    /// Creates a new blank `Output` that doesn't contain any signals or pixel color.
-    pub fn blank() -> TIAOutput {
-        TIAOutput {
+    /// Creates a new blank `VideoOutput` that doesn't contain any signals or
+    /// pixel color.
+    pub fn blank() -> VideoOutput {
+        VideoOutput {
             vsync: false,
             hsync: false,
             pixel: None,
         }
     }
 
-    /// Sets the HSYNC flag on an existing `Output` instance.
+    /// Sets the HSYNC flag on an existing `VideoOutput` instance.
     pub fn with_hsync(mut self) -> Self {
         self.hsync = true;
         self
     }
 
-    /// Sets the VSYNC flag on an existing `Output` instance.
+    /// Sets the VSYNC flag on an existing `VideoOutput` instance.
     pub fn with_vsync(mut self) -> Self {
         self.vsync = true;
         self
@@ -145,6 +164,7 @@ pub const TOTAL_WIDTH: u32 = FRAME_WIDTH + HBLANK_WIDTH;
 pub mod registers {
     pub const VSYNC: u16 = 0x00;
     pub const VBLANK: u16 = 0x01;
+    pub const WSYNC: u16 = 0x02;
     pub const COLUBK: u16 = 0x09;
 }
 
@@ -162,17 +182,17 @@ mod tests {
     use super::*;
     use crate::test_utils;
 
-    /// A utility that produces a sequence of TIA outputs. Useful for comparing
-    /// with expected sequences in tests.
-    struct OutputIterator<'a> {
+    /// A utility that produces a sequence of TIA video outputs. Useful for
+    /// comparing with expected sequences in tests.
+    struct VideoOutputIterator<'a> {
         tia: &'a mut TIA,
     }
 
-    impl<'a> Iterator for OutputIterator<'a> {
-        type Item = TIAOutput;
+    impl<'a> Iterator for VideoOutputIterator<'a> {
+        type Item = VideoOutput;
 
-        fn next(&mut self) -> Option<TIAOutput> {
-            return Some(self.tia.tick());
+        fn next(&mut self) -> Option<VideoOutput> {
+            return Some(self.tia.tick().video);
         }
     }
 
@@ -184,15 +204,15 @@ mod tests {
         }
 
         tia.write(registers::COLUBK, 0x02);
-        assert_eq!(tia.tick(), TIAOutput::pixel(0x02));
+        assert_eq!(tia.tick().video, VideoOutput::pixel(0x02));
 
         tia.write(registers::COLUBK, 0xfe);
-        assert_eq!(tia.tick(), TIAOutput::pixel(0xfe));
+        assert_eq!(tia.tick().video, VideoOutput::pixel(0xfe));
     }
 
     #[test]
     fn draws_scanlines() {
-        let expected_output = test_utils::decode_tia_outputs(
+        let expected_output = test_utils::decode_video_outputs(
             "................||||||||||||||||....................................\
              88888888888888888888888888888888888888888888888888888888888888888888888888888888\
              88888888888888888888888888888888888888888888888888888888888888888888888888888888\
@@ -204,13 +224,13 @@ mod tests {
         let mut tia = TIA::new();
         tia.write(registers::COLUBK, 0x08);
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
-        let output = OutputIterator { tia: &mut tia }.take(2 * TOTAL_WIDTH as usize);
+        let output = VideoOutputIterator { tia: &mut tia }.take(2 * TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
     }
 
     #[test]
     fn emits_vsync() {
-        let expected_output = test_utils::decode_tia_outputs(
+        let expected_output = test_utils::decode_video_outputs(
             "----------------++++++++++++++++------------------------------------\
              ================================================================================\
              ================================================================================",
@@ -219,18 +239,18 @@ mod tests {
         let mut tia = TIA::new();
         tia.write(registers::COLUBK, 0x00);
         tia.write(registers::VSYNC, flags::VSYNC_ON);
-        let output = OutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
+        let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
 
         // Note: we turn off VSYNC not by writing 0, but by setting all bits but
         // bit 1. This is to make sure that all other bits are ignored.
         tia.write(registers::VSYNC, !flags::VSYNC_ON);
-        assert_eq!(tia.tick(), TIAOutput::blank());
+        assert_eq!(tia.tick().video, VideoOutput::blank());
     }
 
     #[test]
     fn emits_vblank() {
-        let expected_output = test_utils::decode_tia_outputs(
+        let expected_output = test_utils::decode_video_outputs(
             "................||||||||||||||||....................................\
              ................................................................................\
              ................................................................................",
@@ -239,7 +259,7 @@ mod tests {
         let mut tia = TIA::new();
         tia.write(registers::COLUBK, 0x32);
         tia.write(registers::VBLANK, flags::VBLANK_ON);
-        let output = OutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
+        let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
 
         // Make sure that only bit 1 of VBLANK counts.
@@ -247,12 +267,12 @@ mod tests {
         for _ in 0..HBLANK_WIDTH {
             tia.tick();
         }
-        assert_eq!(tia.tick(), TIAOutput::pixel(0x32));
+        assert_eq!(tia.tick().video, VideoOutput::pixel(0x32));
     }
 
     #[test]
     fn emits_vblank_with_vsync() {
-        let expected_output = test_utils::decode_tia_outputs(
+        let expected_output = test_utils::decode_video_outputs(
             "----------------++++++++++++++++------------------------------------\
              --------------------------------------------------------------------------------\
              --------------------------------------------------------------------------------",
@@ -261,7 +281,33 @@ mod tests {
         let mut tia = TIA::new();
         tia.write(registers::VSYNC, flags::VSYNC_ON);
         tia.write(registers::VBLANK, flags::VBLANK_ON);
-        let output = OutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
+        let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
+    }
+
+    #[test]
+    fn tells_to_tick_cpu_every_three_cycles() {
+        let mut tia = TIA::new();
+        assert_eq!(tia.tick().cpu_tick, true);
+        assert_eq!(tia.tick().cpu_tick, false);
+        assert_eq!(tia.tick().cpu_tick, false);
+        assert_eq!(tia.tick().cpu_tick, true);
+        assert_eq!(tia.tick().cpu_tick, false);
+        assert_eq!(tia.tick().cpu_tick, false);
+        assert_eq!(tia.tick().cpu_tick, true);
+    }
+
+    #[test]
+    fn freezes_cpu_until_wsync() {
+        let mut tia = TIA::new();
+        tia.tick();
+        tia.write(registers::WSYNC, 0x00);
+        for i in 1..TOTAL_WIDTH {
+            assert_eq!(tia.tick().cpu_tick, false, "for index {}", i);
+        }
+        assert_eq!(tia.tick().cpu_tick, true);
+        assert_eq!(tia.tick().cpu_tick, false);
+        assert_eq!(tia.tick().cpu_tick, false);
+        assert_eq!(tia.tick().cpu_tick, true);
     }
 }

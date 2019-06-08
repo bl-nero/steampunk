@@ -2,8 +2,8 @@ use image::Pixel;
 use image::Rgba;
 
 /// A color palette that maps 8-bit TIA color codes (see
-/// [`tia::TIAOutput.pixel`](../tia/struct.TIAOutput.html#structfield.pixel)) to
-/// RGBA pixels.
+/// [`tia::VideoOutput.pixel`](../tia/struct.VideoOutput.html#structfield.pixel))
+/// to RGBA pixels.
 pub type Palette = Vec<Rgba<u8>>;
 
 /// Creates a TIA palette of RGBA colors out of an `u32` array slice. Each number
