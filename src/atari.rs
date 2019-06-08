@@ -1,23 +1,16 @@
 use crate::address_space::AddressSpace;
+use crate::colors;
 use crate::cpu::CPU;
-use crate::memory::RAM;
-use crate::tia::TIA;
 use crate::frame_renderer::FrameRenderer;
 use crate::frame_renderer::FrameRendererBuilder;
-use crate::colors;
+use crate::memory::RAM;
+use crate::tia::TIA;
 use image;
-use image::DynamicImage;
-use image::GenericImageView;
-use image::Pixel;
-use image::Rgba;
 use image::RgbaImage;
-use lcs_image_diff;
-use std::fs;
-use std::path::Path;
 
 type AtariAddressSpace = AddressSpace<TIA, RAM, RAM>;
 
-struct Atari<'a> {
+pub struct Atari<'a> {
     cpu: CPU<'a, AtariAddressSpace>,
     frame_renderer: FrameRenderer,
 }
@@ -26,12 +19,9 @@ impl<'a> Atari<'a> {
     pub fn new(address_space: &mut AtariAddressSpace) -> Atari {
         Atari {
             cpu: CPU::new(address_space),
-            frame_renderer: FrameRendererBuilder::new().with_palette(colors::ntsc_palette_2()).build(),
-            // img: RgbaImage::new(160, 192),
-            // img: RgbaImage::from_pixel(1970, 1540, Rgba::from_channels(0, 0, 0, 255)),
-            // img: image::open("src/test_data/horizontal_stripes.png")
-            //     .unwrap()
-            //     .to_rgba(),
+            frame_renderer: FrameRendererBuilder::new()
+                .with_palette(colors::ntsc_palette())
+                .build(),
         }
     }
 
@@ -51,9 +41,13 @@ impl<'a> Atari<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::DynamicImage;
+    use image::GenericImageView;
+    use lcs_image_diff;
+    use std::fs;
+    use std::path::Path;
 
     fn assert_images_equal(mut actual: DynamicImage, mut expected: DynamicImage, test_name: &str) {
-        let start = std::time::Instant::now();
         let equal = itertools::equal(actual.pixels(), expected.pixels());
         if equal {
             return;
@@ -73,10 +67,9 @@ mod tests {
         let new_golden_path = dir_path
             .join(String::from(test_name) + "-new-golden")
             .with_extension("png");
-        
         actual.save(&new_golden_path).unwrap();
 
-        let diff = lcs_image_diff::compare(&mut actual, &mut expected, 0.5).unwrap();
+        let diff = lcs_image_diff::compare(&mut actual, &mut expected, 0.8).unwrap();
 
         actual.save(&actual_path).unwrap();
         expected.save(&expected_path).unwrap();
@@ -93,26 +86,30 @@ mod tests {
 
     #[test]
     fn shows_horizontal_stripes() {
-        let rom_image = std::fs::read(
+        let rom = std::fs::read(
             Path::new(env!("OUT_DIR"))
                 .join("roms")
                 .join("horizontal_stripes.bin"),
         )
         .unwrap();
-        let mut address_space = AtariAddressSpace {
-            tia: TIA::new(),
-            ram: RAM::new(),
-            rom: RAM::with_program(&rom_image[..]),
-        };
-        let mut atari = Atari::new(&mut address_space);
-        atari.cpu.reset();
-        let img1 = DynamicImage::ImageRgba8(atari.next_frame().clone());
-        let img2 = image::open(
+
+        let expected_image = image::open(
             Path::new("src")
                 .join("test_data")
                 .join("horizontal_stripes.png"),
         )
         .unwrap();
-        assert_images_equal(img1, img2, "shows_horizontal_stripes");
+
+        let mut address_space = AtariAddressSpace {
+            tia: TIA::new(),
+            ram: RAM::new(),
+            rom: RAM::with_program(&rom[..]),
+        };
+        let mut atari = Atari::new(&mut address_space);
+
+        atari.cpu.reset();
+        let actual_image = DynamicImage::ImageRgba8(atari.next_frame().clone());
+
+        assert_images_equal(actual_image, expected_image, "shows_horizontal_stripes");
     }
 }

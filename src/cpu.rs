@@ -66,7 +66,7 @@ impl<'a, M: Memory> CPU<'a, M> {
             opcodes::JMP => {
                 let lsb = self.memory.read(self.program_counter + 1);
                 let msb = self.memory.read(self.program_counter + 2);
-                self.program_counter = (lsb as u16)|((msb as u16)<<8);
+                self.program_counter = (lsb as u16) | ((msb as u16) << 8);
             }
             other => {
                 // Matches everything else.
@@ -242,4 +242,4 @@ mod tests {
         cpu.tick();
         assert_eq!(cpu.memory.bytes[9], 2);
     }
-}    
+}
