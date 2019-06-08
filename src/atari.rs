@@ -36,6 +36,10 @@ impl<'a> Atari<'a> {
             }
         }
     }
+
+    pub fn frame_image(&self) -> &RgbaImage {
+        self.frame_renderer.frame_image()
+    }
 }
 
 #[cfg(test)]
