@@ -16,9 +16,12 @@ use piston_window::WindowSettings;
 use piston_window::{PistonWindow, Texture, TextureSettings, Window};
 use std::path::Path;
 use tia::TIA;
+use image::RgbaImage;
 
 fn main() {
     println!("Welcome player ONE!");
+
+    // Load an example ROM image.
     let rom = std::fs::read(
         Path::new(env!("OUT_DIR"))
             .join("roms")
@@ -26,6 +29,7 @@ fn main() {
     )
     .unwrap();
 
+    // Create and initialize components of the emulated system.
     let mut address_space = AddressSpace {
         tia: TIA::new(),
         ram: RAM::new(),
@@ -33,16 +37,16 @@ fn main() {
     };
     let mut atari = Atari::new(&mut address_space);
     atari.reset();
-    let screen_width = atari.frame_image().width();
-    let screen_height = atari.frame_image().height();
 
-    let window_settings =
-        WindowSettings::new("Atari 2600", [screen_width, screen_height]).exit_on_esc(true);
-    let mut window: PistonWindow = window_settings.build().expect("Could not build a window");
+    let mut window = build_window(atari.frame_image());
+
+    // Create a texture.
     let texture_settings = TextureSettings::new().mag(piston_window::Filter::Nearest);
     let mut texture =
         Texture::from_image(&mut window.factory, atari.frame_image(), &texture_settings)
             .expect("Could not create a texture");
+
+    // Main loop.
     while let Some(e) = window.next() {
         let window_size = window.size();
         if e.render_args().is_some() {
@@ -58,4 +62,13 @@ fn main() {
             });
         }
     }
+}
+
+fn build_window(frame_image: &RgbaImage) -> PistonWindow {
+    // Build a window.
+    let screen_width = frame_image.width();
+    let screen_height =frame_image.height();
+    let window_settings =
+        WindowSettings::new("Atari 2600", [screen_width, screen_height]).exit_on_esc(true);
+    return window_settings.build().expect("Could not build a window");
 }
