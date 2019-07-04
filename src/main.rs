@@ -39,7 +39,6 @@ fn main() {
     let window_settings =
         WindowSettings::new("Atari 2600", [screen_width, screen_height]).exit_on_esc(true);
     let mut window: PistonWindow = window_settings.build().expect("Could not build a window");
-    // let mut texture_context = window.create_texture_context();
     let texture_settings = TextureSettings::new().mag(piston_window::Filter::Nearest);
     let mut texture =
         Texture::from_image(&mut window.factory, atari.frame_image(), &texture_settings)
