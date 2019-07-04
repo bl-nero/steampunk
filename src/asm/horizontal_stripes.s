@@ -4,7 +4,6 @@
 .include "atari2600.inc"
 
 Reset:
-            ldx #0
 StartOfFrame:
             ; Start vertical blanking.
             lda #%01000010
@@ -30,6 +29,7 @@ StartOfFrame:
             ; only even color numbers are actually distinguishable.
             lda #0
             sta VBLANK
+            ldx #0
             .repeat 192
                 stx COLUBK
                 sta WSYNC
