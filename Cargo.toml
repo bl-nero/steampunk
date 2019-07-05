@@ -1,3 +1,27 @@
+# Use profile-overrides to allow customizing build optimization settings for
+# some dependencies. This shortens the time it takes to execute tests.
+cargo-features = ["profile-overrides"]
+
+# The "image" crate and some of its dependencies (especially "inflate" and
+# "adler32") are particularly slow in the debug mode. To avoid multi-second
+# test execution times, let's optimize them, but keep all the rest in debug mode.
+[profile.dev.overrides.image]
+opt-level = 2
+[profile.dev.overrides.png]
+opt-level = 2
+[profile.dev.overrides.deflate]
+opt-level = 2
+[profile.dev.overrides.inflate]
+opt-level = 2
+[profile.dev.overrides.adler32]
+opt-level = 2
+
+# The same applies to the "lcs-image-diff" crate.
+[profile.dev.overrides.lcs-image-diff]
+opt-level = 2
+[profile.dev.overrides.lcs-diff]
+opt-level = 2
+
 [package]
 name = "atari-emulator"
 version = "0.1.0"
@@ -5,7 +29,8 @@ authors = ["domin"]
 edition = "2018"
 
 [dependencies]
-image = "0.21.1"
+image = "0.20.1"
+lcs-image-diff = "0.1.7"
 
 [dev-dependencies]
 itertools = "0.8.0"
