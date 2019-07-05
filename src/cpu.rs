@@ -6,6 +6,7 @@ pub struct CPU<'a, M: Memory> {
     accumulator: u8,
     xreg: u8,
     memory: &'a mut M, // & means reference
+    yreg: u8,
 }
 
 impl<'a, M: Memory> CPU<'a, M> {
@@ -18,6 +19,7 @@ impl<'a, M: Memory> CPU<'a, M> {
             accumulator: 0,
             xreg: 0,
             memory: memory,
+            yreg: 0,
         }
     }
 
@@ -59,6 +61,19 @@ impl<'a, M: Memory> CPU<'a, M> {
                 self.xreg = self.xreg.wrapping_add(1);
                 self.program_counter = self.program_counter + 1;
             }
+            opcodes::LDY => {
+                self.yreg = self.memory.read(self.program_counter + 1);
+                self.program_counter = self.program_counter + 2;
+            }
+            opcodes::INY => {
+                self.yreg = self.xreg.wrapping_add(1);
+                self.program_counter = self.program_counter + 1;
+            }
+            opcodes::STY => {
+                let address = self.memory.read(self.program_counter + 1);
+                self.memory.write(address as u16, self.yreg);
+                self.program_counter = self.program_counter + 2;
+            }
             opcodes::JMP => {
                 let lsb = self.memory.read(self.program_counter + 1);
                 let msb = self.memory.read(self.program_counter + 2);
@@ -83,6 +98,9 @@ mod opcodes {
     pub const STX: u8 = 0x44;
     pub const INX: u8 = 0xe8;
     pub const JMP: u8 = 0x4c;
+    pub const INY: u8 = 0xC8;
+    pub const STY: u8 = 0x8C;
+    pub const LDY: u8 = 0xBC;
 }
 
 #[cfg(test)]
