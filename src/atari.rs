@@ -36,6 +36,14 @@ impl<'a> Atari<'a> {
             }
         }
     }
+
+    pub fn frame_image(&self) -> &RgbaImage {
+        self.frame_renderer.frame_image()
+    }
+
+    pub fn reset(&mut self) {
+        self.cpu.reset();
+    }
 }
 
 #[cfg(test)]
