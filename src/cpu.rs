@@ -70,7 +70,7 @@ impl<'a, M: Memory> CPU<'a, M> {
                 self.program_counter = self.program_counter + 2;
             }
             opcodes::INY => {
-                self.yreg = self.xreg.wrapping_add(1);
+                self.yreg = self.yreg.wrapping_add(1);
                 self.program_counter = self.program_counter + 1;
             }
             opcodes::STY => {
@@ -161,6 +161,29 @@ mod tests {
         cpu.tick();
         assert_eq!(cpu.memory.bytes[5..7], [0xFF, 0x00]);
     }
+
+    #[test]
+    fn iny() {
+        let mut memory = RAM::with_program(&mut [
+            opcodes::LDY,
+            0xFE,
+            opcodes::INY,
+            opcodes::STY,
+            5,
+            opcodes::INY,
+            opcodes::STY,
+            6,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[5..7], [0xFF, 0x00]);
+    }
+
     #[test]
     fn ldx_stx() {
         let mut memory = RAM::with_program(&mut [
@@ -175,6 +198,35 @@ mod tests {
             opcodes::LDX,
             12,
             opcodes::STX,
+            5,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
+    }
+
+    #[test]
+    fn ldy_sty() {
+        let mut memory = RAM::with_program(&mut [
+            opcodes::LDY,
+            65,
+            opcodes::STY,
+            4,
+            opcodes::LDY,
+            73,
+            opcodes::STY,
+            4,
+            opcodes::LDY,
+            12,
+            opcodes::STY,
             5,
         ]);
         let mut cpu = CPU::new(&mut memory);
@@ -239,6 +291,7 @@ mod tests {
         cpu.tick();
         assert_eq!(cpu.memory.bytes[0..2], [10, 20]);
     }
+
     #[test]
     fn jmp_working() {
         let mut memory = RAM::with_program(&mut [
