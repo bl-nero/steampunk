@@ -17,15 +17,15 @@ use piston_window::{PistonWindow, Texture, TextureSettings, Window};
 use std::path::Path;
 use tia::TIA;
 use image::RgbaImage;
+use std::env;
 
 fn main() {
     println!("Welcome player ONE!");
 
+    let args: Vec<String> = env::args().collect();
     // Load an example ROM image.
     let rom = std::fs::read(
-        Path::new(env!("OUT_DIR"))
-            .join("roms")
-            .join("horizontal_stripes.bin"),
+        &args[1],
     )
     .unwrap();
 

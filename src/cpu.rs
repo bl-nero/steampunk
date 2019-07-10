@@ -83,6 +83,14 @@ impl<'a, M: Memory> CPU<'a, M> {
                 let msb = self.memory.read(self.program_counter + 2);
                 self.program_counter = (lsb as u16) | ((msb as u16) << 8);
             }
+            opcodes::TYA => {
+                self.accumulator = self.yreg;
+                self.program_counter += 1;
+            }
+            opcodes::TAX => {
+                self.xreg = self.accumulator;
+                self.program_counter += 1;
+            }
             other => {
                 // Matches everything else.
                 panic!(
@@ -104,7 +112,9 @@ mod opcodes {
     pub const JMP: u8 = 0x4c;
     pub const INY: u8 = 0xC8;
     pub const STY: u8 = 0x8C;
-    pub const LDY: u8 = 0xBC;
+    pub const LDY: u8 = 0xA0;
+    pub const TYA: u8 = 0x98;
+    pub const TAX: u8 = 0xAA;
 }
 
 #[cfg(test)]
@@ -312,5 +322,39 @@ mod tests {
         cpu.tick();
         cpu.tick();
         assert_eq!(cpu.memory.bytes[9], 2);
+    }
+
+    #[test]
+    fn tya() {
+        let mut memory = RAM::with_program(&mut [
+            opcodes::LDY,
+            15,
+            opcodes::TYA,
+            opcodes::STA,
+            0x01,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[0x01], 15);
+    }
+
+    #[test]
+    fn tax() {
+        let mut memory = RAM::with_program(&mut [
+            opcodes::LDA,
+            13,
+            opcodes::TAX,
+            opcodes::STX,
+            0x01,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[0x01], 13);
     }
 }
