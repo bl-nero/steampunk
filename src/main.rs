@@ -10,24 +10,20 @@ pub mod test_utils;
 
 use address_space::AddressSpace;
 use atari::Atari;
+use image::RgbaImage;
 use memory::RAM;
 use piston::input::RenderEvent;
 use piston_window::WindowSettings;
 use piston_window::{PistonWindow, Texture, TextureSettings, Window};
-use tia::TIA;
-use image::RgbaImage;
 use std::env;
+use tia::TIA;
 
 fn main() {
     println!("Welcome player ONE!");
 
     let args: Vec<String> = env::args().collect();
     // Load an example ROM image.
-    let rom = std::fs::read(
-        &args[1],
-    )
-    .unwrap();
-
+    let rom = std::fs::read(&args[1]).unwrap();
     // Create and initialize components of the emulated system.
     let mut address_space = AddressSpace {
         tia: TIA::new(),
@@ -66,7 +62,7 @@ fn main() {
 fn build_window(frame_image: &RgbaImage) -> PistonWindow {
     // Build a window.
     let screen_width = frame_image.width();
-    let screen_height =frame_image.height();
+    let screen_height = frame_image.height();
     let window_settings =
         WindowSettings::new("Atari 2600", [screen_width, screen_height]).exit_on_esc(true);
     return window_settings.build().expect("Could not build a window");
