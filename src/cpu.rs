@@ -70,7 +70,7 @@ impl<'a, M: Memory> CPU<'a, M> {
                 self.program_counter = self.program_counter + 2;
             }
             opcodes::INY => {
-                self.yreg = self.xreg.wrapping_add(1);
+                self.yreg = self.yreg.wrapping_add(1);
                 self.program_counter = self.program_counter + 1;
             }
             opcodes::STY => {
@@ -82,6 +82,14 @@ impl<'a, M: Memory> CPU<'a, M> {
                 let lsb = self.memory.read(self.program_counter + 1);
                 let msb = self.memory.read(self.program_counter + 2);
                 self.program_counter = (lsb as u16) | ((msb as u16) << 8);
+            }
+            opcodes::TYA => {
+                self.accumulator = self.yreg;
+                self.program_counter += 1;
+            }
+            opcodes::TAX => {
+                self.xreg = self.accumulator;
+                self.program_counter += 1;
             }
             other => {
                 // Matches everything else.
@@ -104,7 +112,9 @@ mod opcodes {
     pub const JMP: u8 = 0x4c;
     pub const INY: u8 = 0xC8;
     pub const STY: u8 = 0x8C;
-    pub const LDY: u8 = 0xBC;
+    pub const LDY: u8 = 0xA0;
+    pub const TYA: u8 = 0x98;
+    pub const TAX: u8 = 0xAA;
 }
 
 #[cfg(test)]
@@ -161,6 +171,29 @@ mod tests {
         cpu.tick();
         assert_eq!(cpu.memory.bytes[5..7], [0xFF, 0x00]);
     }
+
+    #[test]
+    fn iny() {
+        let mut memory = RAM::with_program(&mut [
+            opcodes::LDY,
+            0xFE,
+            opcodes::INY,
+            opcodes::STY,
+            5,
+            opcodes::INY,
+            opcodes::STY,
+            6,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[5..7], [0xFF, 0x00]);
+    }
+
     #[test]
     fn ldx_stx() {
         let mut memory = RAM::with_program(&mut [
@@ -175,6 +208,35 @@ mod tests {
             opcodes::LDX,
             12,
             opcodes::STX,
+            5,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
+    }
+
+    #[test]
+    fn ldy_sty() {
+        let mut memory = RAM::with_program(&mut [
+            opcodes::LDY,
+            65,
+            opcodes::STY,
+            4,
+            opcodes::LDY,
+            73,
+            opcodes::STY,
+            4,
+            opcodes::LDY,
+            12,
+            opcodes::STY,
             5,
         ]);
         let mut cpu = CPU::new(&mut memory);
@@ -239,6 +301,7 @@ mod tests {
         cpu.tick();
         assert_eq!(cpu.memory.bytes[0..2], [10, 20]);
     }
+
     #[test]
     fn jmp_working() {
         let mut memory = RAM::with_program(&mut [
@@ -259,5 +322,39 @@ mod tests {
         cpu.tick();
         cpu.tick();
         assert_eq!(cpu.memory.bytes[9], 2);
+    }
+
+    #[test]
+    fn tya() {
+        let mut memory = RAM::with_program(&mut [
+            opcodes::LDY,
+            15,
+            opcodes::TYA,
+            opcodes::STA,
+            0x01,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[0x01], 15);
+    }
+
+    #[test]
+    fn tax() {
+        let mut memory = RAM::with_program(&mut [
+            opcodes::LDA,
+            13,
+            opcodes::TAX,
+            opcodes::STX,
+            0x01,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        cpu.reset();
+        cpu.tick();
+        cpu.tick();
+        cpu.tick();
+        assert_eq!(cpu.memory.bytes[0x01], 13);
     }
 }

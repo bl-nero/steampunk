@@ -4,6 +4,8 @@
 .include "atari2600.inc"
 
 Reset:
+            ldy #0
+
 StartOfFrame:
             ; Start vertical blanking.
             lda #%01000010
@@ -29,7 +31,8 @@ StartOfFrame:
             ; only even color numbers are actually distinguishable.
             lda #0
             sta VBLANK
-            ldx #0
+            tya
+            tax
             .repeat 192
                 stx COLUBK
                 sta WSYNC
@@ -49,6 +52,10 @@ StartOfFrame:
                 sta WSYNC
             .endrepeat
 
+            ; Increase Y twice, because only every second color number is
+            ; significant (bit 0 doesn't count).
+            iny
+            iny
             jmp StartOfFrame
 
 .segment "VECTORS"
