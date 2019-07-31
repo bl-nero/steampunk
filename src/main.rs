@@ -14,7 +14,6 @@ use memory::RAM;
 use piston::input::RenderEvent;
 use piston_window::WindowSettings;
 use piston_window::{PistonWindow, Texture, TextureSettings, Window};
-use std::path::Path;
 use tia::TIA;
 use image::RgbaImage;
 use std::env;

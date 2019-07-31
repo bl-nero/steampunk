@@ -64,7 +64,7 @@ mod tests {
         std::fs::read(
             Path::new(env!("OUT_DIR"))
                 .join("roms")
-                .join("horizontal_stripes_animated.bin"),
+                .join(name),
         )
         .unwrap()
     }
