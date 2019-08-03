@@ -12,7 +12,9 @@ pub struct TIA {
     /// Color and luminance of background. See
     /// [`VideoOutput::pixel`](struct.VideoOutput.html#structfield.pixel) for details.
     reg_colubk: u8,
+    reg_pf0: u8,
     reg_pf1: u8,
+    reg_pf2: u8,
     reg_colupf: u8,
 
     /// Each frame has 228 cycles, including 160 cycles that actually emit
@@ -33,7 +35,9 @@ impl TIA {
             hsync_on: false,
             hblank_on: false,
             wait_for_sync: false,
+            reg_pf0: 0,
             reg_pf1: 0,
+            reg_pf2: 0,
             reg_colupf: 0,
         }
     }
@@ -72,19 +76,42 @@ impl TIA {
     }
 
     fn pixel_at(&self, x: u32) -> u8 {
-        let x = (x as i32) / 4 - 4;
-        let mut mask = 0b1000_0000;
-        if x < 0 {
-            return self.reg_colubk;
+        if x >= 16 && x < 48 {
+            let x = (x as i32) / 4 - 4;
+            let mut mask = 0b1000_0000;
+            if x < 0 {
+                return self.reg_colubk;
+            }
+            for _ in 0..x {
+                mask = mask >> 1;
+            }
+            if mask & self.reg_pf1 > 0 {
+                return self.reg_colupf;
+            } else {
+                return self.reg_colubk;
+            }
         }
-        for i in 0..x {
-            mask = mask >> 1;
+        else if x < 16{
+            let x = (x as i32) / 4;
+            let mask = 0b0001_0000 << x;
+            if mask & self.reg_pf0 > 0{
+                return self.reg_colupf;
+            } 
+            else{
+                return self.reg_colubk;
+            }
         }
-        if mask & self.reg_pf1 > 0 {
-            return self.reg_colupf;
-        } else {
-            return self.reg_colubk;
+        else if x >= 48 && x < 48 + 4*8{
+            let x = (x as i32) / 4 - 12;
+            let mask = 0b0000_0001 << x;
+            if mask & self.reg_pf2 > 0{
+                return self.reg_colupf;
+            } 
+            else{
+                return self.reg_colubk;
+            }
         }
+        return self.reg_colubk;
     }
 }
 
@@ -99,7 +126,9 @@ impl Memory for TIA {
             registers::VBLANK => self.reg_vblank = value,
             registers::WSYNC => self.wait_for_sync = true,
             registers::COLUBK => self.reg_colubk = value,
+            registers::PF0 => self.reg_pf0 = value,
             registers::PF1 => self.reg_pf1 = value,
+            registers::PF2 => self.reg_pf2 = value,
             registers::COLUPF => self.reg_colupf = value,
             _ => {}
         }
@@ -188,7 +217,9 @@ pub mod registers {
     pub const VBLANK: u16 = 0x01;
     pub const WSYNC: u16 = 0x02;
     pub const COLUBK: u16 = 0x09;
+    pub const PF0: u16 = 0xd;
     pub const PF1: u16 = 0xe;
+    pub const PF2: u16 = 0xf;
     pub const COLUPF: u16 = 0x8;
 }
 
@@ -338,14 +369,16 @@ mod tests {
     fn draws_playfield() {
         let expected_output = test_utils::decode_video_outputs(
             "................||||||||||||||||....................................\
-             00000000000000002222000000002222222222220000222200000000000000000000000000000000\
+             22220000222222222222000000002222222222220000222222220000222200002222222200002222\
              00000000000000000000000000000000000000000000000000000000000000000000000000000000",
         );
 
         let mut tia = TIA::new();
         tia.write(registers::COLUBK, 0);
         tia.write(registers::COLUPF, 2);
+        tia.write(registers::PF0, 0b11010000);
         tia.write(registers::PF1, 0x9D);
+        tia.write(registers::PF2, 0b10110101);
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
