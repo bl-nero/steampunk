@@ -65,7 +65,7 @@ impl TIA {
                 pixel: if self.hblank_on || vblank_on {
                     None
                 } else {
-                    Some(self.pixel_at(self.column_counter - HBLANK_WIDTH))
+                    Some(self.color_at(self.column_counter - HBLANK_WIDTH))
                 },
             },
             cpu_tick: !self.wait_for_sync && self.column_counter % 3 == 0,
@@ -75,12 +75,12 @@ impl TIA {
         return output;
     }
 
-    fn pixel_at(&self, x: u32) -> u8 {
-        let x_playfield = (x as i32) / 4;
+    fn color_at(&self, x: u32) -> u8 {
+        let x_playfield = x / 4;
         let mask = match x_playfield {
             0..=3 => 0b0001_0000 << x_playfield,
-            4..=11 => 0b1000_0000 >> x_playfield - 4,
-            12..=19 => 0b0000_0001 << x_playfield - 12,
+            4..=11 => 0b1000_0000 >> (x_playfield - 4),
+            12..=19 => 0b0000_0001 << (x_playfield - 12),
             _ => 0,
         };
         let playfield_register_value = match x_playfield {
@@ -90,7 +90,7 @@ impl TIA {
             _ => 0,
         };
 
-        return if mask & playfield_register_value > 0 {
+        return if mask & playfield_register_value != 0 {
             self.reg_colupf
         } else {
             self.reg_colubk
@@ -199,11 +199,11 @@ pub mod registers {
     pub const VSYNC: u16 = 0x00;
     pub const VBLANK: u16 = 0x01;
     pub const WSYNC: u16 = 0x02;
+    pub const COLUPF: u16 = 0x08;
     pub const COLUBK: u16 = 0x09;
-    pub const PF0: u16 = 0xd;
-    pub const PF1: u16 = 0xe;
-    pub const PF2: u16 = 0xf;
-    pub const COLUPF: u16 = 0x8;
+    pub const PF0: u16 = 0x0d;
+    pub const PF1: u16 = 0x0e;
+    pub const PF2: u16 = 0x0f;
 }
 
 /// Constants in this module are bit masks for setting and testing register
@@ -360,7 +360,7 @@ mod tests {
         tia.write(registers::COLUBK, 0);
         tia.write(registers::COLUPF, 2);
         tia.write(registers::PF0, 0b11010000);
-        tia.write(registers::PF1, 0x9D);
+        tia.write(registers::PF1, 0b10011101);
         tia.write(registers::PF2, 0b10110101);
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
