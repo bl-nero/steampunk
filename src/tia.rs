@@ -76,42 +76,25 @@ impl TIA {
     }
 
     fn pixel_at(&self, x: u32) -> u8 {
-        if x >= 16 && x < 48 {
-            let x = (x as i32) / 4 - 4;
-            let mut mask = 0b1000_0000;
-            if x < 0 {
-                return self.reg_colubk;
-            }
-            for _ in 0..x {
-                mask = mask >> 1;
-            }
-            if mask & self.reg_pf1 > 0 {
-                return self.reg_colupf;
-            } else {
-                return self.reg_colubk;
-            }
-        }
-        else if x < 16{
-            let x = (x as i32) / 4;
-            let mask = 0b0001_0000 << x;
-            if mask & self.reg_pf0 > 0{
-                return self.reg_colupf;
-            } 
-            else{
-                return self.reg_colubk;
-            }
-        }
-        else if x >= 48 && x < 48 + 4*8{
-            let x = (x as i32) / 4 - 12;
-            let mask = 0b0000_0001 << x;
-            if mask & self.reg_pf2 > 0{
-                return self.reg_colupf;
-            } 
-            else{
-                return self.reg_colubk;
-            }
-        }
-        return self.reg_colubk;
+        let x_playfield = (x as i32) / 4;
+        let mask = match x_playfield {
+            0..=3 => 0b0001_0000 << x_playfield,
+            4..=11 => 0b1000_0000 >> x_playfield - 4,
+            12..=19 => 0b0000_0001 << x_playfield - 12,
+            _ => 0,
+        };
+        let playfield_register_value = match x_playfield {
+            0..=3 => self.reg_pf0,
+            4..=11 => self.reg_pf1,
+            12..=19 => self.reg_pf2,
+            _ => 0,
+        };
+
+        return if mask & playfield_register_value > 0 {
+            self.reg_colupf
+        } else {
+            self.reg_colubk
+        };
     }
 }
 
