@@ -9,19 +9,30 @@ pub struct TIA {
     reg_vsync: u8,
     /// If bit 1 (`flags::VBLANK_ON`) is set, TIA doesn't emit pixels.
     reg_vblank: u8,
+    /// Color and luminance of playfield. See
+    /// [`VideoOutput::pixel`](struct.VideoOutput.html#structfield.pixel) for details.
+    reg_colupf: u8,
     /// Color and luminance of background. See
     /// [`VideoOutput::pixel`](struct.VideoOutput.html#structfield.pixel) for details.
     reg_colubk: u8,
+    /// Playfield control register. Responsible for reflecting playfield,
+    /// playfield score mode, playfield priority, and ball size.
+    reg_ctrlpf: u8,
+    /// Playfield register 0 (leftmost 4 bits, mirrored).
     reg_pf0: u8,
+    /// Playfield register 1 (middle 8 bits).
     reg_pf1: u8,
+    /// Playfield register 2 (rightmost 8 bits, mirrored).
     reg_pf2: u8,
-    reg_colupf: u8,
 
     /// Each frame has 228 cycles, including 160 cycles that actually emit
     /// pixels.
     column_counter: u32,
+    /// Indicates whether a horizontal blank signal is being generated.
     hblank_on: bool,
+    /// Indicates whether a horizontal sync signal is being generated.
     hsync_on: bool,
+    /// Holds CPU ticks until we reach the end of a scanline.
     wait_for_sync: bool,
 }
 
@@ -30,15 +41,17 @@ impl TIA {
         TIA {
             reg_vsync: 0,
             reg_vblank: 0,
+            reg_colupf: 0,
             reg_colubk: 0,
+            reg_ctrlpf: 0,
+            reg_pf0: 0,
+            reg_pf1: 0,
+            reg_pf2: 0,
+
             column_counter: 0,
             hsync_on: false,
             hblank_on: false,
             wait_for_sync: false,
-            reg_pf0: 0,
-            reg_pf1: 0,
-            reg_pf2: 0,
-            reg_colupf: 0,
         }
     }
 
@@ -65,7 +78,7 @@ impl TIA {
                 pixel: if self.hblank_on || vblank_on {
                     None
                 } else {
-                    Some(self.pixel_at(self.column_counter - HBLANK_WIDTH))
+                    Some(self.color_at(self.column_counter - HBLANK_WIDTH))
                 },
             },
             cpu_tick: !self.wait_for_sync && self.column_counter % 3 == 0,
@@ -75,12 +88,12 @@ impl TIA {
         return output;
     }
 
-    fn pixel_at(&self, x: u32) -> u8 {
-        let x_playfield = (x as i32) / 4;
+    fn color_at(&self, x: u32) -> u8 {
+        let x_playfield = self.playfield_x(x);
         let mask = match x_playfield {
             0..=3 => 0b0001_0000 << x_playfield,
-            4..=11 => 0b1000_0000 >> x_playfield - 4,
-            12..=19 => 0b0000_0001 << x_playfield - 12,
+            4..=11 => 0b1000_0000 >> (x_playfield - 4),
+            12..=19 => 0b0000_0001 << (x_playfield - 12),
             _ => 0,
         };
         let playfield_register_value = match x_playfield {
@@ -90,10 +103,29 @@ impl TIA {
             _ => 0,
         };
 
-        return if mask & playfield_register_value > 0 {
+        return if mask & playfield_register_value != 0 {
             self.reg_colupf
         } else {
             self.reg_colubk
+        };
+    }
+
+    /// Returns a playfield pixel X coordinate from a [0, 20) range for a
+    /// full-resolution X coordinate (starting from the left edge of the visible
+    /// screen). The resulting value can be directly used to access the playfield
+    /// registers, because it takes into consideration playfield reflection.
+    fn playfield_x(&self, x: u32) -> u32 {
+        // Playfield has 4 times lower resolution than other stuff.
+        let x = x / 4;
+        return if x < 20 {
+            x // Left half of the screen.
+        } else {
+            // Right half of the screen.
+            if self.reg_ctrlpf & flags::CTRLPF_REFLECT == 0 {
+                x - 20 // Normal mode (repeat the left half).
+            } else {
+                39 - x // Reflected mode (reflect the left half).
+            }
         };
     }
 }
@@ -108,11 +140,12 @@ impl Memory for TIA {
             registers::VSYNC => self.reg_vsync = value,
             registers::VBLANK => self.reg_vblank = value,
             registers::WSYNC => self.wait_for_sync = true,
+            registers::COLUPF => self.reg_colupf = value,
             registers::COLUBK => self.reg_colubk = value,
+            registers::CTRLPF => self.reg_ctrlpf = value,
             registers::PF0 => self.reg_pf0 = value,
             registers::PF1 => self.reg_pf1 = value,
             registers::PF2 => self.reg_pf2 = value,
-            registers::COLUPF => self.reg_colupf = value,
             _ => {}
         }
     }
@@ -199,11 +232,12 @@ pub mod registers {
     pub const VSYNC: u16 = 0x00;
     pub const VBLANK: u16 = 0x01;
     pub const WSYNC: u16 = 0x02;
+    pub const COLUPF: u16 = 0x08;
     pub const COLUBK: u16 = 0x09;
-    pub const PF0: u16 = 0xd;
-    pub const PF1: u16 = 0xe;
-    pub const PF2: u16 = 0xf;
-    pub const COLUPF: u16 = 0x8;
+    pub const CTRLPF: u16 = 0x0a;
+    pub const PF0: u16 = 0x0d;
+    pub const PF1: u16 = 0x0e;
+    pub const PF2: u16 = 0x0f;
 }
 
 /// Constants in this module are bit masks for setting and testing register
@@ -213,6 +247,10 @@ pub mod flags {
     pub const VSYNC_ON: u8 = 0b0000_0010;
     /// Bit mask for turning on vertical blanking using `VBLANK` registry.
     pub const VBLANK_ON: u8 = 0b0000_0010;
+    /// Bit mask for turning on reflected playfield using `CTRLPF` registry.
+    pub const CTRLPF_REFLECT: u8 = 0b0000_0001;
+    /// Bit mask for turning on the playfield score mode using `CTRLPF` registry.
+    pub const CTRLPF_SCORE: u8 = 0b0000_0010;
 }
 
 #[cfg(test)]
@@ -348,20 +386,42 @@ mod tests {
         assert_eq!(tia.tick().cpu_tick, false);
         assert_eq!(tia.tick().cpu_tick, true);
     }
+
     #[test]
     fn draws_playfield() {
         let expected_output = test_utils::decode_video_outputs(
             "................||||||||||||||||....................................\
              22220000222222222222000000002222222222220000222222220000222200002222222200002222\
-             00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+             22220000222222222222000000002222222222220000222222220000222200002222222200002222",
         );
 
         let mut tia = TIA::new();
         tia.write(registers::COLUBK, 0);
         tia.write(registers::COLUPF, 2);
         tia.write(registers::PF0, 0b11010000);
-        tia.write(registers::PF1, 0x9D);
+        tia.write(registers::PF1, 0b10011101);
         tia.write(registers::PF2, 0b10110101);
+        tia.write(registers::CTRLPF, 0xff & !flags::CTRLPF_REFLECT & !flags::CTRLPF_SCORE);
+        // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
+        let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
+        itertools::assert_equal(output, expected_output);
+    }
+
+    #[test]
+    fn draws_reflected_playfield() {
+        let expected_output = test_utils::decode_video_outputs(
+            "................||||||||||||||||....................................\
+             66662222666666666666222222226666666666662222666666662222666622226666666622226666\
+             66662222666666662222666622226666666622226666666666662222222266666666666622226666",
+        );
+
+        let mut tia = TIA::new();
+        tia.write(registers::COLUBK, 2);
+        tia.write(registers::COLUPF, 6);
+        tia.write(registers::PF0, 0b11010000);
+        tia.write(registers::PF1, 0b10011101);
+        tia.write(registers::PF2, 0b10110101);
+        tia.write(registers::CTRLPF, flags::CTRLPF_REFLECT);
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
