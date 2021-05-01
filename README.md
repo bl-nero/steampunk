@@ -19,7 +19,7 @@ rustup default nightly
 
 The second dependency is a [cc65 compiler](https://cc65.github.io/). Technically, we only rely on its 6502 assembler, but it comes in a bigger package. We also only use it for tests, so it could be probably skipped for a regular build, but we are lazy.
 
-* **On Mac,** it's enough to say `brew cc65`, provided that you already have [Homebrew](https://brew.sh/) installed.
+* **On Mac,** it's enough to say `brew install cc65`, provided that you already have [Homebrew](https://brew.sh/) installed.
 * **On Windows,** it's a bit more involved, unsurprisingly. You first need to download and unpack the [Windows snapshot of cc65](https://sourceforge.net/projects/cc65/files/cc65-snapshot-win32.zip) to a directory of your choice. Next, you need to add the `bin` directory of cc65 to the system `PATH` variable. [Here is a nice tutorial](https://www.howtogeek.com/118594/how-to-edit-your-system-path-for-easy-command-line-access/) if you don't know how to do it.
 
 ## Building and running the emulator
