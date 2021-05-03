@@ -212,8 +212,11 @@ mod opcodes {
 
 #[cfg(test)]
 mod tests {
+    extern crate test;
+
     use super::*;
     use crate::memory::RAM;
+    use test::Bencher;
 
     #[test]
     fn it_resets() {
@@ -240,6 +243,20 @@ mod tests {
         cpu.ticks(5);
         assert_eq!(memory.bytes[0], 2); // The second program has been executed.
     }
+
+    // #[test]
+    // fn it_resets_in_the_middle_of_instruction_processing() {
+    //     let mut memory = RAM::with_program(&mut [
+    //         opcodes::LDA,
+    //         12,
+    //         opcodes::STA,
+    //         3
+    //     ]);
+    //     let mut cpu = CPU::new(&mut memory);
+    //     cpu.reset();
+    //     cpu.ticks(5);
+    //     assert_eq!(cpu.memory.bytes[3], 12);
+    // }
 
     #[test]
     fn inx() {
@@ -417,5 +434,24 @@ mod tests {
         cpu.reset();
         cpu.ticks(7);
         assert_eq!(cpu.memory.bytes[0x01], 13);
+    }
+
+    #[bench]
+    fn benchmark(b: &mut Bencher) {
+        let mut memory = RAM::with_program(&mut [
+            opcodes::LDX,
+            1,
+            opcodes::STX,
+            9,
+            opcodes::INX,
+            opcodes::JMP,
+            0x02,
+            0xf0,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        b.iter(|| {
+            cpu.reset();
+            cpu.ticks(1000);
+        });
     }
 }

@@ -1,3 +1,5 @@
+#![feature(test)]
+
 pub mod address_space;
 pub mod atari;
 pub mod colors;
