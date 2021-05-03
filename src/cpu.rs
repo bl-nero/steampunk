@@ -1,4 +1,5 @@
 use crate::memory::Memory;
+use std::fmt::Debug;
 
 #[derive(Debug)]
 pub struct CPU<'a, M: Memory> {
@@ -14,7 +15,7 @@ pub struct CPU<'a, M: Memory> {
     adl: u8,
 }
 
-impl<'a, M: Memory> CPU<'a, M> {
+impl<'a, M: Memory + Debug> CPU<'a, M> {
     /// Creates a new `CPU` that owns given `memory`. The newly created `CPU` is
     /// not yet ready for executing programs; it first needs to be reset using
     /// the [`reset`](#method.reset) method.
@@ -44,6 +45,7 @@ impl<'a, M: Memory> CPU<'a, M> {
         let lsb = self.memory.read(0xFFFA) as u16;
         let msb = self.memory.read(0xFFFB) as u16;
         self.program_counter = (msb << 8) | lsb;
+        self.subcycle = 0;
     }
 
     /// Performs a single CPU cycle.
@@ -186,6 +188,7 @@ impl<'a, M: Memory> CPU<'a, M> {
             }
             other => {
                 // Matches everything else.
+                println!("{:X?}", &self);
                 panic!(
                     "unknown opcode: ${:02X} at ${:04X}",
                     other, self.program_counter
