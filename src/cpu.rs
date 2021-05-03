@@ -1,12 +1,17 @@
 use crate::memory::Memory;
 
-#[derive(Debug)] //this generates function that translates CPU to text
+#[derive(Debug)]
 pub struct CPU<'a, M: Memory> {
-    program_counter: u16, // u means unsigned and 16 means it is 16 bit
+    program_counter: u16,
     accumulator: u8,
     xreg: u8,
-    memory: &'a mut M, // & means reference
+    memory: &'a mut M,
     yreg: u8,
+
+    subcycle: u32, // Number of cycle within execution of the current instruction
+    opcode: u8,
+    adh: u8,
+    adl: u8,
 }
 
 impl<'a, M: Memory> CPU<'a, M> {
@@ -20,6 +25,11 @@ impl<'a, M: Memory> CPU<'a, M> {
             xreg: 0,
             memory: memory,
             yreg: 0,
+
+            subcycle: 0,
+            opcode: 0,
+            adh: 0,
+            adl: 0,
         }
     }
 
@@ -41,55 +51,138 @@ impl<'a, M: Memory> CPU<'a, M> {
     pub fn tick(&mut self) {
         // Read memory from address stored in program_counter. Store the value
         // in the opcode variable.
-        let opcode = self.memory.read(self.program_counter);
-        match opcode {
+        if self.subcycle == 0 {
+            self.opcode = self.memory.read(self.program_counter);
+        }
+        match self.opcode {
             opcodes::LDA => {
-                self.accumulator = self.memory.read(self.program_counter + 1);
-                self.program_counter = self.program_counter + 2;
+                match self.subcycle {
+                    0 => {}
+                    1 => {
+                        self.accumulator = self.memory.read(self.program_counter + 1);
+                        self.program_counter += 2;
+                    }
+                    _ => {}
+                }
+                self.subcycle = (self.subcycle + 1) % 2;
             }
             opcodes::STA => {
-                let address = self.memory.read(self.program_counter + 1);
-                self.memory.write(address as u16, self.accumulator);
-                self.program_counter = self.program_counter + 2;
+                match self.subcycle {
+                    0 => {}
+                    1 => self.adl = self.memory.read(self.program_counter + 1),
+                    2 => {
+                        self.memory.write(self.adl as u16, self.accumulator);
+                        self.program_counter += 2;
+                    }
+                    _ => {}
+                }
+                self.subcycle = (self.subcycle + 1) % 3;
             }
             opcodes::LDX => {
-                self.xreg = self.memory.read(self.program_counter + 1);
-                self.program_counter = self.program_counter + 2;
+                match self.subcycle {
+                    0 => {}
+                    1 => {
+                        self.xreg = self.memory.read(self.program_counter + 1);
+                        self.program_counter += 2;
+                    }
+                    _ => {}
+                }
+                self.subcycle = (self.subcycle + 1) % 2;
             }
             opcodes::STX => {
-                let address = self.memory.read(self.program_counter + 1);
-                self.memory.write(address as u16, self.xreg);
-                self.program_counter = self.program_counter + 2;
+                match self.subcycle {
+                    0 => {}
+                    1 => self.adl = self.memory.read(self.program_counter + 1),
+                    2 => {
+                        self.memory.write(self.adl as u16, self.xreg);
+                        self.program_counter += 2;
+                    }
+                    _ => {}
+                }
+                self.subcycle = (self.subcycle + 1) % 3;
             }
             opcodes::INX => {
-                self.xreg = self.xreg.wrapping_add(1);
-                self.program_counter = self.program_counter + 1;
+                match self.subcycle {
+                    0 => {}
+                    1 => {
+                        self.xreg = self.xreg.wrapping_add(1);
+                        self.program_counter += 1;
+                        self.memory.read(self.program_counter); // discard
+                    }
+                    _ => {}
+                }
+                self.subcycle = (self.subcycle + 1) % 2;
             }
             opcodes::LDY => {
-                self.yreg = self.memory.read(self.program_counter + 1);
-                self.program_counter = self.program_counter + 2;
+                match self.subcycle {
+                    0 => {}
+                    1 => {
+                        self.yreg = self.memory.read(self.program_counter + 1);
+                        self.program_counter += 2;
+                    }
+                    _ => {}
+                }
+                self.subcycle = (self.subcycle + 1) % 2;
             }
             opcodes::INY => {
-                self.yreg = self.yreg.wrapping_add(1);
-                self.program_counter = self.program_counter + 1;
+                match self.subcycle {
+                    0 => {}
+                    1 => {
+                        self.yreg = self.yreg.wrapping_add(1);
+                        self.program_counter += 1;
+                        self.memory.read(self.program_counter); // discard
+                    }
+                    _ => {}
+                }
+                self.subcycle = (self.subcycle + 1) % 2;
             }
             opcodes::STY => {
-                let address = self.memory.read(self.program_counter + 1);
-                self.memory.write(address as u16, self.yreg);
-                self.program_counter = self.program_counter + 2;
+                match self.subcycle {
+                    0 => {}
+                    1 => self.adl = self.memory.read(self.program_counter + 1),
+                    2 => {
+                        self.memory.write(self.adl as u16, self.yreg);
+                        self.program_counter += 2;
+                    }
+                    _ => {}
+                }
+                self.subcycle = (self.subcycle + 1) % 3;
             }
             opcodes::JMP => {
-                let lsb = self.memory.read(self.program_counter + 1);
-                let msb = self.memory.read(self.program_counter + 2);
-                self.program_counter = (lsb as u16) | ((msb as u16) << 8);
+                match self.subcycle {
+                    0 => {}
+                    1 => self.adl = self.memory.read(self.program_counter + 1),
+                    2 => {
+                        self.adh = self.memory.read(self.program_counter + 2);
+                        self.program_counter = (self.adl as u16) | ((self.adh as u16) << 8);
+                    }
+                    _ => {}
+                }
+                self.subcycle = (self.subcycle + 1) % 3;
             }
             opcodes::TYA => {
-                self.accumulator = self.yreg;
-                self.program_counter += 1;
+                match self.subcycle {
+                    0 => {}
+                    1 => {
+                        self.accumulator = self.yreg;
+                        self.program_counter += 1;
+                        self.memory.read(self.program_counter); // discard
+                    }
+                    _ => {}
+                }
+                self.subcycle = (self.subcycle + 1) % 2;
             }
             opcodes::TAX => {
-                self.xreg = self.accumulator;
-                self.program_counter += 1;
+                match self.subcycle {
+                    0 => {}
+                    1 => {
+                        self.xreg = self.accumulator;
+                        self.program_counter += 1;
+                        self.memory.read(self.program_counter); // discard
+                    }
+                    _ => {}
+                }
+                self.subcycle = (self.subcycle + 1) % 2;
             }
             other => {
                 // Matches everything else.
@@ -98,6 +191,12 @@ impl<'a, M: Memory> CPU<'a, M> {
                     other, self.program_counter
                 );
             }
+        }
+    }
+
+    pub fn ticks(&mut self, n_ticks: u32) {
+        for _ in 0..n_ticks {
+            self.tick();
         }
     }
 }
@@ -138,15 +237,13 @@ mod tests {
         let mut memory = RAM::with_program(&program);
         let mut cpu = CPU::new(&mut memory);
         cpu.reset();
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[0], 1); // The first program has been executed.
 
         cpu.memory.bytes[0xFFFA] = 0x01;
         cpu.memory.bytes[0xFFFB] = 0xF1;
         cpu.reset();
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(5);
         assert_eq!(memory.bytes[0], 2); // The second program has been executed.
     }
 
@@ -161,15 +258,14 @@ mod tests {
             opcodes::INX,
             opcodes::STX,
             6,
+            opcodes::INX,
+            opcodes::STX,
+            7,
         ]);
         let mut cpu = CPU::new(&mut memory);
         cpu.reset();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
-        assert_eq!(cpu.memory.bytes[5..7], [0xFF, 0x00]);
+        cpu.ticks(17);
+        assert_eq!(cpu.memory.bytes[5..8], [0xFF, 0x00, 0x01]);
     }
 
     #[test]
@@ -183,15 +279,14 @@ mod tests {
             opcodes::INY,
             opcodes::STY,
             6,
+            opcodes::INY,
+            opcodes::STY,
+            7,
         ]);
         let mut cpu = CPU::new(&mut memory);
         cpu.reset();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
-        assert_eq!(cpu.memory.bytes[5..7], [0xFF, 0x00]);
+        cpu.ticks(17);
+        assert_eq!(cpu.memory.bytes[5..8], [0xFF, 0x00, 0x01]);
     }
 
     #[test]
@@ -212,14 +307,11 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         cpu.reset();
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
     }
 
@@ -241,14 +333,11 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         cpu.reset();
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
     }
 
@@ -270,14 +359,11 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         cpu.reset();
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
     }
 
@@ -295,10 +381,7 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         cpu.reset();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(10);
         assert_eq!(cpu.memory.bytes[0..2], [10, 20]);
     }
 
@@ -316,45 +399,29 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         cpu.reset();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(13);
         assert_eq!(cpu.memory.bytes[9], 2);
+        cpu.ticks(8);
+        assert_eq!(cpu.memory.bytes[9], 3);
     }
 
     #[test]
     fn tya() {
-        let mut memory = RAM::with_program(&mut [
-            opcodes::LDY,
-            15,
-            opcodes::TYA,
-            opcodes::STA,
-            0x01,
-        ]);
+        let mut memory =
+            RAM::with_program(&mut [opcodes::LDY, 15, opcodes::TYA, opcodes::STA, 0x01]);
         let mut cpu = CPU::new(&mut memory);
         cpu.reset();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(7);
         assert_eq!(cpu.memory.bytes[0x01], 15);
     }
 
     #[test]
     fn tax() {
-        let mut memory = RAM::with_program(&mut [
-            opcodes::LDA,
-            13,
-            opcodes::TAX,
-            opcodes::STX,
-            0x01,
-        ]);
+        let mut memory =
+            RAM::with_program(&mut [opcodes::LDA, 13, opcodes::TAX, opcodes::STX, 0x01]);
         let mut cpu = CPU::new(&mut memory);
         cpu.reset();
-        cpu.tick();
-        cpu.tick();
-        cpu.tick();
+        cpu.ticks(7);
         assert_eq!(cpu.memory.bytes[0x01], 13);
     }
 }
