@@ -43,7 +43,7 @@ fn main() {
 /// In case of full success, this function also prints the
 /// `cargo:rerun-if-changed` declarations on the standard output to tell Cargo to
 /// rerun the build script only if relevant files change.
-fn build_all_roms() -> Result<(), Box<Error>> {
+fn build_all_roms() -> Result<(), Box<dyn Error>> {
     // Create the ROM destination directory if it doesn't exist.
     let out_dir = env::var("OUT_DIR")?;
     let dest_path = Path::new(&out_dir).join("roms");
@@ -104,7 +104,11 @@ fn build_all_roms() -> Result<(), Box<Error>> {
 /// Assembles and links a single `source_file`. The output is stored in the
 /// `dest_path` directory. Uses the specified `config_file` for linking the
 /// binary.
-fn build_rom(source_file: &Path, config_file: &Path, dest_path: &Path) -> Result<(), Box<Error>> {
+fn build_rom(
+    source_file: &Path,
+    config_file: &Path,
+    dest_path: &Path,
+) -> Result<(), Box<dyn Error>> {
     // Compute the ROM file path out of the destination path and the original
     // source file name.
     let source_file_name = source_file.file_name();
@@ -134,7 +138,7 @@ fn build_rom(source_file: &Path, config_file: &Path, dest_path: &Path) -> Result
 }
 
 /// Runs a `command` and returns an error if it's not been successful.
-fn run_command(command: Command) -> Result<(), Box<Error>> {
+fn run_command(command: Command) -> Result<(), Box<dyn Error>> {
     let mut command = command;
     println!("Running command: {:?}", &command);
     let status = command.status()?;
