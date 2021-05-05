@@ -2,15 +2,25 @@ use crate::memory::Memory;
 use std::fmt::Debug;
 
 #[derive(Debug)]
+enum SequenceState {
+    Reset(u32),
+    Ready,
+    Opcode(u8, u32),
+}
+
+#[derive(Debug)]
 pub struct CPU<'a, M: Memory> {
+    address_bus: u16,
+    data_bus: u8,
+
     program_counter: u16,
     accumulator: u8,
     xreg: u8,
     memory: &'a mut M,
     yreg: u8,
 
-    subcycle: u32, // Number of cycle within execution of the current instruction
-    opcode: u8,
+    // Number of cycle within execution of the current instruction.
+    sequence_state: SequenceState,
     adh: u8,
     adl: u8,
 }
@@ -21,14 +31,16 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
     /// the [`reset`](#method.reset) method.
     pub fn new(memory: &'a mut M) -> CPU<'a, M> {
         CPU {
+            address_bus: 0,
+            data_bus: 0,
+
             program_counter: 0,
             accumulator: 0,
             xreg: 0,
             memory: memory,
             yreg: 0,
 
-            subcycle: 0,
-            opcode: 0,
+            sequence_state: SequenceState::Reset(0),
             adh: 0,
             adl: 0,
         }
@@ -45,7 +57,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
         let lsb = self.memory.read(0xFFFA) as u16;
         let msb = self.memory.read(0xFFFB) as u16;
         self.program_counter = (msb << 8) | lsb;
-        self.subcycle = 0;
+        self.sequence_state = SequenceState::Ready;
     }
 
     /// Performs a single CPU cycle.
@@ -53,138 +65,167 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
     pub fn tick(&mut self) {
         // Read memory from address stored in program_counter. Store the value
         // in the opcode variable.
-        if self.subcycle == 0 {
-            self.opcode = self.memory.read(self.program_counter);
-            self.subcycle = 1;
-            return;
-        }
-        match self.opcode {
-            opcodes::LDA => {
-                match self.subcycle {
+        // match self.subcycle {
+        //     0 => {
+        //     self.opcode = self.memory.read(self.program_counter);
+        //     self.subcycle = 1;
+        //     return;
+        //     },
+
+        //     // Reset sequence.
+        //     -8..=-2 => {
+        //         self.subcycle += 1;
+        //     }
+        //     -3 => {
+        //         self.address_bus = 0xFFFA;
+        //         self.subcycle += 1;
+        //     }
+        //     -2 => {
+        //         self.program_counter = self.data_bus as u16;
+        //         self.address_bus = 0xFFFB;
+        //         self.subcycle += 1;
+        //     }
+        //     -1 => {
+        //         self.program_counter |= (self.data_bus as u16) << 8;
+        //         self.subcycle += 1;
+        //     }
+        // }
+        match self.sequence_state {
+            SequenceState::Ready => {
+                self.sequence_state = SequenceState::Opcode(self.memory.read(self.program_counter), 0);
+            }
+            SequenceState::Opcode(opcodes::LDA, subcycle) => {
+                match subcycle {
                     1 => {
                         self.accumulator = self.memory.read(self.program_counter + 1);
                         self.program_counter += 2;
+                        self.sequence_state = SequenceState::Ready;
                     }
-                    _ => {}
+                    _ => {self.sequence_state = SequenceState::Ready}
                 }
-                self.subcycle = (self.subcycle + 1) % 2;
             }
-            opcodes::STA => {
-                match self.subcycle {
+            SequenceState::Opcode(opcodes::STA, subcycle) => {
+                match subcycle {
                     1 => self.adl = self.memory.read(self.program_counter + 1),
                     2 => {
                         self.memory.write(self.adl as u16, self.accumulator);
                         self.program_counter += 2;
+                        self.sequence_state = SequenceState::Ready;
                     }
-                    _ => {}
+                    _ => {self.sequence_state = SequenceState::Ready}
                 }
-                self.subcycle = (self.subcycle + 1) % 3;
             }
-            opcodes::LDX => {
-                match self.subcycle {
+            SequenceState::Opcode(opcodes::LDX, subcycle) => {
+                match subcycle {
                     1 => {
                         self.xreg = self.memory.read(self.program_counter + 1);
                         self.program_counter += 2;
+                        self.sequence_state = SequenceState::Ready;
                     }
-                    _ => {}
+                    _ => {self.sequence_state = SequenceState::Ready}
                 }
-                self.subcycle = (self.subcycle + 1) % 2;
             }
-            opcodes::STX => {
-                match self.subcycle {
+            SequenceState::Opcode(opcodes::STX, subcycle) => {
+                match subcycle {
                     1 => self.adl = self.memory.read(self.program_counter + 1),
                     2 => {
                         self.memory.write(self.adl as u16, self.xreg);
                         self.program_counter += 2;
+                        self.sequence_state = SequenceState::Ready;
                     }
-                    _ => {}
+                    _ => {self.sequence_state = SequenceState::Ready}
                 }
-                self.subcycle = (self.subcycle + 1) % 3;
             }
-            opcodes::INX => {
-                match self.subcycle {
+            SequenceState::Opcode(opcodes::INX, subcycle) => {
+                match subcycle {
                     1 => {
                         self.xreg = self.xreg.wrapping_add(1);
                         self.program_counter += 1;
                         self.memory.read(self.program_counter); // discard
+                        self.sequence_state = SequenceState::Ready;
                     }
-                    _ => {}
+                    _ => {self.sequence_state = SequenceState::Ready}
                 }
-                self.subcycle = (self.subcycle + 1) % 2;
             }
-            opcodes::LDY => {
-                match self.subcycle {
+            SequenceState::Opcode(opcodes::LDY, subcycle) => {
+                match subcycle {
                     1 => {
                         self.yreg = self.memory.read(self.program_counter + 1);
                         self.program_counter += 2;
+                        self.sequence_state = SequenceState::Ready;
                     }
-                    _ => {}
+                    _ => {self.sequence_state = SequenceState::Ready}
                 }
-                self.subcycle = (self.subcycle + 1) % 2;
             }
-            opcodes::INY => {
-                match self.subcycle {
+            SequenceState::Opcode(opcodes::INY, subcycle) => {
+                match subcycle {
                     1 => {
                         self.yreg = self.yreg.wrapping_add(1);
                         self.program_counter += 1;
                         self.memory.read(self.program_counter); // discard
+                        self.sequence_state = SequenceState::Ready;
                     }
-                    _ => {}
+                    _ => {self.sequence_state = SequenceState::Ready}
                 }
-                self.subcycle = (self.subcycle + 1) % 2;
             }
-            opcodes::STY => {
-                match self.subcycle {
+            SequenceState::Opcode(opcodes::STY, subcycle) => {
+                match subcycle {
                     1 => self.adl = self.memory.read(self.program_counter + 1),
                     2 => {
                         self.memory.write(self.adl as u16, self.yreg);
                         self.program_counter += 2;
+                        self.sequence_state = SequenceState::Ready;
                     }
-                    _ => {}
+                    _ => {self.sequence_state = SequenceState::Ready}
                 }
-                self.subcycle = (self.subcycle + 1) % 3;
             }
-            opcodes::JMP => {
-                match self.subcycle {
+            SequenceState::Opcode(opcodes::JMP, subcycle) => {
+                match subcycle {
                     1 => self.adl = self.memory.read(self.program_counter + 1),
                     2 => {
                         self.adh = self.memory.read(self.program_counter + 2);
                         self.program_counter = (self.adl as u16) | ((self.adh as u16) << 8);
+                        self.sequence_state = SequenceState::Ready;
                     }
-                    _ => {}
+                    _ => {self.sequence_state = SequenceState::Ready}
                 }
-                self.subcycle = (self.subcycle + 1) % 3;
             }
-            opcodes::TYA => {
-                match self.subcycle {
+            SequenceState::Opcode(opcodes::TYA, subcycle) => {
+                match subcycle {
                     1 => {
                         self.accumulator = self.yreg;
                         self.program_counter += 1;
                         self.memory.read(self.program_counter); // discard
+                        self.sequence_state = SequenceState::Ready;
                     }
-                    _ => {}
+                    _ => {self.sequence_state = SequenceState::Ready}
                 }
-                self.subcycle = (self.subcycle + 1) % 2;
             }
-            opcodes::TAX => {
-                match self.subcycle {
+            SequenceState::Opcode(opcodes::TAX, subcycle) => {
+                match subcycle {
                     1 => {
                         self.xreg = self.accumulator;
                         self.program_counter += 1;
                         self.memory.read(self.program_counter); // discard
+                        self.sequence_state = SequenceState::Ready;
                     }
-                    _ => {}
+                    _ => {self.sequence_state = SequenceState::Ready}
                 }
-                self.subcycle = (self.subcycle + 1) % 2;
             }
-            other => {
+            SequenceState::Opcode(other_opcode, _) => {
                 // Matches everything else.
                 println!("{:X?}", &self);
                 panic!(
                     "unknown opcode: ${:02X} at ${:04X}",
-                    other, self.program_counter
+                    other_opcode, self.program_counter
                 );
             }
+            _ => {}
+        }
+        match self.sequence_state {
+            SequenceState::Opcode(opcode, subcycle) => self.sequence_state = SequenceState::Opcode(opcode, subcycle + 1),
+            SequenceState::Reset(subcycle) => self.sequence_state = SequenceState::Reset(subcycle + 1),
+            _ => {}
         }
     }
 
@@ -236,6 +277,7 @@ mod tests {
         cpu.reset();
         cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[0], 1); // The first program has been executed.
+
 
         cpu.memory.bytes[0xFFFA] = 0x01;
         cpu.memory.bytes[0xFFFB] = 0xF1;
