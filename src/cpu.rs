@@ -55,11 +55,12 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
         // in the opcode variable.
         if self.subcycle == 0 {
             self.opcode = self.memory.read(self.program_counter);
+            self.subcycle = 1;
+            return;
         }
         match self.opcode {
             opcodes::LDA => {
                 match self.subcycle {
-                    0 => {}
                     1 => {
                         self.accumulator = self.memory.read(self.program_counter + 1);
                         self.program_counter += 2;
@@ -70,7 +71,6 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             opcodes::STA => {
                 match self.subcycle {
-                    0 => {}
                     1 => self.adl = self.memory.read(self.program_counter + 1),
                     2 => {
                         self.memory.write(self.adl as u16, self.accumulator);
@@ -82,7 +82,6 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             opcodes::LDX => {
                 match self.subcycle {
-                    0 => {}
                     1 => {
                         self.xreg = self.memory.read(self.program_counter + 1);
                         self.program_counter += 2;
@@ -93,7 +92,6 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             opcodes::STX => {
                 match self.subcycle {
-                    0 => {}
                     1 => self.adl = self.memory.read(self.program_counter + 1),
                     2 => {
                         self.memory.write(self.adl as u16, self.xreg);
@@ -105,7 +103,6 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             opcodes::INX => {
                 match self.subcycle {
-                    0 => {}
                     1 => {
                         self.xreg = self.xreg.wrapping_add(1);
                         self.program_counter += 1;
@@ -117,7 +114,6 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             opcodes::LDY => {
                 match self.subcycle {
-                    0 => {}
                     1 => {
                         self.yreg = self.memory.read(self.program_counter + 1);
                         self.program_counter += 2;
@@ -128,7 +124,6 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             opcodes::INY => {
                 match self.subcycle {
-                    0 => {}
                     1 => {
                         self.yreg = self.yreg.wrapping_add(1);
                         self.program_counter += 1;
@@ -140,7 +135,6 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             opcodes::STY => {
                 match self.subcycle {
-                    0 => {}
                     1 => self.adl = self.memory.read(self.program_counter + 1),
                     2 => {
                         self.memory.write(self.adl as u16, self.yreg);
@@ -152,7 +146,6 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             opcodes::JMP => {
                 match self.subcycle {
-                    0 => {}
                     1 => self.adl = self.memory.read(self.program_counter + 1),
                     2 => {
                         self.adh = self.memory.read(self.program_counter + 2);
@@ -164,7 +157,6 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             opcodes::TYA => {
                 match self.subcycle {
-                    0 => {}
                     1 => {
                         self.accumulator = self.yreg;
                         self.program_counter += 1;
@@ -176,7 +168,6 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             opcodes::TAX => {
                 match self.subcycle {
-                    0 => {}
                     1 => {
                         self.xreg = self.accumulator;
                         self.program_counter += 1;

@@ -49,7 +49,9 @@ impl fmt::Debug for RAM {
     /// Prints out only the zero page, because come on, who would scroll through
     /// a dump of entire 64 kibibytes...
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{{zero page: {:?}}}", &self.bytes[..255])
+        use std::convert::TryInto;
+        let zero_page: [u8; 255] = (&self.bytes[..255]).try_into().unwrap();
+        return f.debug_struct("RAM").field("zero page", &zero_page).finish();
     }
 }
 
