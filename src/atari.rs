@@ -40,11 +40,14 @@ impl<'a> Atari<'a> {
         let tia_result = self.cpu.memory().tia.tick();
         if tia_result.cpu_tick {
             self.cpu.tick();
-            let address = self.cpu.address_bus;
-            match self.cpu.read_write {
-                ReadWrite::Read => self.cpu.data_bus = self.cpu.memory().read(address),
+            let address = self.cpu.address_bus();
+            match self.cpu.read_write() {
+                ReadWrite::Read => {
+                    let data = self.cpu.memory().read(address);
+                    self.cpu.set_data_bus(data);
+                }
                 ReadWrite::Write => {
-                    let data = self.cpu.data_bus;
+                    let data = self.cpu.data_bus();
                     self.cpu.memory().write(address, data);
                 }
             }

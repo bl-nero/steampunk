@@ -1,8 +1,7 @@
-
 use crate::memory::Memory;
-use std::fmt::Debug;
-use rand::Rng;
 use rand::seq::SliceRandom;
+use rand::Rng;
+use std::fmt::Debug;
 
 #[derive(Debug)]
 enum SequenceState {
@@ -20,9 +19,9 @@ pub enum ReadWrite {
 #[derive(Debug)]
 pub struct CPU<'a, M: Memory> {
     // The "outside interface", a.k.a. "significant pins".
-    pub address_bus: u16,
-    pub data_bus: u8,
-    pub read_write: ReadWrite,
+    address_bus: u16,
+    data_bus: u8,
+    read_write: ReadWrite,
 
     // Registers.
     program_counter: u16,
@@ -43,12 +42,14 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
     /// Creates a new `CPU` that owns given `memory`. The newly created `CPU` is
     /// not yet ready for executing programs; it first needs to be reset using
     /// the [`reset`](#method.reset) method.
-    pub fn new(memory: &'a mut M) -> CPU<'a, M> {
+    pub fn new(memory: &'a mut M) -> Self {
         let mut rng = rand::thread_rng();
         CPU {
             address_bus: rng.gen(),
             data_bus: rng.gen(),
-            read_write: *[ReadWrite::Read, ReadWrite::Write].choose(&mut rng).unwrap(),
+            read_write: *[ReadWrite::Read, ReadWrite::Write]
+                .choose(&mut rng)
+                .unwrap(),
 
             program_counter: rng.gen(),
             accumulator: rng.gen(),
@@ -60,6 +61,23 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             adh: rng.gen(),
             adl: rng.gen(),
         }
+    }
+
+    pub fn address_bus(&self) -> u16 {
+        self.address_bus
+    }
+
+    pub fn data_bus(&self) -> u8 {
+        self.data_bus
+    }
+
+    pub fn set_data_bus(&mut self, value: u8) {
+        debug_assert_matches!(self.read_write, ReadWrite::Read);
+        self.data_bus = value;
+    }
+
+    pub fn read_write(&self) -> ReadWrite {
+        self.read_write
     }
 
     pub fn memory(&mut self) -> &mut M {
@@ -270,14 +288,15 @@ mod tests {
         pub fn ticks(&mut self, n_ticks: u32) {
             for _ in 0..n_ticks {
                 self.cpu.tick();
-                match self.cpu.read_write {
+                let address = self.cpu.address_bus();
+                match self.cpu.read_write() {
                     ReadWrite::Read => {
-                        self.cpu.data_bus = self.cpu.memory.read(self.cpu.address_bus)
+                        let data = self.cpu.memory().read(address);
+                        self.cpu.set_data_bus(data);
                     }
                     ReadWrite::Write => {
-                        self.cpu
-                            .memory
-                            .write(self.cpu.address_bus, self.cpu.data_bus);
+                        let data = self.cpu.data_bus();
+                        self.cpu.memory().write(address, data);
                     }
                 }
             }
