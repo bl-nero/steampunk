@@ -1,8 +1,10 @@
 use crate::address_space::AddressSpace;
 use crate::colors;
+use crate::cpu::ReadWrite;
 use crate::cpu::CPU;
 use crate::frame_renderer::FrameRenderer;
 use crate::frame_renderer::FrameRendererBuilder;
+use crate::memory::Memory;
 use crate::memory::RAM;
 use crate::tia::TIA;
 use image;
@@ -38,6 +40,14 @@ impl<'a> Atari<'a> {
         let tia_result = self.cpu.memory().tia.tick();
         if tia_result.cpu_tick {
             self.cpu.tick();
+            let address = self.cpu.address_bus;
+            match self.cpu.read_write {
+                ReadWrite::Read => self.cpu.data_bus = self.cpu.memory().read(address),
+                ReadWrite::Write => {
+                    let data = self.cpu.data_bus;
+                    self.cpu.memory().write(address, data);
+                }
+            }
         }
         return self.frame_renderer.consume(tia_result.video);
     }
@@ -48,6 +58,9 @@ impl<'a> Atari<'a> {
 
     pub fn reset(&mut self) {
         self.cpu.reset();
+        for _ in 0..8 {
+            self.tick();
+        }
     }
 }
 
@@ -61,21 +74,11 @@ mod tests {
     use std::path::Path;
 
     fn read_test_rom(name: &str) -> Vec<u8> {
-        std::fs::read(
-            Path::new(env!("OUT_DIR"))
-                .join("roms")
-                .join(name),
-        )
-        .unwrap()
+        std::fs::read(Path::new(env!("OUT_DIR")).join("roms").join(name)).unwrap()
     }
 
     fn read_test_image(name: &str) -> DynamicImage {
-        image::open(
-            Path::new("src")
-                .join("test_data")
-                .join(name),
-        )
-        .unwrap()
+        image::open(Path::new("src").join("test_data").join(name)).unwrap()
     }
 
     fn assert_images_equal(mut actual: DynamicImage, mut expected: DynamicImage, test_name: &str) {
@@ -125,7 +128,7 @@ mod tests {
         };
         let mut atari = Atari::new(&mut address_space);
 
-        atari.cpu.reset();
+        atari.reset();
         let expected_image = read_test_image("horizontal_stripes_1.png");
         let actual_image = DynamicImage::ImageRgba8(atari.next_frame().clone());
 
@@ -145,11 +148,19 @@ mod tests {
         };
         let mut atari = Atari::new(&mut address_space);
 
-        atari.cpu.reset();
+        atari.reset();
         let actual_image_1 = DynamicImage::ImageRgba8(atari.next_frame().clone());
         let actual_image_2 = DynamicImage::ImageRgba8(atari.next_frame().clone());
 
-        assert_images_equal(actual_image_1, expected_image_1, "animates_horizontal_stripes_1");
-        assert_images_equal(actual_image_2, expected_image_2, "animates_horizontal_stripes_2");
+        assert_images_equal(
+            actual_image_1,
+            expected_image_1,
+            "animates_horizontal_stripes_1",
+        );
+        assert_images_equal(
+            actual_image_2,
+            expected_image_2,
+            "animates_horizontal_stripes_2",
+        );
     }
 }

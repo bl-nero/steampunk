@@ -9,10 +9,17 @@ enum SequenceState {
 }
 
 #[derive(Debug)]
+pub enum ReadWrite {
+    Read,
+    Write,
+}
+
+#[derive(Debug)]
 pub struct CPU<'a, M: Memory> {
     // The "outside interface", a.k.a. "significant pins".
-    address_bus: u16,
-    data_bus: u8,
+    pub address_bus: u16,
+    pub data_bus: u8,
+    pub read_write: ReadWrite,
 
     // Registers.
     program_counter: u16,
@@ -37,6 +44,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
         CPU {
             address_bus: 0,
             data_bus: 0,
+            read_write: ReadWrite::Read,
 
             program_counter: 0,
             accumulator: 0,
@@ -58,10 +66,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
     /// the `PC` register. Next [`tick`](#method.tick) will effectively resume
     /// program from this address.
     pub fn reset(&mut self) {
-        let lsb = self.memory.read(0xFFFA) as u16;
-        let msb = self.memory.read(0xFFFB) as u16;
-        self.program_counter = (msb << 8) | lsb;
-        self.sequence_state = SequenceState::Ready;
+        self.sequence_state = SequenceState::Reset(0);
     }
 
     /// Performs a single CPU cycle.
@@ -199,7 +204,10 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 self.program_counter = self.data_bus as u16;
                 self.address_bus = 0xFFFB;
             }
-            SequenceState::Reset(7) => self.program_counter |= (self.data_bus as u16) << 8,
+            SequenceState::Reset(7) => {
+                self.program_counter |= (self.data_bus as u16) << 8;
+                self.sequence_state = SequenceState::Ready;
+            }
             SequenceState::Reset(unexpected_subcycle) => {
                 panic!("Unexpected subcycle: {}", unexpected_subcycle);
             }
@@ -214,12 +222,6 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 self.sequence_state = SequenceState::Reset(subcycle + 1)
             }
             _ => {}
-        }
-    }
-
-    pub fn ticks(&mut self, n_ticks: u32) {
-        for _ in 0..n_ticks {
-            self.tick();
         }
     }
 }
@@ -258,12 +260,25 @@ mod tests {
             }
         }
 
-        fn ticks(&mut self, n: u32) {
-            self.cpu.ticks(n);
+        pub fn ticks(&mut self, n_ticks: u32) {
+            for _ in 0..n_ticks {
+                self.cpu.tick();
+                match self.cpu.read_write {
+                    ReadWrite::Read => {
+                        self.cpu.data_bus = self.cpu.memory.read(self.cpu.address_bus)
+                    }
+                    ReadWrite::Write => {
+                        self.cpu
+                            .memory
+                            .write(self.cpu.address_bus, self.cpu.data_bus);
+                    }
+                }
+            }
         }
 
         fn reset(&mut self) {
             self.cpu.reset();
+            self.ticks(8);
         }
 
         pub fn memory(&mut self) -> &mut RAM {
