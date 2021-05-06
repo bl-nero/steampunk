@@ -1,5 +1,8 @@
+
 use crate::memory::Memory;
 use std::fmt::Debug;
+use rand::Rng;
+use rand::seq::SliceRandom;
 
 #[derive(Debug)]
 enum SequenceState {
@@ -8,7 +11,7 @@ enum SequenceState {
     Opcode(u8, u32),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum ReadWrite {
     Read,
     Write,
@@ -25,8 +28,8 @@ pub struct CPU<'a, M: Memory> {
     program_counter: u16,
     accumulator: u8,
     xreg: u8,
-    memory: &'a mut M,
     yreg: u8,
+    memory: &'a mut M,
 
     // Other internal state.
 
@@ -41,20 +44,21 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
     /// not yet ready for executing programs; it first needs to be reset using
     /// the [`reset`](#method.reset) method.
     pub fn new(memory: &'a mut M) -> CPU<'a, M> {
+        let mut rng = rand::thread_rng();
         CPU {
-            address_bus: 0,
-            data_bus: 0,
-            read_write: ReadWrite::Read,
+            address_bus: rng.gen(),
+            data_bus: rng.gen(),
+            read_write: *[ReadWrite::Read, ReadWrite::Write].choose(&mut rng).unwrap(),
 
-            program_counter: 0,
-            accumulator: 0,
-            xreg: 0,
+            program_counter: rng.gen(),
+            accumulator: rng.gen(),
+            xreg: rng.gen(),
+            yreg: rng.gen(),
             memory: memory,
-            yreg: 0,
 
             sequence_state: SequenceState::Reset(0),
-            adh: 0,
-            adl: 0,
+            adh: rng.gen(),
+            adl: rng.gen(),
         }
     }
 
@@ -199,7 +203,10 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             // Reset sequence. First 6 cycles are idle, the initialization
             // procedure starts after that.
             SequenceState::Reset(0..=4) => {}
-            SequenceState::Reset(5) => self.address_bus = 0xFFFA,
+            SequenceState::Reset(5) => {
+                self.read_write = ReadWrite::Read;
+                self.address_bus = 0xFFFA;
+            }
             SequenceState::Reset(6) => {
                 self.program_counter = self.data_bus as u16;
                 self.address_bus = 0xFFFB;
