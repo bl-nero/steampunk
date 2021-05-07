@@ -1,4 +1,5 @@
 use crate::memory::Memory;
+use rand::Rng;
 use std::fmt::Debug;
 
 #[derive(Debug)]
@@ -10,18 +11,18 @@ enum SequenceState {
 
 #[derive(Debug)]
 pub struct CPU<'a, M: Memory> {
-    address_bus: u16,
-    data_bus: u8,
+    memory: &'a mut M,
 
+    // Registers.
     program_counter: u16,
     accumulator: u8,
     xreg: u8,
-    memory: &'a mut M,
     yreg: u8,
+
+    // Other internal state.
 
     // Number of cycle within execution of the current instruction.
     sequence_state: SequenceState,
-    adh: u8,
     adl: u8,
 }
 
@@ -29,20 +30,19 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
     /// Creates a new `CPU` that owns given `memory`. The newly created `CPU` is
     /// not yet ready for executing programs; it first needs to be reset using
     /// the [`reset`](#method.reset) method.
-    pub fn new(memory: &'a mut M) -> CPU<'a, M> {
+    pub fn new(memory: &'a mut M) -> Self {
+        let mut rng = rand::thread_rng();
         CPU {
-            address_bus: 0,
-            data_bus: 0,
-
-            program_counter: 0,
-            accumulator: 0,
-            xreg: 0,
             memory: memory,
-            yreg: 0,
+
+            program_counter: rng.gen(),
+            accumulator: rng.gen(),
+            xreg: rng.gen(),
+            yreg: rng.gen(),
 
             sequence_state: SequenceState::Reset(0),
-            adh: 0,
-            adl: 0,
+            // adh: rng.gen(),
+            adl: rng.gen(),
         }
     }
 
@@ -50,181 +50,138 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
         self.memory
     }
 
-    /// Reinitialize the CPU. It reads an address from 0xFFFA and stores it in
-    /// the `PC` register. Next [`tick`](#method.tick) will effectively resume
-    /// program from this address.
+    /// Start the CPU reset sequence. It will last for the next 8 cycles. During
+    /// initialization, the CPU reads an address from 0xFFFA and stores it in
+    /// the `PC` register. The subsequent [`tick`](#method.tick) will
+    /// effectively resume program from this address.
     pub fn reset(&mut self) {
-        let lsb = self.memory.read(0xFFFA) as u16;
-        let msb = self.memory.read(0xFFFB) as u16;
-        self.program_counter = (msb << 8) | lsb;
-        self.sequence_state = SequenceState::Ready;
+        self.sequence_state = SequenceState::Reset(0);
     }
 
     /// Performs a single CPU cycle.
-    // self is CPU object we execute function on
     pub fn tick(&mut self) {
-        // Read memory from address stored in program_counter. Store the value
-        // in the opcode variable.
-        // match self.subcycle {
-        //     0 => {
-        //     self.opcode = self.memory.read(self.program_counter);
-        //     self.subcycle = 1;
-        //     return;
-        //     },
-
-        //     // Reset sequence.
-        //     -8..=-2 => {
-        //         self.subcycle += 1;
-        //     }
-        //     -3 => {
-        //         self.address_bus = 0xFFFA;
-        //         self.subcycle += 1;
-        //     }
-        //     -2 => {
-        //         self.program_counter = self.data_bus as u16;
-        //         self.address_bus = 0xFFFB;
-        //         self.subcycle += 1;
-        //     }
-        //     -1 => {
-        //         self.program_counter |= (self.data_bus as u16) << 8;
-        //         self.subcycle += 1;
-        //     }
-        // }
         match self.sequence_state {
+            // Fetching the opcode. A small trick: at first, we use 0 for
+            // subcycle number, and it will later get increased to 1. Funny
+            // thing, returning from here with subcycle set to 1 is slower than
+            // waiting for 0 to be increased. Benchmarked!
             SequenceState::Ready => {
-                self.sequence_state = SequenceState::Opcode(self.memory.read(self.program_counter), 0);
+                self.sequence_state =
+                    SequenceState::Opcode(self.memory.read(self.program_counter), 0);
+                self.program_counter += 1;
             }
-            SequenceState::Opcode(opcodes::LDA, subcycle) => {
-                match subcycle {
-                    1 => {
-                        self.accumulator = self.memory.read(self.program_counter + 1);
-                        self.program_counter += 2;
-                        self.sequence_state = SequenceState::Ready;
-                    }
-                    _ => {self.sequence_state = SequenceState::Ready}
+
+            // List ALL the opcodes!
+            SequenceState::Opcode(opcodes::LDA, _) => {
+                self.accumulator = self.memory.read(self.program_counter);
+                self.program_counter += 1;
+                self.sequence_state = SequenceState::Ready;
+            }
+            SequenceState::Opcode(opcodes::STA, subcycle) => match subcycle {
+                1 => {
+                    self.adl = self.memory.read(self.program_counter);
+                    self.program_counter += 1;
+                }
+                _ => {
+                    self.memory.write(self.adl as u16, self.accumulator);
+                    self.sequence_state = SequenceState::Ready;
                 }
             }
-            SequenceState::Opcode(opcodes::STA, subcycle) => {
-                match subcycle {
-                    1 => self.adl = self.memory.read(self.program_counter + 1),
-                    2 => {
-                        self.memory.write(self.adl as u16, self.accumulator);
-                        self.program_counter += 2;
-                        self.sequence_state = SequenceState::Ready;
-                    }
-                    _ => {self.sequence_state = SequenceState::Ready}
+            SequenceState::Opcode(opcodes::LDX, _) => {
+                self.xreg = self.memory.read(self.program_counter);
+                self.program_counter += 1;
+                self.sequence_state = SequenceState::Ready;
+            }
+            SequenceState::Opcode(opcodes::STX, subcycle) => match subcycle {
+                1 => {
+                    self.adl = self.memory.read(self.program_counter);
+                    self.program_counter += 1;
+                }
+                _ => {
+                    self.memory.write(self.adl as u16, self.xreg);
+                    self.sequence_state = SequenceState::Ready;
                 }
             }
-            SequenceState::Opcode(opcodes::LDX, subcycle) => {
-                match subcycle {
-                    1 => {
-                        self.xreg = self.memory.read(self.program_counter + 1);
-                        self.program_counter += 2;
-                        self.sequence_state = SequenceState::Ready;
-                    }
-                    _ => {self.sequence_state = SequenceState::Ready}
+            SequenceState::Opcode(opcodes::INX, _) => {
+                self.memory.read(self.program_counter); // discard
+                self.xreg = self.xreg.wrapping_add(1);
+                self.sequence_state = SequenceState::Ready;
+            }
+            SequenceState::Opcode(opcodes::LDY, _) => {
+                self.yreg = self.memory.read(self.program_counter);
+                self.program_counter += 1;
+                self.sequence_state = SequenceState::Ready;
+            }
+            SequenceState::Opcode(opcodes::STY, subcycle) => match subcycle {
+                1 => {
+                    self.adl = self.memory.read(self.program_counter);
+                    self.program_counter += 1;
+                }
+                _ => {
+                    self.memory.write(self.adl as u16, self.yreg);
+                    self.sequence_state = SequenceState::Ready;
                 }
             }
-            SequenceState::Opcode(opcodes::STX, subcycle) => {
-                match subcycle {
-                    1 => self.adl = self.memory.read(self.program_counter + 1),
-                    2 => {
-                        self.memory.write(self.adl as u16, self.xreg);
-                        self.program_counter += 2;
-                        self.sequence_state = SequenceState::Ready;
-                    }
-                    _ => {self.sequence_state = SequenceState::Ready}
+            SequenceState::Opcode(opcodes::INY, _) => {
+                self.memory.read(self.program_counter); // discard
+                self.yreg = self.yreg.wrapping_add(1);
+                self.sequence_state = SequenceState::Ready;
+            }
+            SequenceState::Opcode(opcodes::TYA, _) => {
+                self.memory.read(self.program_counter); // discard
+                self.accumulator = self.yreg;
+                self.sequence_state = SequenceState::Ready;
+            }
+            SequenceState::Opcode(opcodes::TAX, _) => {
+                self.memory.read(self.program_counter); // discard
+                self.xreg = self.accumulator;
+                self.sequence_state = SequenceState::Ready;
+            }
+            SequenceState::Opcode(opcodes::JMP, subcycle) => match subcycle {
+                1 => {
+                    self.adl = self.memory.read(self.program_counter);
+                    self.program_counter += 1;
+                }
+                _ => {
+                    let adh = self.memory.read(self.program_counter);
+                    self.program_counter = (self.adl as u16) | ((adh as u16) << 8);
+                    self.sequence_state = SequenceState::Ready;
                 }
             }
-            SequenceState::Opcode(opcodes::INX, subcycle) => {
-                match subcycle {
-                    1 => {
-                        self.xreg = self.xreg.wrapping_add(1);
-                        self.program_counter += 1;
-                        self.memory.read(self.program_counter); // discard
-                        self.sequence_state = SequenceState::Ready;
-                    }
-                    _ => {self.sequence_state = SequenceState::Ready}
-                }
-            }
-            SequenceState::Opcode(opcodes::LDY, subcycle) => {
-                match subcycle {
-                    1 => {
-                        self.yreg = self.memory.read(self.program_counter + 1);
-                        self.program_counter += 2;
-                        self.sequence_state = SequenceState::Ready;
-                    }
-                    _ => {self.sequence_state = SequenceState::Ready}
-                }
-            }
-            SequenceState::Opcode(opcodes::INY, subcycle) => {
-                match subcycle {
-                    1 => {
-                        self.yreg = self.yreg.wrapping_add(1);
-                        self.program_counter += 1;
-                        self.memory.read(self.program_counter); // discard
-                        self.sequence_state = SequenceState::Ready;
-                    }
-                    _ => {self.sequence_state = SequenceState::Ready}
-                }
-            }
-            SequenceState::Opcode(opcodes::STY, subcycle) => {
-                match subcycle {
-                    1 => self.adl = self.memory.read(self.program_counter + 1),
-                    2 => {
-                        self.memory.write(self.adl as u16, self.yreg);
-                        self.program_counter += 2;
-                        self.sequence_state = SequenceState::Ready;
-                    }
-                    _ => {self.sequence_state = SequenceState::Ready}
-                }
-            }
-            SequenceState::Opcode(opcodes::JMP, subcycle) => {
-                match subcycle {
-                    1 => self.adl = self.memory.read(self.program_counter + 1),
-                    2 => {
-                        self.adh = self.memory.read(self.program_counter + 2);
-                        self.program_counter = (self.adl as u16) | ((self.adh as u16) << 8);
-                        self.sequence_state = SequenceState::Ready;
-                    }
-                    _ => {self.sequence_state = SequenceState::Ready}
-                }
-            }
-            SequenceState::Opcode(opcodes::TYA, subcycle) => {
-                match subcycle {
-                    1 => {
-                        self.accumulator = self.yreg;
-                        self.program_counter += 1;
-                        self.memory.read(self.program_counter); // discard
-                        self.sequence_state = SequenceState::Ready;
-                    }
-                    _ => {self.sequence_state = SequenceState::Ready}
-                }
-            }
-            SequenceState::Opcode(opcodes::TAX, subcycle) => {
-                match subcycle {
-                    1 => {
-                        self.xreg = self.accumulator;
-                        self.program_counter += 1;
-                        self.memory.read(self.program_counter); // discard
-                        self.sequence_state = SequenceState::Ready;
-                    }
-                    _ => {self.sequence_state = SequenceState::Ready}
-                }
-            }
+
+            // Oh no, we don't support it! (Yet.)
             SequenceState::Opcode(other_opcode, _) => {
-                // Matches everything else.
                 println!("{:X?}", &self);
                 panic!(
                     "unknown opcode: ${:02X} at ${:04X}",
-                    other_opcode, self.program_counter
+                    other_opcode,
+                    self.program_counter - 1,
                 );
             }
-            _ => {}
+
+            // Reset sequence. First 6 cycles are idle, the initialization
+            // procedure starts after that.
+            SequenceState::Reset(0..=5) => {}
+            SequenceState::Reset(6) => {
+                self.program_counter = self.memory.read(0xFFFA) as u16;
+            }
+            SequenceState::Reset(7) => {
+                self.program_counter |= (self.memory.read(0xFFFB) as u16) << 8;
+                self.sequence_state = SequenceState::Ready;
+            }
+            SequenceState::Reset(unexpected_subcycle) => {
+                panic!("Unexpected subcycle: {}", unexpected_subcycle);
+            }
         }
+
+        // Now move on to the next subcycle.
         match self.sequence_state {
-            SequenceState::Opcode(opcode, subcycle) => self.sequence_state = SequenceState::Opcode(opcode, subcycle + 1),
-            SequenceState::Reset(subcycle) => self.sequence_state = SequenceState::Reset(subcycle + 1),
+            SequenceState::Opcode(opcode, subcycle) => {
+                self.sequence_state = SequenceState::Opcode(opcode, subcycle + 1)
+            }
+            SequenceState::Reset(subcycle) => {
+                self.sequence_state = SequenceState::Reset(subcycle + 1)
+            }
             _ => {}
         }
     }
@@ -259,6 +216,11 @@ mod tests {
     use crate::memory::RAM;
     use test::Bencher;
 
+    fn reset<M: Memory + Debug>(cpu: &mut CPU<M>) {
+        cpu.reset();
+        cpu.ticks(8);
+    }
+
     #[test]
     fn it_resets() {
         // We test resetting the CPU by providing a memory image with two
@@ -274,31 +236,16 @@ mod tests {
 
         let mut memory = RAM::with_program(&program);
         let mut cpu = CPU::new(&mut memory);
-        cpu.reset();
+        reset(&mut cpu);
         cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[0], 1); // The first program has been executed.
 
-
         cpu.memory.bytes[0xFFFA] = 0x01;
         cpu.memory.bytes[0xFFFB] = 0xF1;
-        cpu.reset();
+        reset(&mut cpu);
         cpu.ticks(5);
         assert_eq!(memory.bytes[0], 2); // The second program has been executed.
     }
-
-    // #[test]
-    // fn it_resets_in_the_middle_of_instruction_processing() {
-    //     let mut memory = RAM::with_program(&mut [
-    //         opcodes::LDA,
-    //         12,
-    //         opcodes::STA,
-    //         3
-    //     ]);
-    //     let mut cpu = CPU::new(&mut memory);
-    //     cpu.reset();
-    //     cpu.ticks(5);
-    //     assert_eq!(cpu.memory.bytes[3], 12);
-    // }
 
     #[test]
     fn inx() {
@@ -316,7 +263,7 @@ mod tests {
             7,
         ]);
         let mut cpu = CPU::new(&mut memory);
-        cpu.reset();
+        reset(&mut cpu);
         cpu.ticks(17);
         assert_eq!(cpu.memory.bytes[5..8], [0xFF, 0x00, 0x01]);
     }
@@ -337,7 +284,7 @@ mod tests {
             7,
         ]);
         let mut cpu = CPU::new(&mut memory);
-        cpu.reset();
+        reset(&mut cpu);
         cpu.ticks(17);
         assert_eq!(cpu.memory.bytes[5..8], [0xFF, 0x00, 0x01]);
     }
@@ -359,7 +306,7 @@ mod tests {
             5,
         ]);
         let mut cpu = CPU::new(&mut memory);
-        cpu.reset();
+        reset(&mut cpu);
         cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
         cpu.ticks(5);
@@ -385,7 +332,7 @@ mod tests {
             5,
         ]);
         let mut cpu = CPU::new(&mut memory);
-        cpu.reset();
+        reset(&mut cpu);
         cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
         cpu.ticks(5);
@@ -411,7 +358,7 @@ mod tests {
             5,
         ]);
         let mut cpu = CPU::new(&mut memory);
-        cpu.reset();
+        reset(&mut cpu);
         cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
         cpu.ticks(5);
@@ -433,7 +380,7 @@ mod tests {
             1,
         ]);
         let mut cpu = CPU::new(&mut memory);
-        cpu.reset();
+        reset(&mut cpu);
         cpu.ticks(10);
         assert_eq!(cpu.memory.bytes[0..2], [10, 20]);
     }
@@ -451,7 +398,7 @@ mod tests {
             0xf0,
         ]);
         let mut cpu = CPU::new(&mut memory);
-        cpu.reset();
+        reset(&mut cpu);
         cpu.ticks(13);
         assert_eq!(cpu.memory.bytes[9], 2);
         cpu.ticks(8);
@@ -463,7 +410,7 @@ mod tests {
         let mut memory =
             RAM::with_program(&mut [opcodes::LDY, 15, opcodes::TYA, opcodes::STA, 0x01]);
         let mut cpu = CPU::new(&mut memory);
-        cpu.reset();
+        reset(&mut cpu);
         cpu.ticks(7);
         assert_eq!(cpu.memory.bytes[0x01], 15);
     }
@@ -473,7 +420,7 @@ mod tests {
         let mut memory =
             RAM::with_program(&mut [opcodes::LDA, 13, opcodes::TAX, opcodes::STX, 0x01]);
         let mut cpu = CPU::new(&mut memory);
-        cpu.reset();
+        reset(&mut cpu);
         cpu.ticks(7);
         assert_eq!(cpu.memory.bytes[0x01], 13);
     }
@@ -492,7 +439,7 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         b.iter(|| {
-            cpu.reset();
+            reset(&mut cpu);
             cpu.ticks(1000);
         });
     }
