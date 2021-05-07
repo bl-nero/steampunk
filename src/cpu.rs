@@ -51,7 +51,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
     }
 
     /// Start the CPU reset sequence. It will last for the next 8 cycles. During
-    /// initialization, the CPU reads an address from 0xFFFA and stores it in
+    /// initialization, the CPU reads an address from 0xFFFC and stores it in
     /// the `PC` register. The subsequent [`tick`](#method.tick) will
     /// effectively resume program from this address.
     pub fn reset(&mut self) {
@@ -163,10 +163,10 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             // procedure starts after that.
             SequenceState::Reset(0..=5) => {}
             SequenceState::Reset(6) => {
-                self.program_counter = self.memory.read(0xFFFA) as u16;
+                self.program_counter = self.memory.read(0xFFFC) as u16;
             }
             SequenceState::Reset(7) => {
-                self.program_counter |= (self.memory.read(0xFFFB) as u16) << 8;
+                self.program_counter |= (self.memory.read(0xFFFD) as u16) << 8;
                 self.sequence_state = SequenceState::Ready;
             }
             SequenceState::Reset(unexpected_subcycle) => {
@@ -240,8 +240,8 @@ mod tests {
         cpu.ticks(5);
         assert_eq!(cpu.memory.bytes[0], 1); // The first program has been executed.
 
-        cpu.memory.bytes[0xFFFA] = 0x01;
-        cpu.memory.bytes[0xFFFB] = 0xF1;
+        cpu.memory.bytes[0xFFFC] = 0x01;
+        cpu.memory.bytes[0xFFFD] = 0xF1;
         reset(&mut cpu);
         cpu.ticks(5);
         assert_eq!(memory.bytes[0], 2); // The second program has been executed.

@@ -28,9 +28,9 @@ impl RAM {
             ram.bytes[0xF000 + i] = *byte;
         }
 
-        // Initialize the reset address (stored at 0xFFFA) to 0xF000.
-        ram.bytes[0xFFFA] = 0x00; // least-significant byte
-        ram.bytes[0xFFFB] = 0xF0; // most-significant byte
+        // Initialize the reset address (stored at 0xFFFC) to 0xF000.
+        ram.bytes[0xFFFC] = 0x00; // least-significant byte
+        ram.bytes[0xFFFD] = 0xF0; // most-significant byte
         return ram;
     }
 }
@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn it_creates_empty_ram() {
         let ram = RAM::with_program(&[]);
-        assert_eq!(ram.bytes[..0xFFFA], [0u8; 0xFFFA][..]);
+        assert_eq!(ram.bytes[..0xFFFC], [0u8; 0xFFFC][..]);
     }
 
     #[test]
@@ -72,13 +72,13 @@ mod tests {
         assert_eq!(ram.bytes[..0xF000], [0u8; 0xF000][..]);
         // Next, there should be our program.
         assert_eq!(ram.bytes[0xF000..0xF004], [10, 56, 72, 255][..]);
-        // The rest, until 0xFFFA, should also be zeroed.
-        assert_eq!(ram.bytes[0xF004..0xFFFA], [0u8; 0xFFFA - 0xF004][..]);
+        // The rest, until 0xFFFC, should also be zeroed.
+        assert_eq!(ram.bytes[0xF004..0xFFFC], [0u8; 0xFFFC - 0xF004][..]);
     }
 
     #[test]
     fn it_sets_reset_address() {
         let ram = RAM::with_program(&[0xFF; 0x1000]);
-        assert_eq!(ram.bytes[0xFFFA..0xFFFC], [0x00, 0xF0]); // 0xF000
+        assert_eq!(ram.bytes[0xFFFC..0xFFFE], [0x00, 0xF0]); // 0xF000
     }
 }
