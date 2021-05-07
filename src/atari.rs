@@ -13,14 +13,16 @@ use image::RgbaImage;
 type AtariAddressSpace = AddressSpace<TIA, RAM, RAM>;
 
 pub struct Atari<'a> {
-    cpu: CPU<'a, AtariAddressSpace>,
+    cpu: CPU,
+    memory: &'a mut AtariAddressSpace,
     frame_renderer: FrameRenderer,
 }
 
 impl<'a> Atari<'a> {
-    pub fn new(address_space: &mut AtariAddressSpace) -> Atari {
+    pub fn new(memory: &mut AtariAddressSpace) -> Atari {
         Atari {
-            cpu: CPU::new(address_space),
+            cpu: CPU::new(),
+            memory,
             frame_renderer: FrameRendererBuilder::new()
                 .with_palette(colors::ntsc_palette())
                 .build(),
@@ -37,18 +39,18 @@ impl<'a> Atari<'a> {
     }
 
     pub fn tick(&mut self) -> bool {
-        let tia_result = self.cpu.memory().tia.tick();
+        let tia_result = self.memory.tia.tick();
         if tia_result.cpu_tick {
             self.cpu.tick();
             let address = self.cpu.address_bus();
             match self.cpu.read_write() {
                 ReadWrite::Read => {
-                    let data = self.cpu.memory().read(address);
+                    let data = self.memory.read(address);
                     self.cpu.set_data_bus(data);
                 }
                 ReadWrite::Write => {
                     let data = self.cpu.data_bus();
-                    self.cpu.memory().write(address, data);
+                    self.memory.write(address, data);
                 }
             }
         }
