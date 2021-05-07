@@ -1,6 +1,6 @@
 # Atari 2600 emulator
 
-This is a "father and son" hobby project: an Atari 2600 emulator built with no particular agenda other than having fun.
+Because what the world needs right now is yet another Atari 2600 emulator. So yeah, here it is. This started as a "father and son" hobby project. It's built with no particular agenda other than having fun (and learning Rust).
 
 # Building and running
 
