@@ -71,12 +71,15 @@ impl<'a> Atari<'a> {
 
 #[cfg(test)]
 mod tests {
+    extern crate test;
+
     use super::*;
     use image::DynamicImage;
     use image::GenericImageView;
     use lcs_image_diff;
     use std::fs;
     use std::path::Path;
+    use test::Bencher;
 
     fn read_test_rom(name: &str) -> Vec<u8> {
         std::fs::read(Path::new(env!("OUT_DIR")).join("roms").join(name)).unwrap()
@@ -167,5 +170,21 @@ mod tests {
             expected_image_2,
             "animates_horizontal_stripes_2",
         );
+    }
+
+    #[bench]
+    fn benchmark(b: &mut Bencher) {
+        let rom = read_test_rom("horizontal_stripes.bin");
+        b.iter(|| {
+            let mut address_space = AtariAddressSpace {
+                tia: TIA::new(),
+                ram: RAM::new(),
+                rom: RAM::with_program(&rom[..]),
+            };
+            let mut atari = Atari::new(&mut address_space);
+
+            atari.reset();
+            atari.next_frame();
+        });
     }
 }
