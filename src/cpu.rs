@@ -234,7 +234,7 @@ mod tests {
         // Finally, the second program. It stores 2 at 0x0000.
         program.extend_from_slice(&[opcodes::LDA, 2, opcodes::STA, 0]);
 
-        let mut memory = RAM::with_program(&program);
+        let mut memory = RAM::with_test_program(&program);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
         cpu.ticks(5);
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn inx() {
-        let mut memory = RAM::with_program(&mut [
+        let mut memory = RAM::with_test_program(&mut [
             opcodes::LDX,
             0xFE,
             opcodes::INX,
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn iny() {
-        let mut memory = RAM::with_program(&mut [
+        let mut memory = RAM::with_test_program(&mut [
             opcodes::LDY,
             0xFE,
             opcodes::INY,
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn ldx_stx() {
-        let mut memory = RAM::with_program(&mut [
+        let mut memory = RAM::with_test_program(&mut [
             opcodes::LDX,
             65,
             opcodes::STX,
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn ldy_sty() {
-        let mut memory = RAM::with_program(&mut [
+        let mut memory = RAM::with_test_program(&mut [
             opcodes::LDY,
             65,
             opcodes::STY,
@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn lda_sta() {
-        let mut memory = RAM::with_program(&mut [
+        let mut memory = RAM::with_test_program(&mut [
             opcodes::LDA,
             65,
             opcodes::STA,
@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn multiple_registers() {
-        let mut memory = RAM::with_program(&mut [
+        let mut memory = RAM::with_test_program(&mut [
             opcodes::LDA,
             10,
             opcodes::LDX,
@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn jmp_working() {
-        let mut memory = RAM::with_program(&mut [
+        let mut memory = RAM::with_test_program(&mut [
             opcodes::LDX,
             1,
             opcodes::STX,
@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn tya() {
         let mut memory =
-            RAM::with_program(&mut [opcodes::LDY, 15, opcodes::TYA, opcodes::STA, 0x01]);
+            RAM::with_test_program(&mut [opcodes::LDY, 15, opcodes::TYA, opcodes::STA, 0x01]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
         cpu.ticks(7);
@@ -418,7 +418,7 @@ mod tests {
     #[test]
     fn tax() {
         let mut memory =
-            RAM::with_program(&mut [opcodes::LDA, 13, opcodes::TAX, opcodes::STX, 0x01]);
+            RAM::with_test_program(&mut [opcodes::LDA, 13, opcodes::TAX, opcodes::STX, 0x01]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
         cpu.ticks(7);
@@ -427,7 +427,7 @@ mod tests {
 
     #[bench]
     fn benchmark(b: &mut Bencher) {
-        let mut memory = RAM::with_program(&mut [
+        let mut memory = RAM::with_test_program(&mut [
             opcodes::LDX,
             1,
             opcodes::STX,

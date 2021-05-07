@@ -117,7 +117,7 @@ mod tests {
         let mut address_space = AtariAddressSpace {
             tia: TIA::new(),
             ram: RAM::new(),
-            rom: RAM::with_program(&rom[..]),
+            rom: RAM::with_test_program(&rom[..]),
         };
         let mut atari = Atari::new(&mut address_space);
 
@@ -137,7 +137,7 @@ mod tests {
         let mut address_space = AtariAddressSpace {
             tia: TIA::new(),
             ram: RAM::new(),
-            rom: RAM::with_program(&rom[..]),
+            rom: RAM::with_test_program(&rom[..]),
         };
         let mut atari = Atari::new(&mut address_space);
 
@@ -164,7 +164,7 @@ mod tests {
             let mut address_space = AtariAddressSpace {
                 tia: TIA::new(),
                 ram: RAM::new(),
-                rom: RAM::with_program(&rom[..]),
+                rom: RAM::with_test_program(&rom[..]),
             };
             let mut atari = Atari::new(&mut address_space);
 
