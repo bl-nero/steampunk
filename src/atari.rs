@@ -172,20 +172,4 @@ mod tests {
             atari.next_frame();
         });
     }
-
-    #[bench]
-    fn benchmark(b: &mut Bencher) {
-        let rom = read_test_rom("horizontal_stripes.bin");
-        b.iter(|| {
-            let mut address_space = AtariAddressSpace {
-                tia: TIA::new(),
-                ram: RAM::new(),
-                rom: RAM::with_program(&rom[..]),
-            };
-            let mut atari = Atari::new(&mut address_space);
-
-            atari.reset();
-            atari.next_frame();
-        });
-    }
 }
