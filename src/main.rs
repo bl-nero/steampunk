@@ -1,4 +1,4 @@
-#![feature(test, assert_matches)]
+#![feature(test)]
 
 pub mod address_space;
 pub mod atari;

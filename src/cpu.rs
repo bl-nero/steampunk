@@ -1,5 +1,4 @@
 use crate::memory::Memory;
-use rand::seq::SliceRandom;
 use rand::Rng;
 use std::fmt::Debug;
 
@@ -10,18 +9,9 @@ enum SequenceState {
     Opcode(u8, u32),
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum ReadWrite {
-    Read,
-    Write,
-}
-
 #[derive(Debug)]
-pub struct CPU {
-    // The "outside interface", a.k.a. "significant pins".
-    address_bus: u16,
-    data_bus: u8,
-    read_write: ReadWrite,
+pub struct CPU<'a, M: Memory> {
+    memory: &'a mut M,
 
     // Registers.
     program_counter: u16,
@@ -33,22 +23,17 @@ pub struct CPU {
 
     // Number of cycle within execution of the current instruction.
     sequence_state: SequenceState,
-    // adh: u8,
     adl: u8,
 }
 
-impl CPU {
+impl<'a, M: Memory + Debug> CPU<'a, M> {
     /// Creates a new `CPU` that owns given `memory`. The newly created `CPU` is
     /// not yet ready for executing programs; it first needs to be reset using
     /// the [`reset`](#method.reset) method.
-    pub fn new() -> Self {
+    pub fn new(memory: &'a mut M) -> Self {
         let mut rng = rand::thread_rng();
         CPU {
-            address_bus: rng.gen(),
-            data_bus: rng.gen(),
-            read_write: *[ReadWrite::Read, ReadWrite::Write]
-                .choose(&mut rng)
-                .unwrap(),
+            memory: memory,
 
             program_counter: rng.gen(),
             accumulator: rng.gen(),
@@ -61,26 +46,14 @@ impl CPU {
         }
     }
 
-    pub fn address_bus(&self) -> u16 {
-        self.address_bus
+    pub fn memory(&mut self) -> &mut M {
+        self.memory
     }
 
-    pub fn data_bus(&self) -> u8 {
-        self.data_bus
-    }
-
-    pub fn set_data_bus(&mut self, value: u8) {
-        debug_assert_matches!(self.read_write, ReadWrite::Read);
-        self.data_bus = value;
-    }
-
-    pub fn read_write(&self) -> ReadWrite {
-        self.read_write
-    }
-
-    /// Reinitialize the CPU. It reads an address from 0xFFFA and stores it in
-    /// the `PC` register. Next [`tick`](#method.tick) will effectively resume
-    /// program from this address.
+    /// Start the CPU reset sequence. It will last for the next 8 cycles. During
+    /// initialization, the CPU reads an address from 0xFFFA and stores it in
+    /// the `PC` register. The subsequent [`tick`](#method.tick) will
+    /// effectively resume program from this address.
     pub fn reset(&mut self) {
         self.sequence_state = SequenceState::Reset(0);
     }
@@ -93,98 +66,87 @@ impl CPU {
             // thing, returning from here with subcycle set to 1 is slower than
             // waiting for 0 to be increased. Benchmarked!
             SequenceState::Ready => {
-                let next_opcode = self.data_bus;
+                self.sequence_state =
+                    SequenceState::Opcode(self.memory.read(self.program_counter), 0);
                 self.program_counter += 1;
-                self.address_bus = self.program_counter;
-                self.sequence_state = SequenceState::Opcode(next_opcode, 0);
             }
 
             // List ALL the opcodes!
             SequenceState::Opcode(opcodes::LDA, _) => {
-                self.accumulator = self.data_bus;
+                self.accumulator = self.memory.read(self.program_counter);
                 self.program_counter += 1;
-                self.address_bus = self.program_counter;
                 self.sequence_state = SequenceState::Ready;
             }
             SequenceState::Opcode(opcodes::STA, subcycle) => match subcycle {
                 1 => {
-                    self.address_bus = self.data_bus as u16;
-                    self.data_bus = self.accumulator;
-                    self.read_write = ReadWrite::Write;
+                    self.adl = self.memory.read(self.program_counter);
+                    self.program_counter += 1;
                 }
                 _ => {
-                    self.read_write = ReadWrite::Read;
-                    self.program_counter += 1;
-                    self.address_bus = self.program_counter;
+                    self.memory.write(self.adl as u16, self.accumulator);
                     self.sequence_state = SequenceState::Ready;
                 }
-            },
+            }
             SequenceState::Opcode(opcodes::LDX, _) => {
-                self.xreg = self.data_bus;
+                self.xreg = self.memory.read(self.program_counter);
                 self.program_counter += 1;
-                self.address_bus = self.program_counter;
                 self.sequence_state = SequenceState::Ready;
             }
             SequenceState::Opcode(opcodes::STX, subcycle) => match subcycle {
                 1 => {
-                    self.address_bus = self.data_bus as u16;
-                    self.data_bus = self.xreg;
-                    self.read_write = ReadWrite::Write;
+                    self.adl = self.memory.read(self.program_counter);
+                    self.program_counter += 1;
                 }
                 _ => {
-                    self.read_write = ReadWrite::Read;
-                    self.program_counter += 1;
-                    self.address_bus = self.program_counter;
+                    self.memory.write(self.adl as u16, self.xreg);
                     self.sequence_state = SequenceState::Ready;
                 }
-            },
+            }
             SequenceState::Opcode(opcodes::INX, _) => {
+                self.memory.read(self.program_counter); // discard
                 self.xreg = self.xreg.wrapping_add(1);
                 self.sequence_state = SequenceState::Ready;
             }
             SequenceState::Opcode(opcodes::LDY, _) => {
-                self.yreg = self.data_bus;
+                self.yreg = self.memory.read(self.program_counter);
                 self.program_counter += 1;
-                self.address_bus = self.program_counter;
-                self.sequence_state = SequenceState::Ready;
-            }
-            SequenceState::Opcode(opcodes::INY, _) => {
-                self.yreg = self.yreg.wrapping_add(1);
                 self.sequence_state = SequenceState::Ready;
             }
             SequenceState::Opcode(opcodes::STY, subcycle) => match subcycle {
                 1 => {
-                    self.address_bus = self.data_bus as u16;
-                    self.data_bus = self.yreg;
-                    self.read_write = ReadWrite::Write;
+                    self.adl = self.memory.read(self.program_counter);
+                    self.program_counter += 1;
                 }
                 _ => {
-                    self.read_write = ReadWrite::Read;
-                    self.program_counter += 1;
-                    self.address_bus = self.program_counter;
+                    self.memory.write(self.adl as u16, self.yreg);
                     self.sequence_state = SequenceState::Ready;
                 }
-            },
-            SequenceState::Opcode(opcodes::JMP, subcycle) => match subcycle {
-                1 => {
-                    self.adl = self.data_bus;
-                    self.program_counter += 1;
-                    self.address_bus = self.program_counter;
-                }
-                _ => {
-                    let adh = self.data_bus;
-                    self.program_counter = (self.adl as u16) | ((adh as u16) << 8);
-                    self.address_bus = self.program_counter;
-                    self.sequence_state = SequenceState::Ready;
-                }
-            },
+            }
+            SequenceState::Opcode(opcodes::INY, _) => {
+                self.memory.read(self.program_counter); // discard
+                self.yreg = self.yreg.wrapping_add(1);
+                self.sequence_state = SequenceState::Ready;
+            }
             SequenceState::Opcode(opcodes::TYA, _) => {
+                self.memory.read(self.program_counter); // discard
                 self.accumulator = self.yreg;
                 self.sequence_state = SequenceState::Ready;
             }
             SequenceState::Opcode(opcodes::TAX, _) => {
+                self.memory.read(self.program_counter); // discard
                 self.xreg = self.accumulator;
                 self.sequence_state = SequenceState::Ready;
+            }
+            SequenceState::Opcode(opcodes::JMP, subcycle) => match subcycle {
+                1 => {
+                    self.adl = self.memory.read(self.program_counter);
+                    self.program_counter += 1;
+                }
+                _ => {
+                    let adh = self.memory.read(self.program_counter);
+                    self.program_counter = (self.adl as u16) | ((adh as u16) << 8);
+                    self.sequence_state = SequenceState::Ready;
+                }
             }
 
             // Oh no, we don't support it! (Yet.)
@@ -192,27 +154,19 @@ impl CPU {
                 println!("{:X?}", &self);
                 panic!(
                     "unknown opcode: ${:02X} at ${:04X}",
-                    other_opcode, self.program_counter - 1,
+                    other_opcode,
+                    self.program_counter - 1,
                 );
             }
 
             // Reset sequence. First 6 cycles are idle, the initialization
             // procedure starts after that.
-            SequenceState::Reset(0) => {
-                self.read_write = ReadWrite::Read;
-            }
-            SequenceState::Reset(1..=4) => {}
-            SequenceState::Reset(5) => {
-                self.read_write = ReadWrite::Read;
-                self.address_bus = 0xFFFA;
-            }
+            SequenceState::Reset(0..=5) => {}
             SequenceState::Reset(6) => {
-                self.program_counter = self.data_bus as u16;
-                self.address_bus = 0xFFFB;
+                self.program_counter = self.memory.read(0xFFFA) as u16;
             }
             SequenceState::Reset(7) => {
-                self.program_counter |= (self.data_bus as u16) << 8;
-                self.address_bus = self.program_counter;
+                self.program_counter |= (self.memory.read(0xFFFB) as u16) << 8;
                 self.sequence_state = SequenceState::Ready;
             }
             SequenceState::Reset(unexpected_subcycle) => {
@@ -229,6 +183,12 @@ impl CPU {
                 self.sequence_state = SequenceState::Reset(subcycle + 1)
             }
             _ => {}
+        }
+    }
+
+    pub fn ticks(&mut self, n_ticks: u32) {
+        for _ in 0..n_ticks {
+            self.tick();
         }
     }
 }
@@ -256,40 +216,9 @@ mod tests {
     use crate::memory::RAM;
     use test::Bencher;
 
-    struct TestDevice<'a> {
-        cpu: CPU,
-        memory: &'a mut RAM,
-    }
-
-    impl<'a> TestDevice<'a> {
-        fn new(memory: &'a mut RAM) -> Self {
-            TestDevice {
-                cpu: CPU::new(),
-                memory,
-            }
-        }
-
-        pub fn ticks(&mut self, n_ticks: u32) {
-            for _ in 0..n_ticks {
-                self.cpu.tick();
-                let address = self.cpu.address_bus();
-                match self.cpu.read_write() {
-                    ReadWrite::Read => {
-                        let data = self.memory.read(address);
-                        self.cpu.set_data_bus(data);
-                    }
-                    ReadWrite::Write => {
-                        let data = self.cpu.data_bus();
-                        self.memory.write(address, data);
-                    }
-                }
-            }
-        }
-
-        fn reset(&mut self) {
-            self.cpu.reset();
-            self.ticks(8);
-        }
+    fn reset<M: Memory + Debug>(cpu: &mut CPU<M>) {
+        cpu.reset();
+        cpu.ticks(8);
     }
 
     #[test]
@@ -306,31 +235,17 @@ mod tests {
         program.extend_from_slice(&[opcodes::LDA, 2, opcodes::STA, 0]);
 
         let mut memory = RAM::with_program(&program);
-        let mut dev = TestDevice::new(&mut memory);
-        dev.reset();
-        dev.ticks(5);
-        assert_eq!(dev.memory.bytes[0], 1); // The first program has been executed.
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(5);
+        assert_eq!(cpu.memory.bytes[0], 1); // The first program has been executed.
 
-        dev.memory.bytes[0xFFFA] = 0x01;
-        dev.memory.bytes[0xFFFB] = 0xF1;
-        dev.reset();
-        dev.ticks(5);
+        cpu.memory.bytes[0xFFFA] = 0x01;
+        cpu.memory.bytes[0xFFFB] = 0xF1;
+        reset(&mut cpu);
+        cpu.ticks(5);
         assert_eq!(memory.bytes[0], 2); // The second program has been executed.
     }
-
-    // #[test]
-    // fn it_resets_in_the_middle_of_instruction_processing() {
-    //     let mut memory = RAM::with_program(&mut [
-    //         opcodes::LDA,
-    //         12,
-    //         opcodes::STA,
-    //         3
-    //     ]);
-    //     let mut cpu = CPU::new(&mut memory);
-    //     cpu.reset();
-    //     cpu.ticks(5);
-    //     assert_eq!(cpu.memory.bytes[3], 12);
-    // }
 
     #[test]
     fn inx() {
@@ -347,10 +262,10 @@ mod tests {
             opcodes::STX,
             7,
         ]);
-        let mut dev = TestDevice::new(&mut memory);
-        dev.reset();
-        dev.ticks(17);
-        assert_eq!(dev.memory.bytes[5..8], [0xFF, 0x00, 0x01]);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(17);
+        assert_eq!(cpu.memory.bytes[5..8], [0xFF, 0x00, 0x01]);
     }
 
     #[test]
@@ -368,10 +283,10 @@ mod tests {
             opcodes::STY,
             7,
         ]);
-        let mut dev = TestDevice::new(&mut memory);
-        dev.reset();
-        dev.ticks(17);
-        assert_eq!(dev.memory.bytes[5..8], [0xFF, 0x00, 0x01]);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(17);
+        assert_eq!(cpu.memory.bytes[5..8], [0xFF, 0x00, 0x01]);
     }
 
     #[test]
@@ -390,14 +305,14 @@ mod tests {
             opcodes::STX,
             5,
         ]);
-        let mut dev = TestDevice::new(&mut memory);
-        dev.reset();
-        dev.ticks(5);
-        assert_eq!(dev.memory.bytes[4..6], [65, 0]);
-        dev.ticks(5);
-        assert_eq!(dev.memory.bytes[4..6], [73, 0]);
-        dev.ticks(5);
-        assert_eq!(dev.memory.bytes[4..6], [73, 12]);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(5);
+        assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
+        cpu.ticks(5);
+        assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
+        cpu.ticks(5);
+        assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
     }
 
     #[test]
@@ -416,14 +331,14 @@ mod tests {
             opcodes::STY,
             5,
         ]);
-        let mut dev = TestDevice::new(&mut memory);
-        dev.reset();
-        dev.ticks(5);
-        assert_eq!(dev.memory.bytes[4..6], [65, 0]);
-        dev.ticks(5);
-        assert_eq!(dev.memory.bytes[4..6], [73, 0]);
-        dev.ticks(5);
-        assert_eq!(dev.memory.bytes[4..6], [73, 12]);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(5);
+        assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
+        cpu.ticks(5);
+        assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
+        cpu.ticks(5);
+        assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
     }
 
     #[test]
@@ -442,14 +357,14 @@ mod tests {
             opcodes::STA,
             5,
         ]);
-        let mut dev = TestDevice::new(&mut memory);
-        dev.reset();
-        dev.ticks(5);
-        assert_eq!(dev.memory.bytes[4..6], [65, 0]);
-        dev.ticks(5);
-        assert_eq!(dev.memory.bytes[4..6], [73, 0]);
-        dev.ticks(5);
-        assert_eq!(dev.memory.bytes[4..6], [73, 12]);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(5);
+        assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
+        cpu.ticks(5);
+        assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
+        cpu.ticks(5);
+        assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
     }
 
     #[test]
@@ -464,10 +379,10 @@ mod tests {
             opcodes::STX,
             1,
         ]);
-        let mut dev = TestDevice::new(&mut memory);
-        dev.reset();
-        dev.ticks(10);
-        assert_eq!(dev.memory.bytes[0..2], [10, 20]);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(10);
+        assert_eq!(cpu.memory.bytes[0..2], [10, 20]);
     }
 
     #[test]
@@ -482,32 +397,32 @@ mod tests {
             0x02,
             0xf0,
         ]);
-        let mut dev = TestDevice::new(&mut memory);
-        dev.reset();
-        dev.ticks(13);
-        assert_eq!(dev.memory.bytes[9], 2);
-        dev.ticks(8);
-        assert_eq!(dev.memory.bytes[9], 3);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(13);
+        assert_eq!(cpu.memory.bytes[9], 2);
+        cpu.ticks(8);
+        assert_eq!(cpu.memory.bytes[9], 3);
     }
 
     #[test]
     fn tya() {
         let mut memory =
             RAM::with_program(&mut [opcodes::LDY, 15, opcodes::TYA, opcodes::STA, 0x01]);
-        let mut dev = TestDevice::new(&mut memory);
-        dev.reset();
-        dev.ticks(7);
-        assert_eq!(dev.memory.bytes[0x01], 15);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(7);
+        assert_eq!(cpu.memory.bytes[0x01], 15);
     }
 
     #[test]
     fn tax() {
         let mut memory =
             RAM::with_program(&mut [opcodes::LDA, 13, opcodes::TAX, opcodes::STX, 0x01]);
-        let mut dev = TestDevice::new(&mut memory);
-        dev.reset();
-        dev.ticks(7);
-        assert_eq!(dev.memory.bytes[0x01], 13);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(7);
+        assert_eq!(cpu.memory.bytes[0x01], 13);
     }
 
     #[bench]
@@ -522,10 +437,10 @@ mod tests {
             0x02,
             0xf0,
         ]);
-        let mut dev = TestDevice::new(&mut memory);
+        let mut cpu = CPU::new(&mut memory);
         b.iter(|| {
-            dev.reset();
-            dev.ticks(1000);
+            reset(&mut cpu);
+            cpu.ticks(1000);
         });
     }
 }

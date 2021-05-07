@@ -1,10 +1,8 @@
 use crate::address_space::AddressSpace;
 use crate::colors;
-use crate::cpu::ReadWrite;
 use crate::cpu::CPU;
 use crate::frame_renderer::FrameRenderer;
 use crate::frame_renderer::FrameRendererBuilder;
-use crate::memory::Memory;
 use crate::memory::RAM;
 use crate::tia::TIA;
 use image;
@@ -13,16 +11,14 @@ use image::RgbaImage;
 type AtariAddressSpace = AddressSpace<TIA, RAM, RAM>;
 
 pub struct Atari<'a> {
-    cpu: CPU,
-    memory: &'a mut AtariAddressSpace,
+    cpu: CPU<'a, AtariAddressSpace>,
     frame_renderer: FrameRenderer,
 }
 
 impl<'a> Atari<'a> {
-    pub fn new(memory: &mut AtariAddressSpace) -> Atari {
+    pub fn new(address_space: &mut AtariAddressSpace) -> Atari {
         Atari {
-            cpu: CPU::new(),
-            memory,
+            cpu: CPU::new(address_space),
             frame_renderer: FrameRendererBuilder::new()
                 .with_palette(colors::ntsc_palette())
                 .build(),
@@ -39,20 +35,9 @@ impl<'a> Atari<'a> {
     }
 
     pub fn tick(&mut self) -> bool {
-        let tia_result = self.memory.tia.tick();
+        let tia_result = self.cpu.memory().tia.tick();
         if tia_result.cpu_tick {
             self.cpu.tick();
-            let address = self.cpu.address_bus();
-            match self.cpu.read_write() {
-                ReadWrite::Read => {
-                    let data = self.memory.read(address);
-                    self.cpu.set_data_bus(data);
-                }
-                ReadWrite::Write => {
-                    let data = self.cpu.data_bus();
-                    self.memory.write(address, data);
-                }
-            }
         }
         return self.frame_renderer.consume(tia_result.video);
     }
