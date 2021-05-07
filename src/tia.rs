@@ -131,8 +131,12 @@ impl TIA {
 }
 
 impl Memory for TIA {
-    fn read(&self, _address: u16) -> u8 {
-        0
+    fn read(&self, address: u16) -> u8 {
+        println!(
+            "Attempt to read from unsupported TIA address ${:04X}",
+            address
+        );
+        return 0;
     }
 
     fn write(&mut self, address: u16, value: u8) {
@@ -146,7 +150,10 @@ impl Memory for TIA {
             registers::PF0 => self.reg_pf0 = value,
             registers::PF1 => self.reg_pf1 = value,
             registers::PF2 => self.reg_pf2 = value,
-            _ => {}
+            _ => println!(
+                "Attempt to write ${:02X} to unsupported TIA address ${:04X}",
+                value, address
+            ),
         }
     }
 }
@@ -401,7 +408,10 @@ mod tests {
         tia.write(registers::PF0, 0b11010000);
         tia.write(registers::PF1, 0b10011101);
         tia.write(registers::PF2, 0b10110101);
-        tia.write(registers::CTRLPF, 0xff & !flags::CTRLPF_REFLECT & !flags::CTRLPF_SCORE);
+        tia.write(
+            registers::CTRLPF,
+            0xff & !flags::CTRLPF_REFLECT & !flags::CTRLPF_SCORE,
+        );
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);

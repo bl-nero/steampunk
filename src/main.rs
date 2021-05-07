@@ -21,7 +21,7 @@ use std::env;
 use tia::TIA;
 
 fn main() {
-    println!("Welcome player ONE!");
+    println!("Ready player ONE!");
 
     let args: Vec<String> = env::args().collect();
     // Load an example ROM image.

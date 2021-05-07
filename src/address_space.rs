@@ -9,14 +9,16 @@ pub struct AddressSpace<T: Memory, RA: Memory, RO: Memory> {
     pub rom: RO,
 }
 
-impl<T: Memory, RA: Memory, RO: Memory> Memory for AddressSpace<T, RA, RO>
-{
+impl<T: Memory, RA: Memory, RO: Memory> Memory for AddressSpace<T, RA, RO> {
     fn read(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x007F => self.tia.read(address),
             0x0080..=0x00FF => self.ram.read(address),
             0xF000..=0xFFFF => self.rom.read(address),
-            _ => 0,
+            _ => {
+                println!("Attempt to read from unsupported address ${:04X}", address);
+                0
+            }
         }
     }
 
@@ -28,7 +30,10 @@ impl<T: Memory, RA: Memory, RO: Memory> Memory for AddressSpace<T, RA, RO>
             // AddressSpace's job to tell what you can or can't do with a given
             // segment of memory.
             0xF000..=0xFFFF => self.rom.write(address, value),
-            _ => {}
+            _ => println!(
+                "Attempt to write ${:02X} to unsupported address ${:04X}",
+                value, address
+            ),
         }
     }
 }
