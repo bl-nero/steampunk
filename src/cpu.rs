@@ -18,6 +18,8 @@ pub struct CPU<'a, M: Memory> {
     accumulator: u8,
     xreg: u8,
     yreg: u8,
+    stack_pointer: u8,
+    flags: u8,
 
     // Other internal state.
 
@@ -39,6 +41,8 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             accumulator: rng.gen(),
             xreg: rng.gen(),
             yreg: rng.gen(),
+            stack_pointer: rng.gen(),
+            flags: rng.gen(),
 
             sequence_state: SequenceState::Reset(0),
             // adh: rng.gen(),
@@ -86,7 +90,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                     self.memory.write(self.adl as u16, self.accumulator);
                     self.sequence_state = SequenceState::Ready;
                 }
-            }
+            },
             SequenceState::Opcode(opcodes::LDX, _) => {
                 self.xreg = self.memory.read(self.program_counter);
                 self.program_counter += 1;
@@ -101,7 +105,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                     self.memory.write(self.adl as u16, self.xreg);
                     self.sequence_state = SequenceState::Ready;
                 }
-            }
+            },
             SequenceState::Opcode(opcodes::INX, _) => {
                 self.memory.read(self.program_counter); // discard
                 self.xreg = self.xreg.wrapping_add(1);
@@ -121,7 +125,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                     self.memory.write(self.adl as u16, self.yreg);
                     self.sequence_state = SequenceState::Ready;
                 }
-            }
+            },
             SequenceState::Opcode(opcodes::INY, _) => {
                 self.memory.read(self.program_counter); // discard
                 self.yreg = self.yreg.wrapping_add(1);
@@ -137,6 +141,46 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 self.xreg = self.accumulator;
                 self.sequence_state = SequenceState::Ready;
             }
+            SequenceState::Opcode(opcodes::TXS, _) => {
+                self.memory.read(self.program_counter); // discard
+                self.stack_pointer = self.xreg;
+                self.sequence_state = SequenceState::Ready;
+            }
+            SequenceState::Opcode(opcodes::PHP, subcycle) => match subcycle {
+                1 => {
+                    self.memory.read(self.program_counter); // discard
+                }
+                _ => {
+                    self.memory
+                        .write(0x100 | self.stack_pointer as u16, self.flags);
+                    self.stack_pointer -= 1;
+                    self.sequence_state = SequenceState::Ready;
+                }
+            },
+            SequenceState::Opcode(opcodes::PLP, subcycle) => match subcycle {
+                1 => {
+                    self.memory.read(self.program_counter); // discard
+                }
+                2 => {
+                    self.memory.read(0x100 | self.stack_pointer as u16); // discard
+                    self.stack_pointer += 1;
+                }
+                _ => {
+                    self.flags =
+                        self.memory.read(0x100 | self.stack_pointer as u16) | flags::UNUSED;
+                    self.sequence_state = SequenceState::Ready;
+                }
+            },
+            SequenceState::Opcode(opcodes::SEI, _) => {
+                self.memory.read(self.program_counter); // discard
+                self.flags |= flags::I;
+                self.sequence_state = SequenceState::Ready;
+            }
+            SequenceState::Opcode(opcodes::CLI, _) => {
+                self.memory.read(self.program_counter); // discard
+                self.flags &= !flags::I;
+                self.sequence_state = SequenceState::Ready;
+            }
             SequenceState::Opcode(opcodes::JMP, subcycle) => match subcycle {
                 1 => {
                     self.adl = self.memory.read(self.program_counter);
@@ -147,7 +191,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                     self.program_counter = (self.adl as u16) | ((adh as u16) << 8);
                     self.sequence_state = SequenceState::Ready;
                 }
-            }
+            },
 
             // Oh no, we don't support it! (Yet.)
             SequenceState::Opcode(other_opcode, _) => {
@@ -161,7 +205,10 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
 
             // Reset sequence. First 6 cycles are idle, the initialization
             // procedure starts after that.
-            SequenceState::Reset(0..=5) => {}
+            SequenceState::Reset(0) => {
+                self.flags |= flags::UNUSED | flags::I;
+            }
+            SequenceState::Reset(1..=5) => {}
             SequenceState::Reset(6) => {
                 self.program_counter = self.memory.read(0xFFFC) as u16;
             }
@@ -194,18 +241,33 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
 }
 
 mod opcodes {
-    //opcodes are instruction in program codes
-    pub const LDA: u8 = 0xa9; //0x means hexadecimal number
+    pub const LDA: u8 = 0xa9;
     pub const STA: u8 = 0x85;
     pub const LDX: u8 = 0xa2;
     pub const STX: u8 = 0x86;
     pub const INX: u8 = 0xe8;
-    pub const JMP: u8 = 0x4c;
-    pub const INY: u8 = 0xC8;
-    pub const STY: u8 = 0x8C;
     pub const LDY: u8 = 0xA0;
+    pub const STY: u8 = 0x8C;
+    pub const INY: u8 = 0xC8;
     pub const TYA: u8 = 0x98;
     pub const TAX: u8 = 0xAA;
+    pub const TXS: u8 = 0x9A;
+    pub const PHP: u8 = 0x08;
+    pub const PLP: u8 = 0x28;
+    pub const SEI: u8 = 0x78;
+    pub const CLI: u8 = 0x58;
+    pub const JMP: u8 = 0x4c;
+}
+
+mod flags {
+    // pub const N: u8 = 1 << 7;
+    // pub const V: u8 = 1 << 6;
+    pub const UNUSED: u8 = 1 << 5;
+    // pub const B: u8 = 1 << 4;
+    // pub const D: u8 = 1 << 3;
+    pub const I: u8 = 1 << 2;
+    // pub const Z: u8 = 1 << 1;
+    // pub const C: u8 = 1;
 }
 
 #[cfg(test)]
@@ -226,25 +288,30 @@ mod tests {
         // We test resetting the CPU by providing a memory image with two
         // separate programs. The first starts, as usually, at 0xF000, and it
         // will store a value of 1 at 0x0000.
-        let mut program = vec![opcodes::LDA, 1, opcodes::STA, 0];
+        let mut program = vec![opcodes::LDX, 1, opcodes::STX, 0, opcodes::TXS, opcodes::PHP];
         // The next one will start exactly 0x101 bytes later, at 0xF101. This is
         // because we want to change both bytes of the program's address. We
         // resize the memory so that it contains zeros until 0xF101.
         program.resize(0x101, 0);
         // Finally, the second program. It stores 2 at 0x0000.
-        program.extend_from_slice(&[opcodes::LDA, 2, opcodes::STA, 0]);
+        program.extend_from_slice(&[opcodes::LDX, 2, opcodes::STX, 0]);
 
         let mut memory = RAM::with_test_program(&program);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(5);
-        assert_eq!(cpu.memory.bytes[0], 1); // The first program has been executed.
+        cpu.ticks(10);
+        assert_eq!(cpu.memory.bytes[0], 1, "the first program wasn't executed");
+        assert_eq!(
+            cpu.memory.bytes[0x101] & (flags::UNUSED | flags::I),
+            flags::UNUSED | flags::I,
+            "I and UNUSED flags are not set by default"
+        );
 
         cpu.memory.bytes[0xFFFC] = 0x01;
         cpu.memory.bytes[0xFFFD] = 0xF1;
         reset(&mut cpu);
         cpu.ticks(5);
-        assert_eq!(memory.bytes[0], 2); // The second program has been executed.
+        assert_eq!(memory.bytes[0], 2, "the second program wasn't executed");
     }
 
     #[test]
@@ -423,6 +490,29 @@ mod tests {
         reset(&mut cpu);
         cpu.ticks(7);
         assert_eq!(cpu.memory.bytes[0x01], 13);
+    }
+
+    #[test]
+    fn flag_manipulation() {
+        let mut memory = RAM::with_test_program(&mut [
+            opcodes::LDX,
+            0xFE,
+            opcodes::TXS,
+            opcodes::PLP,
+            opcodes::SEI,
+            opcodes::PHP,
+            opcodes::CLI,
+            opcodes::PHP,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(18);
+        println!("{:X?}", &cpu);
+        println!("{:X?}", &cpu.memory.bytes[0x100..0x200]);
+        assert_eq!(
+            cpu.memory.bytes[0x1FE..0x200],
+            [flags::UNUSED, flags::I | flags::UNUSED]
+        );
     }
 
     #[bench]
