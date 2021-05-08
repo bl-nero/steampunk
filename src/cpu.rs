@@ -26,6 +26,7 @@ pub struct CPU<'a, M: Memory> {
     // Number of cycle within execution of the current instruction.
     sequence_state: SequenceState,
     adl: u8,
+    bal: u8,
 }
 
 impl<'a, M: Memory + Debug> CPU<'a, M> {
@@ -47,6 +48,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             sequence_state: SequenceState::Reset(0),
             // adh: rng.gen(),
             adl: rng.gen(),
+            bal: rng.gen(),
         }
     }
 
@@ -81,13 +83,26 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 self.program_counter += 1;
                 self.sequence_state = SequenceState::Ready;
             }
-            SequenceState::Opcode(opcodes::STA, subcycle) => match subcycle {
+            SequenceState::Opcode(opcodes::STA_ZP, subcycle) => match subcycle {
                 1 => {
                     self.adl = self.memory.read(self.program_counter);
                     self.program_counter += 1;
                 }
                 _ => {
                     self.memory.write(self.adl as u16, self.accumulator);
+                    self.sequence_state = SequenceState::Ready;
+                }
+            },
+            SequenceState::Opcode(opcodes::STA_ZP_X, subcycle) => match subcycle {
+                1 => {
+                    self.bal = self.memory.read(self.program_counter);
+                    self.program_counter += 1;
+                }
+                2 => {
+                    self.memory.read(self.bal as u16); // discard
+                }
+                _ => {
+                    self.memory.write((self.bal + self.xreg) as u16, self.accumulator); // discard
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -141,6 +156,11 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 self.xreg = self.accumulator;
                 self.sequence_state = SequenceState::Ready;
             }
+            SequenceState::Opcode(opcodes::TXA, _) => {
+                self.memory.read(self.program_counter); // discard
+                self.accumulator = self.xreg;
+                self.sequence_state = SequenceState::Ready;
+            }
             SequenceState::Opcode(opcodes::TXS, _) => {
                 self.memory.read(self.program_counter); // discard
                 self.stack_pointer = self.xreg;
@@ -179,6 +199,11 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             SequenceState::Opcode(opcodes::CLI, _) => {
                 self.memory.read(self.program_counter); // discard
                 self.flags &= !flags::I;
+                self.sequence_state = SequenceState::Ready;
+            }
+            SequenceState::Opcode(opcodes::CLD, _) => {
+                self.memory.read(self.program_counter); // discard
+                self.flags &= !flags::D;
                 self.sequence_state = SequenceState::Ready;
             }
             SequenceState::Opcode(opcodes::JMP, subcycle) => match subcycle {
@@ -242,7 +267,8 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
 
 mod opcodes {
     pub const LDA: u8 = 0xa9;
-    pub const STA: u8 = 0x85;
+    pub const STA_ZP: u8 = 0x85;
+    pub const STA_ZP_X: u8 = 0x95;
     pub const LDX: u8 = 0xa2;
     pub const STX: u8 = 0x86;
     pub const INX: u8 = 0xe8;
@@ -251,11 +277,14 @@ mod opcodes {
     pub const INY: u8 = 0xC8;
     pub const TYA: u8 = 0x98;
     pub const TAX: u8 = 0xAA;
+    pub const TXA: u8 = 0x8A;
     pub const TXS: u8 = 0x9A;
     pub const PHP: u8 = 0x08;
     pub const PLP: u8 = 0x28;
     pub const SEI: u8 = 0x78;
     pub const CLI: u8 = 0x58;
+    // pub const SED: u8 = 0xF8;
+    pub const CLD: u8 = 0xD8;
     pub const JMP: u8 = 0x4c;
 }
 
@@ -264,7 +293,7 @@ mod flags {
     // pub const V: u8 = 1 << 6;
     pub const UNUSED: u8 = 1 << 5;
     // pub const B: u8 = 1 << 4;
-    // pub const D: u8 = 1 << 3;
+    pub const D: u8 = 1 << 3;
     pub const I: u8 = 1 << 2;
     // pub const Z: u8 = 1 << 1;
     // pub const C: u8 = 1;
@@ -413,15 +442,15 @@ mod tests {
         let mut memory = RAM::with_test_program(&mut [
             opcodes::LDA,
             65,
-            opcodes::STA,
+            opcodes::STA_ZP,
             4,
             opcodes::LDA,
             73,
-            opcodes::STA,
+            opcodes::STA_ZP,
             4,
             opcodes::LDA,
             12,
-            opcodes::STA,
+            opcodes::STA_ZP,
             5,
         ]);
         let mut cpu = CPU::new(&mut memory);
@@ -435,13 +464,33 @@ mod tests {
     }
 
     #[test]
+    fn loading_storing_addressing_modes() {
+        let mut memory = RAM::with_test_program(&mut [
+            opcodes::LDX,
+            5,
+            opcodes::LDA,
+            42,
+            opcodes::STA_ZP_X,
+            3,
+            opcodes::INX,
+            opcodes::JMP,
+            0x04,
+            0xF0,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(4 + 5 * 9);
+        assert_eq!(cpu.memory.bytes[8..13], [42, 42, 42, 42, 42]);
+    }
+
+    #[test]
     fn multiple_registers() {
         let mut memory = RAM::with_test_program(&mut [
             opcodes::LDA,
             10,
             opcodes::LDX,
             20,
-            opcodes::STA,
+            opcodes::STA_ZP,
             0,
             opcodes::STX,
             1,
@@ -475,7 +524,7 @@ mod tests {
     #[test]
     fn tya() {
         let mut memory =
-            RAM::with_test_program(&mut [opcodes::LDY, 15, opcodes::TYA, opcodes::STA, 0x01]);
+            RAM::with_test_program(&mut [opcodes::LDY, 15, opcodes::TYA, opcodes::STA_ZP, 0x01]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
         cpu.ticks(7);
@@ -490,6 +539,16 @@ mod tests {
         reset(&mut cpu);
         cpu.ticks(7);
         assert_eq!(cpu.memory.bytes[0x01], 13);
+    }
+
+    #[test]
+    fn txa() {
+        let mut memory =
+            RAM::with_test_program(&mut [opcodes::LDX, 43, opcodes::TXA, opcodes::STA_ZP, 0x01]);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(7);
+        assert_eq!(cpu.memory.bytes[0x01], 43);
     }
 
     #[test]
