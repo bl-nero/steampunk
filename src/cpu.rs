@@ -14,11 +14,11 @@ pub struct CPU<'a, M: Memory> {
     memory: &'a mut M,
 
     // Registers.
-    program_counter: u16,
-    accumulator: u8,
-    xreg: u8,
-    yreg: u8,
-    stack_pointer: u8,
+    reg_pc: u16,
+    reg_a: u8,
+    reg_x: u8,
+    reg_y: u8,
+    reg_sp: u8,
     flags: u8,
 
     // Other internal state.
@@ -38,11 +38,11 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
         CPU {
             memory: memory,
 
-            program_counter: rng.gen(),
-            accumulator: rng.gen(),
-            xreg: rng.gen(),
-            yreg: rng.gen(),
-            stack_pointer: rng.gen(),
+            reg_pc: rng.gen(),
+            reg_a: rng.gen(),
+            reg_x: rng.gen(),
+            reg_y: rng.gen(),
+            reg_sp: rng.gen(),
             flags: rng.gen(),
 
             sequence_state: SequenceState::Reset(0),
@@ -72,84 +72,81 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             // thing, returning from here with subcycle set to 1 is slower than
             // waiting for 0 to be increased. Benchmarked!
             SequenceState::Ready => {
-                self.sequence_state =
-                    SequenceState::Opcode(self.memory.read(self.program_counter), 0);
-                self.program_counter += 1;
+                self.sequence_state = SequenceState::Opcode(self.memory.read(self.reg_pc), 0);
+                self.reg_pc += 1;
             }
 
             // List ALL the opcodes!
             SequenceState::Opcode(opcodes::LDA_IMM, _) => {
-                self.load_register_immediate(&mut |cpu, val| cpu.accumulator = val);
+                self.load_register_immediate(&mut |cpu, val| cpu.reg_a = val);
             }
             SequenceState::Opcode(opcodes::LDX_IMM, _) => {
-                self.load_register_immediate(&mut |cpu, val| cpu.xreg = val);
+                self.load_register_immediate(&mut |cpu, val| cpu.reg_x = val);
             }
             SequenceState::Opcode(opcodes::LDY_IMM, _) => {
-                self.load_register_immediate(&mut |cpu, val| cpu.yreg = val);
+                self.load_register_immediate(&mut |cpu, val| cpu.reg_y = val);
             }
             SequenceState::Opcode(opcodes::STA_ZP, _) => {
-                self.store_zero_page(self.accumulator);
+                self.store_zero_page(self.reg_a);
             }
             SequenceState::Opcode(opcodes::STA_ZP_X, subcycle) => match subcycle {
                 1 => {
-                    self.bal = self.memory.read(self.program_counter);
-                    self.program_counter += 1;
+                    self.bal = self.memory.read(self.reg_pc);
+                    self.reg_pc += 1;
                 }
                 2 => {
                     self.memory.read(self.bal as u16); // discard
                 }
                 _ => {
                     self.memory
-                        .write((self.bal + self.xreg) as u16, self.accumulator); // discard
+                        .write((self.bal + self.reg_x) as u16, self.reg_a); // discard
                     self.sequence_state = SequenceState::Ready;
                 }
             },
             SequenceState::Opcode(opcodes::STX_ZP, _) => {
-                self.store_zero_page(self.xreg);
+                self.store_zero_page(self.reg_x);
             }
             SequenceState::Opcode(opcodes::STY_ZP, _) => {
-                self.store_zero_page(self.yreg);
+                self.store_zero_page(self.reg_y);
             }
             SequenceState::Opcode(opcodes::INX, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.xreg = cpu.xreg.wrapping_add(1));
+                self.simple_internal_operation(&mut |cpu| cpu.reg_x = cpu.reg_x.wrapping_add(1));
             }
             SequenceState::Opcode(opcodes::INY, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.yreg = cpu.yreg.wrapping_add(1));
+                self.simple_internal_operation(&mut |cpu| cpu.reg_y = cpu.reg_y.wrapping_add(1));
             }
             SequenceState::Opcode(opcodes::TYA, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.accumulator = cpu.yreg);
+                self.simple_internal_operation(&mut |cpu| cpu.reg_a = cpu.reg_y);
             }
             SequenceState::Opcode(opcodes::TAX, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.xreg = cpu.accumulator);
+                self.simple_internal_operation(&mut |cpu| cpu.reg_x = cpu.reg_a);
             }
             SequenceState::Opcode(opcodes::TXA, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.accumulator = cpu.xreg);
+                self.simple_internal_operation(&mut |cpu| cpu.reg_a = cpu.reg_x);
             }
             SequenceState::Opcode(opcodes::TXS, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.stack_pointer = cpu.xreg);
+                self.simple_internal_operation(&mut |cpu| cpu.reg_sp = cpu.reg_x);
             }
             SequenceState::Opcode(opcodes::PHP, subcycle) => match subcycle {
                 1 => {
-                    self.memory.read(self.program_counter); // discard
+                    self.memory.read(self.reg_pc); // discard
                 }
                 _ => {
-                    self.memory
-                        .write(0x100 | self.stack_pointer as u16, self.flags);
-                    self.stack_pointer -= 1;
+                    self.memory.write(0x100 | self.reg_sp as u16, self.flags);
+                    self.reg_sp -= 1;
                     self.sequence_state = SequenceState::Ready;
                 }
             },
             SequenceState::Opcode(opcodes::PLP, subcycle) => match subcycle {
                 1 => {
-                    self.memory.read(self.program_counter); // discard
+                    self.memory.read(self.reg_pc); // discard
                 }
                 2 => {
-                    self.memory.read(0x100 | self.stack_pointer as u16); // discard
-                    self.stack_pointer += 1;
+                    self.memory.read(0x100 | self.reg_sp as u16); // discard
+                    self.reg_sp += 1;
                 }
                 _ => {
-                    self.flags =
-                        self.memory.read(0x100 | self.stack_pointer as u16) | flags::UNUSED;
+                    self.flags = self.memory.read(0x100 | self.reg_sp as u16) | flags::UNUSED;
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -164,12 +161,12 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             SequenceState::Opcode(opcodes::JMP_ABS, subcycle) => match subcycle {
                 1 => {
-                    self.adl = self.memory.read(self.program_counter);
-                    self.program_counter += 1;
+                    self.adl = self.memory.read(self.reg_pc);
+                    self.reg_pc += 1;
                 }
                 _ => {
-                    let adh = self.memory.read(self.program_counter);
-                    self.program_counter = (self.adl as u16) | ((adh as u16) << 8);
+                    let adh = self.memory.read(self.reg_pc);
+                    self.reg_pc = (self.adl as u16) | ((adh as u16) << 8);
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -180,7 +177,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 panic!(
                     "unknown opcode: ${:02X} at ${:04X}",
                     other_opcode,
-                    self.program_counter - 1,
+                    self.reg_pc - 1,
                 );
             }
 
@@ -191,10 +188,10 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             SequenceState::Reset(1..=5) => {}
             SequenceState::Reset(6) => {
-                self.program_counter = self.memory.read(0xFFFC) as u16;
+                self.reg_pc = self.memory.read(0xFFFC) as u16;
             }
             SequenceState::Reset(7) => {
-                self.program_counter |= (self.memory.read(0xFFFD) as u16) << 8;
+                self.reg_pc |= (self.memory.read(0xFFFD) as u16) << 8;
                 self.sequence_state = SequenceState::Ready;
             }
             SequenceState::Reset(unexpected_subcycle) => {
@@ -215,16 +212,16 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
     }
 
     fn load_register_immediate(&mut self, load: &mut dyn FnMut(&mut Self, u8)) {
-        load(self, self.memory.read(self.program_counter));
-        self.program_counter += 1;
+        load(self, self.memory.read(self.reg_pc));
+        self.reg_pc += 1;
         self.sequence_state = SequenceState::Ready;
     }
 
     fn store_zero_page(&mut self, value: u8) {
         match self.sequence_state {
             SequenceState::Opcode(_, 1) => {
-                self.adl = self.memory.read(self.program_counter);
-                self.program_counter += 1;
+                self.adl = self.memory.read(self.reg_pc);
+                self.reg_pc += 1;
             }
             _ => {
                 self.memory.write(self.adl as u16, value);
@@ -234,7 +231,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
     }
 
     fn simple_internal_operation(&mut self, operation: &mut dyn FnMut(&mut Self)) {
-        self.memory.read(self.program_counter); // discard
+        self.memory.read(self.reg_pc); // discard
         operation(self);
         self.sequence_state = SequenceState::Ready;
     }
