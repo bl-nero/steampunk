@@ -1,5 +1,6 @@
-use crate::memory::Memory;
+use crate::memory::{Memory, ReadError};
 use rand::Rng;
+use std::error;
 use std::fmt::Debug;
 
 #[derive(Debug)]
@@ -28,6 +29,19 @@ pub struct CPU<'a, M: Memory> {
     adl: u8,
     bal: u8,
 }
+
+type TickResult = Result<(), Box<dyn error::Error>>;
+
+// enum CpuError {
+//     ReadError,
+//     WriteError,
+// }
+
+// impl From<ReadError> for CpuError {
+//     fn from(err: ReadError) -> Self {
+//         CpuError::ReadError(err)
+//     }
+// }
 
 impl<'a, M: Memory + Debug> CPU<'a, M> {
     /// Creates a new `CPU` that owns given `memory`. The newly created `CPU` is
@@ -65,113 +79,113 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
     }
 
     /// Performs a single CPU cycle.
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self) -> TickResult {
         match self.sequence_state {
             // Fetching the opcode. A small trick: at first, we use 0 for
             // subcycle number, and it will later get increased to 1. Funny
             // thing, returning from here with subcycle set to 1 is slower than
             // waiting for 0 to be increased. Benchmarked!
             SequenceState::Ready => {
-                self.sequence_state = SequenceState::Opcode(self.memory.read(self.reg_pc), 0);
+                self.sequence_state = SequenceState::Opcode(self.memory.read(self.reg_pc)?, 0);
                 self.reg_pc += 1;
             }
 
             // List ALL the opcodes!
             SequenceState::Opcode(opcodes::LDA_IMM, _) => {
-                self.load_register_immediate(&mut |me, value| me.set_reg_a(value));
+                self.load_register_immediate(&mut |me, value| me.set_reg_a(value))?;
             }
             SequenceState::Opcode(opcodes::LDX_IMM, _) => {
-                self.load_register_immediate(&mut |me, value| me.set_reg_x(value));
+                self.load_register_immediate(&mut |me, value| me.set_reg_x(value))?;
             }
             SequenceState::Opcode(opcodes::LDY_IMM, _) => {
-                self.load_register_immediate(&mut |me, value| me.set_reg_y(value));
+                self.load_register_immediate(&mut |me, value| me.set_reg_y(value))?;
             }
             SequenceState::Opcode(opcodes::STA_ZP, _) => {
-                self.store_zero_page(self.reg_a);
+                self.store_zero_page(self.reg_a)?;
             }
             SequenceState::Opcode(opcodes::STA_ZP_X, subcycle) => match subcycle {
                 1 => {
-                    self.bal = self.memory.read(self.reg_pc);
+                    self.bal = self.memory.read(self.reg_pc)?;
                     self.reg_pc += 1;
                 }
                 2 => {
-                    self.memory.read(self.bal as u16); // discard
+                    self.memory.read(self.bal as u16)?; // discard
                 }
                 _ => {
                     self.memory
-                        .write((self.bal + self.reg_x) as u16, self.reg_a); // discard
+                        .write((self.bal + self.reg_x) as u16, self.reg_a)?; // discard
                     self.sequence_state = SequenceState::Ready;
                 }
             },
             SequenceState::Opcode(opcodes::STX_ZP, _) => {
-                self.store_zero_page(self.reg_x);
+                self.store_zero_page(self.reg_x)?;
             }
             SequenceState::Opcode(opcodes::STY_ZP, _) => {
-                self.store_zero_page(self.reg_y);
+                self.store_zero_page(self.reg_y)?;
             }
             SequenceState::Opcode(opcodes::INX, _) => {
-                self.simple_internal_operation(&mut |me| me.set_reg_x(me.reg_x.wrapping_add(1)));
+                self.simple_internal_operation(&mut |me| me.set_reg_x(me.reg_x.wrapping_add(1)))?;
             }
             SequenceState::Opcode(opcodes::INY, _) => {
-                self.simple_internal_operation(&mut |me| me.set_reg_y(me.reg_y.wrapping_add(1)));
+                self.simple_internal_operation(&mut |me| me.set_reg_y(me.reg_y.wrapping_add(1)))?;
             }
             SequenceState::Opcode(opcodes::DEX, _) => {
-                self.simple_internal_operation(&mut |me| me.set_reg_x(me.reg_x.wrapping_sub(1)));
+                self.simple_internal_operation(&mut |me| me.set_reg_x(me.reg_x.wrapping_sub(1)))?;
             }
             SequenceState::Opcode(opcodes::DEY, _) => {
-                self.simple_internal_operation(&mut |me| me.set_reg_y(me.reg_y.wrapping_sub(1)));
+                self.simple_internal_operation(&mut |me| me.set_reg_y(me.reg_y.wrapping_sub(1)))?;
             }
             SequenceState::Opcode(opcodes::TYA, _) => {
-                self.simple_internal_operation(&mut |me| me.reg_a = me.reg_y);
+                self.simple_internal_operation(&mut |me| me.reg_a = me.reg_y)?;
             }
             SequenceState::Opcode(opcodes::TAX, _) => {
-                self.simple_internal_operation(&mut |me| me.reg_x = me.reg_a);
+                self.simple_internal_operation(&mut |me| me.reg_x = me.reg_a)?;
             }
             SequenceState::Opcode(opcodes::TXA, _) => {
-                self.simple_internal_operation(&mut |me| me.reg_a = me.reg_x);
+                self.simple_internal_operation(&mut |me| me.reg_a = me.reg_x)?;
             }
             SequenceState::Opcode(opcodes::TXS, _) => {
-                self.simple_internal_operation(&mut |me| me.reg_sp = me.reg_x);
+                self.simple_internal_operation(&mut |me| me.reg_sp = me.reg_x)?;
             }
             SequenceState::Opcode(opcodes::PHP, subcycle) => match subcycle {
                 1 => {
-                    self.memory.read(self.reg_pc); // discard
+                    self.memory.read(self.reg_pc)?; // discard
                 }
                 _ => {
-                    self.memory.write(0x100 | self.reg_sp as u16, self.flags);
+                    self.memory.write(0x100 | self.reg_sp as u16, self.flags)?;
                     self.reg_sp -= 1;
                     self.sequence_state = SequenceState::Ready;
                 }
             },
             SequenceState::Opcode(opcodes::PLP, subcycle) => match subcycle {
                 1 => {
-                    self.memory.read(self.reg_pc); // discard
+                    self.memory.read(self.reg_pc)?; // discard
                 }
                 2 => {
-                    self.memory.read(0x100 | self.reg_sp as u16); // discard
+                    self.memory.read(0x100 | self.reg_sp as u16)?; // discard
                     self.reg_sp += 1;
                 }
                 _ => {
-                    self.flags = self.memory.read(0x100 | self.reg_sp as u16) | flags::UNUSED;
+                    self.flags = self.memory.read(0x100 | self.reg_sp as u16)? | flags::UNUSED;
                     self.sequence_state = SequenceState::Ready;
                 }
             },
             SequenceState::Opcode(opcodes::SEI, _) => {
-                self.simple_internal_operation(&mut |me| me.flags |= flags::I);
+                self.simple_internal_operation(&mut |me| me.flags |= flags::I)?;
             }
             SequenceState::Opcode(opcodes::CLI, _) => {
-                self.simple_internal_operation(&mut |me| me.flags &= !flags::I);
+                self.simple_internal_operation(&mut |me| me.flags &= !flags::I)?;
             }
             SequenceState::Opcode(opcodes::CLD, _) => {
-                self.simple_internal_operation(&mut |me| me.flags &= !flags::D);
+                self.simple_internal_operation(&mut |me| me.flags &= !flags::D)?;
             }
             SequenceState::Opcode(opcodes::JMP_ABS, subcycle) => match subcycle {
                 1 => {
-                    self.adl = self.memory.read(self.reg_pc);
+                    self.adl = self.memory.read(self.reg_pc)?;
                     self.reg_pc += 1;
                 }
                 _ => {
-                    let adh = self.memory.read(self.reg_pc);
+                    let adh = self.memory.read(self.reg_pc)?;
                     self.reg_pc = (self.adl as u16) | ((adh as u16) << 8);
                     self.sequence_state = SequenceState::Ready;
                 }
@@ -179,7 +193,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             SequenceState::Opcode(opcodes::BNE, subcycle) => match subcycle {
                 // TODO: handle additional cycle when crossing page boundaries
                 1 => {
-                    self.adl = self.memory.read(self.reg_pc);
+                    self.adl = self.memory.read(self.reg_pc)?;
                     self.reg_pc += 1;
                     if self.flags & flags::Z != 0 {
                         self.sequence_state = SequenceState::Ready;
@@ -187,7 +201,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 }
                 _ => {
                     self.reg_pc = self.reg_pc.wrapping_add(self.adl as i8 as i16 as u16);
-                    self.memory.read(self.reg_pc); // discard
+                    self.memory.read(self.reg_pc)?; // discard
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -209,10 +223,10 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             SequenceState::Reset(1..=5) => {}
             SequenceState::Reset(6) => {
-                self.reg_pc = self.memory.read(0xFFFC) as u16;
+                self.reg_pc = self.memory.read(0xFFFC)? as u16;
             }
             SequenceState::Reset(7) => {
-                self.reg_pc |= (self.memory.read(0xFFFD) as u16) << 8;
+                self.reg_pc |= (self.memory.read(0xFFFD)? as u16) << 8;
                 self.sequence_state = SequenceState::Ready;
             }
             SequenceState::Reset(unexpected_subcycle) => {
@@ -229,7 +243,8 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 self.sequence_state = SequenceState::Reset(subcycle + 1)
             }
             _ => {}
-        }
+        };
+        Ok(())
     }
 
     fn set_reg_a(&mut self, value: u8) {
@@ -265,35 +280,46 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
         self.flags = (self.flags & !(flags::Z | flags::N)) | flag_z | flag_n;
     }
 
-    fn load_register_immediate(&mut self, load: &mut dyn FnMut(&mut Self, u8)) {
-        load(self, self.memory.read(self.reg_pc));
-        self.reg_pc += 1;
-        self.sequence_state = SequenceState::Ready;
+    fn load_register_immediate(
+        &mut self,
+        load: &mut dyn FnMut(&mut Self, u8),
+    ) -> Result<(), ReadError> {
+        self.memory.read(self.reg_pc).map(|value| {
+            load(self, value);
+            self.reg_pc += 1;
+            self.sequence_state = SequenceState::Ready;
+        })
     }
 
-    fn store_zero_page(&mut self, value: u8) {
+    fn store_zero_page(&mut self, value: u8) -> TickResult {
         match self.sequence_state {
             SequenceState::Opcode(_, 1) => {
-                self.adl = self.memory.read(self.reg_pc);
+                self.adl = self.memory.read(self.reg_pc)?;
                 self.reg_pc += 1;
             }
             _ => {
-                self.memory.write(self.adl as u16, value);
+                self.memory.write(self.adl as u16, value)?;
                 self.sequence_state = SequenceState::Ready;
             }
-        }
+        };
+        Ok(())
     }
 
-    fn simple_internal_operation(&mut self, operation: &mut dyn FnMut(&mut Self)) {
-        self.memory.read(self.reg_pc); // discard
+    fn simple_internal_operation(
+        &mut self,
+        operation: &mut dyn FnMut(&mut Self),
+    ) -> Result<(), ReadError> {
+        self.memory.read(self.reg_pc)?; // discard
         operation(self);
         self.sequence_state = SequenceState::Ready;
+        Ok(())
     }
 
-    pub fn ticks(&mut self, n_ticks: u32) {
+    pub fn ticks(&mut self, n_ticks: u32) -> TickResult {
         for _ in 0..n_ticks {
-            self.tick();
+            self.tick()?;
         }
+        Ok(())
     }
 }
 
@@ -344,7 +370,7 @@ mod tests {
 
     fn reset<M: Memory + Debug>(cpu: &mut CPU<M>) {
         cpu.reset();
-        cpu.ticks(8);
+        cpu.ticks(8).unwrap();
     }
 
     #[test]
@@ -370,7 +396,7 @@ mod tests {
         let mut memory = RAM::with_test_program(&program);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(10);
+        cpu.ticks(10).unwrap();
         assert_eq!(cpu.memory.bytes[0], 1, "the first program wasn't executed");
         assert_eq!(
             cpu.memory.bytes[0x101] & (flags::UNUSED | flags::I),
@@ -381,7 +407,7 @@ mod tests {
         cpu.memory.bytes[0xFFFC] = 0x01;
         cpu.memory.bytes[0xFFFD] = 0xF1;
         reset(&mut cpu);
-        cpu.ticks(5);
+        cpu.ticks(5).unwrap();
         assert_eq!(memory.bytes[0], 2, "the second program wasn't executed");
     }
 
@@ -403,11 +429,11 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(5);
+        cpu.ticks(5).unwrap();
         assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
-        cpu.ticks(5);
+        cpu.ticks(5).unwrap();
         assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
-        cpu.ticks(5);
+        cpu.ticks(5).unwrap();
         assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
     }
 
@@ -429,11 +455,11 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(5);
+        cpu.ticks(5).unwrap();
         assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
-        cpu.ticks(5);
+        cpu.ticks(5).unwrap();
         assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
-        cpu.ticks(5);
+        cpu.ticks(5).unwrap();
         assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
     }
 
@@ -455,11 +481,11 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(5);
+        cpu.ticks(5).unwrap();
         assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
-        cpu.ticks(5);
+        cpu.ticks(5).unwrap();
         assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
-        cpu.ticks(5);
+        cpu.ticks(5).unwrap();
         assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
     }
 
@@ -477,7 +503,7 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(10);
+        cpu.ticks(10).unwrap();
         assert_eq!(cpu.memory.bytes[0..2], [10, 20]);
     }
 
@@ -497,7 +523,7 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(4 + 5 * 9);
+        cpu.ticks(4 + 5 * 9).unwrap();
         assert_eq!(cpu.memory.bytes[8..13], [42, 42, 42, 42, 42]);
     }
 
@@ -524,7 +550,7 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(27);
+        cpu.ticks(27).unwrap();
         assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
     }
 
@@ -551,7 +577,7 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(27);
+        cpu.ticks(27).unwrap();
         assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
     }
 
@@ -566,7 +592,7 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(7);
+        cpu.ticks(7).unwrap();
         assert_eq!(cpu.memory.bytes[0x01], 15);
     }
 
@@ -581,7 +607,7 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(7);
+        cpu.ticks(7).unwrap();
         assert_eq!(cpu.memory.bytes[0x01], 13);
     }
 
@@ -596,7 +622,7 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(7);
+        cpu.ticks(7).unwrap();
         assert_eq!(cpu.memory.bytes[0x01], 43);
     }
 
@@ -625,7 +651,7 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(27);
+        cpu.ticks(27).unwrap();
         assert_eq!(
             cpu.memory.bytes[0x1FD..0x200],
             [
@@ -650,9 +676,9 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(13);
+        cpu.ticks(13).unwrap();
         assert_eq!(cpu.memory.bytes[9], 2);
-        cpu.ticks(8);
+        cpu.ticks(8).unwrap();
         assert_eq!(cpu.memory.bytes[9], 3);
     }
 
@@ -673,7 +699,7 @@ mod tests {
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(4 + 4 * 9 + 8 + 3);
+        cpu.ticks(4 + 4 * 9 + 8 + 3).unwrap();
         assert_eq!(cpu.memory.bytes[9..16], [0, 5, 5, 0, 5, 5, 0]);
     }
 
@@ -698,7 +724,7 @@ mod tests {
         let mut cpu = CPU::new(&mut memory);
         b.iter(|| {
             reset(&mut cpu);
-            cpu.ticks(1000);
+            cpu.ticks(1000).unwrap();
         });
     }
 }

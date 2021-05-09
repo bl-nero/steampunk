@@ -1,10 +1,54 @@
 use std::fmt;
+use std::error;
+use std::result::Result;
 
 const RAM_SIZE: usize = 0x10000; // 64 kB (64 * 1024)
 
 pub trait Memory {
-    fn write(&mut self, address: u16, value: u8);
-    fn read(&self, address: u16) -> u8;
+    /// Writes a byte to given address. Returns error if the location is
+    /// unsupported. In a release build, the errors should be ignored and the
+    /// method should always return a successful result.
+    fn write(&mut self, address: u16, value: u8) -> WriteResult;
+
+    /// Reads a byte from given address. Returns the byte or error if the
+    /// location is unsupported. In a release build, the errors should be
+    /// ignored and the method should always return a successful result.
+    fn read(&self, address: u16) -> ReadResult;
+}
+
+pub type ReadResult = Result<u8, ReadError>;
+
+#[derive(Debug, Clone)]
+pub struct ReadError {
+    pub address: u16,
+}
+
+impl error::Error for ReadError {}
+
+impl fmt::Display for ReadError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Unable to read from address ${:04X}", self.address)
+    }
+}
+
+pub type WriteResult = Result<(), WriteError>;
+
+#[derive(Debug, Clone)]
+pub struct WriteError {
+    pub address: u16,
+    pub value: u8,
+}
+
+impl error::Error for WriteError {}
+
+impl fmt::Display for WriteError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Unable to write ${:02X} to address ${:04X}",
+            self.value, self.address
+        )
+    }
 }
 
 /// A very simple memory structure. At the moment, it's just a 64-kilobyte chunk
@@ -52,12 +96,14 @@ impl RAM {
 }
 
 impl Memory for RAM {
-    fn read(&self, address: u16) -> u8 {
+    fn read(&self, address: u16) -> ReadResult {
         // this arrow means we give u16 they return u8
-        self.bytes[address as usize]
+        Ok(self.bytes[address as usize])
     }
-    fn write(&mut self, address: u16, value: u8) {
+
+    fn write(&mut self, address: u16, value: u8) -> WriteResult {
         self.bytes[address as usize] = value;
+        Ok(())
     }
 }
 

@@ -37,7 +37,7 @@ impl<'a> Atari<'a> {
     pub fn tick(&mut self) -> bool {
         let tia_result = self.cpu.memory().tia.tick();
         if tia_result.cpu_tick {
-            self.cpu.tick();
+            match self.cpu.tick();
         }
         return self.frame_renderer.consume(tia_result.video);
     }

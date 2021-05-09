@@ -1,4 +1,4 @@
-use crate::memory::Memory;
+use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 
 /// TIA is responsible for generating the video signal, sound (not yet
 /// implemented) and for synchronizing CPU with the screen's electron beam.
@@ -131,15 +131,11 @@ impl TIA {
 }
 
 impl Memory for TIA {
-    fn read(&self, address: u16) -> u8 {
-        println!(
-            "Attempt to read from unsupported TIA address ${:04X}",
-            address
-        );
-        return 0;
+    fn read(&self, address: u16) -> ReadResult {
+        Err(ReadError { address })
     }
 
-    fn write(&mut self, address: u16, value: u8) {
+    fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match address {
             registers::VSYNC => self.reg_vsync = value,
             registers::VBLANK => self.reg_vblank = value,
@@ -150,11 +146,9 @@ impl Memory for TIA {
             registers::PF0 => self.reg_pf0 = value,
             registers::PF1 => self.reg_pf1 = value,
             registers::PF2 => self.reg_pf2 = value,
-            _ => println!(
-                "Attempt to write ${:02X} to unsupported TIA address ${:04X}",
-                value, address
-            ),
+            _ => return Err(WriteError { address, value }),
         }
+        Ok(())
     }
 }
 
@@ -286,10 +280,10 @@ mod tests {
             tia.tick();
         }
 
-        tia.write(registers::COLUBK, 0x02);
+        tia.write(registers::COLUBK, 0x02).unwrap();
         assert_eq!(tia.tick().video, VideoOutput::pixel(0x02));
 
-        tia.write(registers::COLUBK, 0xfe);
+        tia.write(registers::COLUBK, 0xfe).unwrap();
         assert_eq!(tia.tick().video, VideoOutput::pixel(0xfe));
     }
 
@@ -305,7 +299,7 @@ mod tests {
         );
 
         let mut tia = TIA::new();
-        tia.write(registers::COLUBK, 0x08);
+        tia.write(registers::COLUBK, 0x08).unwrap();
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = VideoOutputIterator { tia: &mut tia }.take(2 * TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
@@ -320,14 +314,14 @@ mod tests {
         );
 
         let mut tia = TIA::new();
-        tia.write(registers::COLUBK, 0x00);
-        tia.write(registers::VSYNC, flags::VSYNC_ON);
+        tia.write(registers::COLUBK, 0x00).unwrap();
+        tia.write(registers::VSYNC, flags::VSYNC_ON).unwrap();
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
 
         // Note: we turn off VSYNC not by writing 0, but by setting all bits but
         // bit 1. This is to make sure that all other bits are ignored.
-        tia.write(registers::VSYNC, !flags::VSYNC_ON);
+        tia.write(registers::VSYNC, !flags::VSYNC_ON).unwrap();
         assert_eq!(tia.tick().video, VideoOutput::blank());
     }
 
@@ -340,13 +334,13 @@ mod tests {
         );
 
         let mut tia = TIA::new();
-        tia.write(registers::COLUBK, 0x32);
-        tia.write(registers::VBLANK, flags::VBLANK_ON);
+        tia.write(registers::COLUBK, 0x32).unwrap();
+        tia.write(registers::VBLANK, flags::VBLANK_ON).unwrap();
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
 
         // Make sure that only bit 1 of VBLANK counts.
-        tia.write(registers::VBLANK, !flags::VBLANK_ON);
+        tia.write(registers::VBLANK, !flags::VBLANK_ON).unwrap();
         for _ in 0..HBLANK_WIDTH {
             tia.tick();
         }
@@ -362,8 +356,8 @@ mod tests {
         );
 
         let mut tia = TIA::new();
-        tia.write(registers::VSYNC, flags::VSYNC_ON);
-        tia.write(registers::VBLANK, flags::VBLANK_ON);
+        tia.write(registers::VSYNC, flags::VSYNC_ON).unwrap();
+        tia.write(registers::VBLANK, flags::VBLANK_ON).unwrap();
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
     }
@@ -384,7 +378,7 @@ mod tests {
     fn freezes_cpu_until_wsync() {
         let mut tia = TIA::new();
         tia.tick();
-        tia.write(registers::WSYNC, 0x00);
+        tia.write(registers::WSYNC, 0x00).unwrap();
         for i in 1..TOTAL_WIDTH {
             assert_eq!(tia.tick().cpu_tick, false, "for index {}", i);
         }
@@ -403,15 +397,15 @@ mod tests {
         );
 
         let mut tia = TIA::new();
-        tia.write(registers::COLUBK, 0);
-        tia.write(registers::COLUPF, 2);
-        tia.write(registers::PF0, 0b11010000);
-        tia.write(registers::PF1, 0b10011101);
-        tia.write(registers::PF2, 0b10110101);
+        tia.write(registers::COLUBK, 0).unwrap();
+        tia.write(registers::COLUPF, 2).unwrap();
+        tia.write(registers::PF0, 0b11010000).unwrap();
+        tia.write(registers::PF1, 0b10011101).unwrap();
+        tia.write(registers::PF2, 0b10110101).unwrap();
         tia.write(
             registers::CTRLPF,
             0xff & !flags::CTRLPF_REFLECT & !flags::CTRLPF_SCORE,
-        );
+        ).unwrap();
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
@@ -426,12 +420,12 @@ mod tests {
         );
 
         let mut tia = TIA::new();
-        tia.write(registers::COLUBK, 2);
-        tia.write(registers::COLUPF, 6);
-        tia.write(registers::PF0, 0b11010000);
-        tia.write(registers::PF1, 0b10011101);
-        tia.write(registers::PF2, 0b10110101);
-        tia.write(registers::CTRLPF, flags::CTRLPF_REFLECT);
+        tia.write(registers::COLUBK, 2).unwrap();
+        tia.write(registers::COLUPF, 6).unwrap();
+        tia.write(registers::PF0, 0b11010000).unwrap();
+        tia.write(registers::PF1, 0b10011101).unwrap();
+        tia.write(registers::PF2, 0b10110101).unwrap();
+        tia.write(registers::CTRLPF, flags::CTRLPF_REFLECT).unwrap();
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
