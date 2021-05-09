@@ -78,13 +78,13 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
 
             // List ALL the opcodes!
             SequenceState::Opcode(opcodes::LDA_IMM, _) => {
-                self.load_register_immediate(&mut |cpu, val| cpu.reg_a = val);
+                self.load_register_immediate(&mut |me, value| me.set_reg_a(value));
             }
             SequenceState::Opcode(opcodes::LDX_IMM, _) => {
-                self.load_register_immediate(&mut |cpu, val| cpu.reg_x = val);
+                self.load_register_immediate(&mut |me, value| me.set_reg_x(value));
             }
             SequenceState::Opcode(opcodes::LDY_IMM, _) => {
-                self.load_register_immediate(&mut |cpu, val| cpu.reg_y = val);
+                self.load_register_immediate(&mut |me, value| me.set_reg_y(value));
             }
             SequenceState::Opcode(opcodes::STA_ZP, _) => {
                 self.store_zero_page(self.reg_a);
@@ -110,22 +110,28 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 self.store_zero_page(self.reg_y);
             }
             SequenceState::Opcode(opcodes::INX, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.reg_x = cpu.reg_x.wrapping_add(1));
+                self.simple_internal_operation(&mut |me| me.set_reg_x(me.reg_x.wrapping_add(1)));
             }
             SequenceState::Opcode(opcodes::INY, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.reg_y = cpu.reg_y.wrapping_add(1));
+                self.simple_internal_operation(&mut |me| me.set_reg_y(me.reg_y.wrapping_add(1)));
+            }
+            SequenceState::Opcode(opcodes::DEX, _) => {
+                self.simple_internal_operation(&mut |me| me.set_reg_x(me.reg_x.wrapping_sub(1)));
+            }
+            SequenceState::Opcode(opcodes::DEY, _) => {
+                self.simple_internal_operation(&mut |me| me.set_reg_y(me.reg_y.wrapping_sub(1)));
             }
             SequenceState::Opcode(opcodes::TYA, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.reg_a = cpu.reg_y);
+                self.simple_internal_operation(&mut |me| me.reg_a = me.reg_y);
             }
             SequenceState::Opcode(opcodes::TAX, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.reg_x = cpu.reg_a);
+                self.simple_internal_operation(&mut |me| me.reg_x = me.reg_a);
             }
             SequenceState::Opcode(opcodes::TXA, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.reg_a = cpu.reg_x);
+                self.simple_internal_operation(&mut |me| me.reg_a = me.reg_x);
             }
             SequenceState::Opcode(opcodes::TXS, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.reg_sp = cpu.reg_x);
+                self.simple_internal_operation(&mut |me| me.reg_sp = me.reg_x);
             }
             SequenceState::Opcode(opcodes::PHP, subcycle) => match subcycle {
                 1 => {
@@ -151,13 +157,13 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 }
             },
             SequenceState::Opcode(opcodes::SEI, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.flags |= flags::I);
+                self.simple_internal_operation(&mut |me| me.flags |= flags::I);
             }
             SequenceState::Opcode(opcodes::CLI, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.flags &= !flags::I);
+                self.simple_internal_operation(&mut |me| me.flags &= !flags::I);
             }
             SequenceState::Opcode(opcodes::CLD, _) => {
-                self.simple_internal_operation(&mut |cpu| cpu.flags &= !flags::D);
+                self.simple_internal_operation(&mut |me| me.flags &= !flags::D);
             }
             SequenceState::Opcode(opcodes::JMP_ABS, subcycle) => match subcycle {
                 1 => {
@@ -167,6 +173,21 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 _ => {
                     let adh = self.memory.read(self.reg_pc);
                     self.reg_pc = (self.adl as u16) | ((adh as u16) << 8);
+                    self.sequence_state = SequenceState::Ready;
+                }
+            },
+            SequenceState::Opcode(opcodes::BNE, subcycle) => match subcycle {
+                // TODO: handle additional cycle when crossing page boundaries
+                1 => {
+                    self.adl = self.memory.read(self.reg_pc);
+                    self.reg_pc += 1;
+                    if self.flags & flags::Z != 0 {
+                        self.sequence_state = SequenceState::Ready;
+                    }
+                }
+                _ => {
+                    self.reg_pc = self.reg_pc.wrapping_add(self.adl as i8 as i16 as u16);
+                    self.memory.read(self.reg_pc); // discard
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -211,6 +232,39 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
         }
     }
 
+    fn set_reg_a(&mut self, value: u8) {
+        self.reg_a = value;
+        let flag_z = if value == 0 { flags::Z } else { 0 };
+        let flag_n = if value & 0b1000_0000 != 0 {
+            flags::N
+        } else {
+            0
+        };
+        self.flags = (self.flags & !(flags::Z | flags::N)) | flag_z | flag_n;
+    }
+
+    fn set_reg_x(&mut self, value: u8) {
+        self.reg_x = value;
+        let flag_z = if value == 0 { flags::Z } else { 0 };
+        let flag_n = if value & 0b1000_0000 != 0 {
+            flags::N
+        } else {
+            0
+        };
+        self.flags = (self.flags & !(flags::Z | flags::N)) | flag_z | flag_n;
+    }
+
+    fn set_reg_y(&mut self, value: u8) {
+        self.reg_y = value;
+        let flag_z = if value == 0 { flags::Z } else { 0 };
+        let flag_n = if value & 0b1000_0000 != 0 {
+            flags::N
+        } else {
+            0
+        };
+        self.flags = (self.flags & !(flags::Z | flags::N)) | flag_z | flag_n;
+    }
+
     fn load_register_immediate(&mut self, load: &mut dyn FnMut(&mut Self, u8)) {
         load(self, self.memory.read(self.reg_pc));
         self.reg_pc += 1;
@@ -244,15 +298,17 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
 }
 
 mod opcodes {
-    pub const LDA_IMM: u8 = 0xa9;
+    pub const LDA_IMM: u8 = 0xA9;
     pub const STA_ZP: u8 = 0x85;
     pub const STA_ZP_X: u8 = 0x95;
-    pub const LDX_IMM: u8 = 0xa2;
+    pub const LDX_IMM: u8 = 0xA2;
     pub const STX_ZP: u8 = 0x86;
-    pub const INX: u8 = 0xe8;
+    pub const INX: u8 = 0xE8;
+    pub const DEX: u8 = 0xCA;
     pub const LDY_IMM: u8 = 0xA0;
     pub const STY_ZP: u8 = 0x8C;
     pub const INY: u8 = 0xC8;
+    pub const DEY: u8 = 0x88;
     pub const TYA: u8 = 0x98;
     pub const TAX: u8 = 0xAA;
     pub const TXA: u8 = 0x8A;
@@ -263,17 +319,18 @@ mod opcodes {
     pub const CLI: u8 = 0x58;
     // pub const SED: u8 = 0xF8;
     pub const CLD: u8 = 0xD8;
-    pub const JMP_ABS: u8 = 0x4c;
+    pub const JMP_ABS: u8 = 0x4C;
+    pub const BNE: u8 = 0xD0;
 }
 
 mod flags {
-    // pub const N: u8 = 1 << 7;
+    pub const N: u8 = 1 << 7;
     // pub const V: u8 = 1 << 6;
     pub const UNUSED: u8 = 1 << 5;
     // pub const B: u8 = 1 << 4;
     pub const D: u8 = 1 << 3;
     pub const I: u8 = 1 << 2;
-    // pub const Z: u8 = 1 << 1;
+    pub const Z: u8 = 1 << 1;
     // pub const C: u8 = 1;
 }
 
@@ -445,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn inx() {
+    fn inx_dex() {
         let mut memory = RAM::with_test_program(&mut [
             opcodes::LDX_IMM,
             0xFE,
@@ -458,15 +515,21 @@ mod tests {
             opcodes::INX,
             opcodes::STX_ZP,
             7,
+            opcodes::DEX,
+            opcodes::STX_ZP,
+            8,
+            opcodes::DEX,
+            opcodes::STX_ZP,
+            9,
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(17);
-        assert_eq!(cpu.memory.bytes[5..8], [0xFF, 0x00, 0x01]);
+        cpu.ticks(27);
+        assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
     }
 
     #[test]
-    fn iny() {
+    fn iny_dey() {
         let mut memory = RAM::with_test_program(&mut [
             opcodes::LDY_IMM,
             0xFE,
@@ -479,11 +542,17 @@ mod tests {
             opcodes::INY,
             opcodes::STY_ZP,
             7,
+            opcodes::DEY,
+            opcodes::STY_ZP,
+            8,
+            opcodes::DEY,
+            opcodes::STY_ZP,
+            9,
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(17);
-        assert_eq!(cpu.memory.bytes[5..8], [0xFF, 0x00, 0x01]);
+        cpu.ticks(27);
+        assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
     }
 
     #[test]
@@ -534,21 +603,36 @@ mod tests {
     #[test]
     fn flag_manipulation() {
         let mut memory = RAM::with_test_program(&mut [
+            // Load 0 to flags and initialize SP.
             opcodes::LDX_IMM,
             0xFE,
             opcodes::TXS,
             opcodes::PLP,
+            // Set I and Z.
             opcodes::SEI,
+            opcodes::LDA_IMM,
+            0,
             opcodes::PHP,
+            // Clear Z, set N.
+            opcodes::LDX_IMM,
+            0xFF,
+            opcodes::PHP,
+            // Clear I, Z, and N.
             opcodes::CLI,
+            opcodes::LDY_IMM,
+            0x01,
             opcodes::PHP,
         ]);
         let mut cpu = CPU::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(18);
+        cpu.ticks(27);
         assert_eq!(
-            cpu.memory.bytes[0x1FE..0x200],
-            [flags::UNUSED, flags::I | flags::UNUSED]
+            cpu.memory.bytes[0x1FD..0x200],
+            [
+                flags::UNUSED,
+                flags::I | flags::N | flags::UNUSED,
+                flags::I | flags::Z | flags::UNUSED,
+            ]
         );
     }
 
@@ -570,6 +654,27 @@ mod tests {
         assert_eq!(cpu.memory.bytes[9], 2);
         cpu.ticks(8);
         assert_eq!(cpu.memory.bytes[9], 3);
+    }
+
+    #[test]
+    fn bne() {
+        let mut memory = RAM::with_test_program(&mut [
+            opcodes::LDX_IMM,
+            5,
+            opcodes::LDA_IMM,
+            5,
+            opcodes::STA_ZP_X,
+            9,
+            opcodes::DEX,
+            opcodes::BNE,
+            (-5i8) as u8,
+            opcodes::STX_ZP,
+            12,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(4 + 4 * 9 + 8 + 3);
+        assert_eq!(cpu.memory.bytes[9..16], [0, 5, 5, 0, 5, 5, 0]);
     }
 
     #[bench]
