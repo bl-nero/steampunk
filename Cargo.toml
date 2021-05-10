@@ -35,6 +35,4 @@ piston_window = "0.85.0"
 piston2d-graphics = "0.28.0"
 piston = "0.39.0"
 rand = "0.8.3"
-
-[dev-dependencies]
-itertools = "0.8.0"
+itertools = "0.10.0"

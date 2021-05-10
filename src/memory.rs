@@ -1,5 +1,5 @@
-use std::fmt;
 use std::error;
+use std::fmt;
 use std::result::Result;
 
 const RAM_SIZE: usize = 0x10000; // 64 kB (64 * 1024)
@@ -92,6 +92,11 @@ impl RAM {
         ram.bytes[0xFFFC] = 0x00; // least-significant byte
         ram.bytes[0xFFFD] = 0xF0; // most-significant byte
         return ram;
+    }
+
+    /// Reads a range of bytes. Always succeeds.
+    pub fn raw_read(&self, start: u16, end: u16) -> &[u8] {
+        &self.bytes[start as usize..end as usize]
     }
 }
 

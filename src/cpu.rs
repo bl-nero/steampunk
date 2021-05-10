@@ -1,6 +1,7 @@
 use crate::memory::{Memory, ReadError};
 use rand::Rng;
 use std::error;
+use std::fmt;
 use std::fmt::Debug;
 
 #[derive(Debug)]
@@ -36,6 +37,24 @@ type TickResult = Result<(), Box<dyn error::Error>>;
 //     ReadError,
 //     WriteError,
 // }
+
+#[derive(Debug, Clone)]
+struct UnknownOpcodeError {
+    opcode: u8,
+    address: u16,
+}
+
+impl error::Error for UnknownOpcodeError {}
+
+impl fmt::Display for UnknownOpcodeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Unknown opcode: ${:02X} at ${:04X}",
+            self.opcode, self.address
+        )
+    }
+}
 
 // impl From<ReadError> for CpuError {
 //     fn from(err: ReadError) -> Self {
@@ -208,12 +227,10 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
 
             // Oh no, we don't support it! (Yet.)
             SequenceState::Opcode(other_opcode, _) => {
-                println!("{:X?}", &self);
-                panic!(
-                    "unknown opcode: ${:02X} at ${:04X}",
-                    other_opcode,
-                    self.reg_pc - 1,
-                );
+                return Err(Box::new(UnknownOpcodeError {
+                    opcode: other_opcode,
+                    address: self.reg_pc - 1,
+                }));
             }
 
             // Reset sequence. First 6 cycles are idle, the initialization
@@ -321,6 +338,28 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
         }
         Ok(())
     }
+}
+
+impl<'a, M: Memory> fmt::Display for CPU<'a, M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "A  X  Y  SP PC   NV-BDIZC\n\
+            {:02X} {:02X} {:02X} {:02X} {:04X} {}",
+            self.reg_a, self.reg_x, self.reg_y, self.reg_sp, self.reg_pc, flags_to_string(self.flags)
+        )
+    }
+}
+
+fn flags_to_string(flags: u8) -> String {
+    format!("{:08b}", flags)
+        .chars()
+        .map(|ch| match ch {
+            '0' => '.',
+            '1' => '*',
+            _ => ch,
+        })
+        .collect()
 }
 
 mod opcodes {

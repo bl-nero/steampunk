@@ -1,4 +1,5 @@
-use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
+use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult, RAM};
+use std::fmt;
 
 /// Dispatches read/write calls to various devices with memory-mapped interfaces:
 /// TIA, RAM, RIOT (not yet implemented), and ROM.
@@ -30,6 +31,29 @@ impl<T: Memory, RA: Memory, RO: Memory> Memory for AddressSpace<T, RA, RO> {
             _ => Err(WriteError { address, value }),
         }
     }
+}
+
+impl<T: Memory, RO: Memory> fmt::Display for AddressSpace<T, RAM, RO> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let zero_page = self.ram.raw_read(0x0000, 0x0100);
+        writeln!(f, "Zero page:")?;
+        hexdump(f, 0x0000, zero_page)
+    }
+}
+
+/// Prints out a sequence of bytes on a given formatter in a hex dump format.
+fn hexdump(f: &mut fmt::Formatter, offset: u16, bytes: &[u8]) -> fmt::Result {
+    const LINE_WIDTH: usize = 16;
+    use itertools::Itertools;
+    for (line_num, line) in bytes.chunks(LINE_WIDTH).enumerate() {
+        writeln!(
+            f,
+            "{:04X}: {:02X}",
+            offset as usize + line_num * LINE_WIDTH,
+            line.iter().format(" ")
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

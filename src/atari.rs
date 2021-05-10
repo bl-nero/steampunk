@@ -13,6 +13,13 @@ type AtariAddressSpace = AddressSpace<TIA, RAM, RAM>;
 pub struct Atari<'a> {
     cpu: CPU<'a, AtariAddressSpace>,
     frame_renderer: FrameRenderer,
+    running: bool,
+}
+
+enum TickResult {
+    FramePending,
+    FrameComplete,
+    Error,
 }
 
 impl<'a> Atari<'a> {
@@ -22,24 +29,39 @@ impl<'a> Atari<'a> {
             frame_renderer: FrameRendererBuilder::new()
                 .with_palette(colors::ntsc_palette())
                 .build(),
+            running: false,
         }
     }
 
     pub fn next_frame(&mut self) -> &RgbaImage {
-        loop {
-            let frame_complete = self.tick();
-            if frame_complete {
-                return self.frame_renderer.frame_image();
+        while self.running {
+            match self.tick() {
+                TickResult::FramePending => {}
+                TickResult::FrameComplete => return self.frame_renderer.frame_image(),
+                TickResult::Error => self.running = false,
             }
         }
+        return self.frame_renderer.frame_image();
     }
 
-    pub fn tick(&mut self) -> bool {
+    /// Performs a single clock tick. If it resulted in an error reported by the
+    /// CPU, dump debug information on standard error stream and return
+    /// `TickResult::Error`.
+    fn tick(&mut self) -> TickResult {
         let tia_result = self.cpu.memory().tia.tick();
         if tia_result.cpu_tick {
-            match self.cpu.tick();
+            if let Err(e) = self.cpu.tick() {
+                eprintln!("ERROR: {}. Atari halted.", e);
+                eprintln!("{}", self.cpu);
+                eprintln!("{}", self.cpu.memory());
+                return TickResult::Error;
+            }
         }
-        return self.frame_renderer.consume(tia_result.video);
+        return if self.frame_renderer.consume(tia_result.video) {
+            TickResult::FrameComplete
+        } else {
+            TickResult::FramePending
+        };
     }
 
     pub fn frame_image(&self) -> &RgbaImage {
@@ -47,6 +69,7 @@ impl<'a> Atari<'a> {
     }
 
     pub fn reset(&mut self) {
+        self.running = true;
         self.cpu.reset();
         for _ in 0..8 {
             self.tick();
@@ -155,6 +178,23 @@ mod tests {
             expected_image_2,
             "animates_horizontal_stripes_2",
         );
+    }
+
+    #[test]
+    fn stops_on_error() {
+        let rom = read_test_rom("halt.bin");
+        let mut address_space = AtariAddressSpace {
+            tia: TIA::new(),
+            ram: RAM::new(),
+            rom: RAM::with_test_program(&rom[..]),
+        };
+        let mut atari = Atari::new(&mut address_space);
+
+        atari.reset();
+        let expected_image = read_test_image("stops_on_error.png");
+        let actual_image = DynamicImage::ImageRgba8(atari.next_frame().clone());
+
+        assert_images_equal(actual_image, expected_image, "stops_on_error");
     }
 
     #[bench]
