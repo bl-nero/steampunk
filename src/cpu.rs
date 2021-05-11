@@ -128,11 +128,11 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                     self.reg_pc += 1;
                 }
                 2 => {
-                    self.memory.read(self.bal as u16)?; // discard
+                    let _ = self.memory.read(self.bal as u16);
                 }
                 _ => {
                     self.memory
-                        .write((self.bal + self.reg_x) as u16, self.reg_a)?; // discard
+                        .write((self.bal + self.reg_x) as u16, self.reg_a)?;
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -168,7 +168,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             }
             SequenceState::Opcode(opcodes::PHP, subcycle) => match subcycle {
                 1 => {
-                    self.memory.read(self.reg_pc)?; // discard
+                    let _ = self.memory.read(self.reg_pc);
                 }
                 _ => {
                     self.memory.write(0x100 | self.reg_sp as u16, self.flags)?;
@@ -178,10 +178,10 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
             },
             SequenceState::Opcode(opcodes::PLP, subcycle) => match subcycle {
                 1 => {
-                    self.memory.read(self.reg_pc)?; // discard
+                    let _ = self.memory.read(self.reg_pc);
                 }
                 2 => {
-                    self.memory.read(0x100 | self.reg_sp as u16)?; // discard
+                    let _ = self.memory.read(0x100 | self.reg_sp as u16);
                     self.reg_sp += 1;
                 }
                 _ => {
@@ -220,7 +220,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 }
                 _ => {
                     self.reg_pc = self.reg_pc.wrapping_add(self.adl as i8 as i16 as u16);
-                    self.memory.read(self.reg_pc)?; // discard
+                    let _ = self.memory.read(self.reg_pc);
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -326,7 +326,7 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
         &mut self,
         operation: &mut dyn FnMut(&mut Self),
     ) -> Result<(), ReadError> {
-        self.memory.read(self.reg_pc)?; // discard
+        let _ = self.memory.read(self.reg_pc);
         operation(self);
         self.sequence_state = SequenceState::Ready;
         Ok(())
