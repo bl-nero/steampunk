@@ -34,6 +34,12 @@ pub struct TIA {
     hsync_on: bool,
     /// Holds CPU ticks until we reach the end of a scanline.
     wait_for_sync: bool,
+
+    // player_0_pos: u32,
+    // player_1_pos: u32,
+    // missile_0_pos: u32,
+    // missile_1_pos: u32,
+    // ball_pos: u32,
 }
 
 impl TIA {
@@ -52,6 +58,11 @@ impl TIA {
             hsync_on: false,
             hblank_on: false,
             wait_for_sync: false,
+            // player_0_pos: 0,
+            // player_1_pos: 0,
+            // missile_0_pos: 0,
+            // missile_1_pos: 0,
+            // ball_pos: 0,
         }
     }
 
@@ -140,6 +151,7 @@ impl Memory for TIA {
             registers::VSYNC => self.reg_vsync = value,
             registers::VBLANK => self.reg_vblank = value,
             registers::WSYNC => self.wait_for_sync = true,
+            registers::RSYNC => self.column_counter = TOTAL_WIDTH - 3,
             registers::COLUPF => self.reg_colupf = value,
             registers::COLUBK => self.reg_colubk = value,
             registers::CTRLPF => self.reg_ctrlpf = value,
@@ -233,12 +245,48 @@ pub mod registers {
     pub const VSYNC: u16 = 0x00;
     pub const VBLANK: u16 = 0x01;
     pub const WSYNC: u16 = 0x02;
+    pub const RSYNC: u16 = 0x03;
+    pub const NUSIZ0: u16 = 0x04;
+    pub const NUSIZ1: u16 = 0x05;
+    pub const COLUP0: u16 = 0x06;
+    pub const COLUP1: u16 = 0x07;
     pub const COLUPF: u16 = 0x08;
     pub const COLUBK: u16 = 0x09;
-    pub const CTRLPF: u16 = 0x0a;
-    pub const PF0: u16 = 0x0d;
-    pub const PF1: u16 = 0x0e;
-    pub const PF2: u16 = 0x0f;
+    pub const CTRLPF: u16 = 0x0A;
+    pub const REFP0: u16 = 0x0B;
+    pub const REFP1: u16 = 0x0C;
+    pub const PF0: u16 = 0x0D;
+    pub const PF1: u16 = 0x0E;
+    pub const PF2: u16 = 0x0F;
+    pub const RESP0: u16 = 0x10;
+    pub const RESP1: u16 = 0x11;
+    pub const RESM0: u16 = 0x12;
+    pub const RESM1: u16 = 0x13;
+    pub const RESBL: u16 = 0x14;
+    pub const AUDC0: u16 = 0x15;
+    pub const AUDC1: u16 = 0x16;
+    pub const AUDF0: u16 = 0x17;
+    pub const AUDF1: u16 = 0x18;
+    pub const AUDV0: u16 = 0x19;
+    pub const AUDV1: u16 = 0x1A;
+    pub const GRP0: u16 = 0x1B;
+    pub const GRP1: u16 = 0x1C;
+    pub const ENAM0: u16 = 0x1D;
+    pub const ENAM1: u16 = 0x1E;
+    pub const ENABL: u16 = 0x1F;
+    pub const HMP0: u16 = 0x20;
+    pub const HMP1: u16 = 0x21;
+    pub const HMM0: u16 = 0x22;
+    pub const HMM1: u16 = 0x23;
+    pub const HMBL: u16 = 0x24;
+    pub const VDELP0: u16 = 0x25;
+    pub const VDELP1: u16 = 0x26;
+    pub const VDELBL: u16 = 0x27;
+    pub const RESMP0: u16 = 0x28;
+    pub const RESMP1: u16 = 0x29;
+    pub const HMOVE: u16 = 0x2A;
+    pub const HMCLR: u16 = 0x2B;
+    pub const CXCLR: u16 = 0x2C;
 }
 
 /// Constants in this module are bit masks for setting and testing register
@@ -405,7 +453,8 @@ mod tests {
         tia.write(
             registers::CTRLPF,
             0xff & !flags::CTRLPF_REFLECT & !flags::CTRLPF_SCORE,
-        ).unwrap();
+        )
+        .unwrap();
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
@@ -429,5 +478,28 @@ mod tests {
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
         itertools::assert_equal(output, expected_output);
+    }
+
+    #[test]
+    fn rsync() {
+        let expected_output_1 = test_utils::decode_video_outputs(
+            "................||||||||||||||||....................................\
+             888888888888",
+        );
+        let expected_output_2 = test_utils::decode_video_outputs(
+            "888\
+             ................||||||||||||||||....................................\
+             88888888888888888888888888888888888888888888888888888888888888888888888888888888\
+             88888888888888888888888888888888888888888888888888888888888888888888888888888888",
+        );
+
+        let mut tia = TIA::new();
+        tia.write(registers::COLUBK, 0x08).unwrap();
+        // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
+        let output = VideoOutputIterator { tia: &mut tia }.take(HBLANK_WIDTH as usize + 12);
+        itertools::assert_equal(output, expected_output_1);
+        tia.write(registers::RSYNC, 0x00).unwrap();
+        let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize + 3);
+        itertools::assert_equal(output, expected_output_2);
     }
 }
