@@ -40,6 +40,9 @@ pub struct TIA {
     // missile_0_pos: u32,
     // missile_1_pos: u32,
     // ball_pos: u32,
+    // A temporary hack to allow one-time initialization before complaining each
+    // time a register is written to.
+    initialized_registers: [bool; 0x100],
 }
 
 impl TIA {
@@ -63,6 +66,7 @@ impl TIA {
             // missile_0_pos: 0,
             // missile_1_pos: 0,
             // ball_pos: 0,
+            initialized_registers: [false; 0x100],
         }
     }
 
@@ -158,7 +162,12 @@ impl Memory for TIA {
             registers::PF0 => self.reg_pf0 = value,
             registers::PF1 => self.reg_pf1 = value,
             registers::PF2 => self.reg_pf2 = value,
-            _ => return Err(WriteError { address, value }),
+            _ => {
+                if self.initialized_registers[address as usize] || value != 0 {
+                    return Err(WriteError { address, value });
+                }
+                self.initialized_registers[address as usize] = true;
+            }
         }
         Ok(())
     }
