@@ -56,6 +56,24 @@ impl fmt::Display for UnknownOpcodeError {
     }
 }
 
+#[derive(Debug, Clone)]
+struct CpuHaltedError {
+    opcode: u8,
+    address: u16,
+}
+
+impl error::Error for CpuHaltedError {}
+
+impl fmt::Display for CpuHaltedError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "CPU halted by opcode ${:02X} at ${:04X}",
+            self.opcode, self.address
+        )
+    }
+}
+
 // impl From<ReadError> for CpuError {
 //     fn from(err: ReadError) -> Self {
 //         CpuError::ReadError(err)
@@ -155,16 +173,19 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 self.simple_internal_operation(&mut |me| me.set_reg_y(me.reg_y.wrapping_sub(1)))?;
             }
             SequenceState::Opcode(opcodes::TYA, _) => {
-                self.simple_internal_operation(&mut |me| me.reg_a = me.reg_y)?;
+                self.simple_internal_operation(&mut |me| me.set_reg_a(me.reg_y))?;
             }
             SequenceState::Opcode(opcodes::TAX, _) => {
-                self.simple_internal_operation(&mut |me| me.reg_x = me.reg_a)?;
+                self.simple_internal_operation(&mut |me| me.set_reg_x(me.reg_a))?;
             }
             SequenceState::Opcode(opcodes::TXA, _) => {
-                self.simple_internal_operation(&mut |me| me.reg_a = me.reg_x)?;
+                self.simple_internal_operation(&mut |me| me.set_reg_a(me.reg_x))?;
             }
             SequenceState::Opcode(opcodes::TXS, _) => {
                 self.simple_internal_operation(&mut |me| me.reg_sp = me.reg_x)?;
+            }
+            SequenceState::Opcode(opcodes::TSX, _) => {
+                self.simple_internal_operation(&mut |me| me.set_reg_x(me.reg_sp))?;
             }
             SequenceState::Opcode(opcodes::PHP, subcycle) => match subcycle {
                 1 => {
@@ -186,6 +207,29 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                 }
                 _ => {
                     self.flags = self.memory.read(0x100 | self.reg_sp as u16)? | flags::UNUSED;
+                    self.sequence_state = SequenceState::Ready;
+                }
+            },
+            SequenceState::Opcode(opcodes::PHA, subcycle) => match subcycle {
+                1 => {
+                    let _ = self.memory.read(self.reg_pc);
+                }
+                _ => {
+                    self.memory.write(0x100 | self.reg_sp as u16, self.reg_a)?;
+                    self.reg_sp = self.reg_sp.wrapping_sub(1);
+                    self.sequence_state = SequenceState::Ready;
+                }
+            },
+            SequenceState::Opcode(opcodes::PLA, subcycle) => match subcycle {
+                1 => {
+                    let _ = self.memory.read(self.reg_pc);
+                }
+                2 => {
+                    let _ = self.memory.read(0x100 | self.reg_sp as u16);
+                    self.reg_sp = self.reg_sp.wrapping_add(1);
+                }
+                _ => {
+                    self.set_reg_a(self.memory.read(0x100 | self.reg_sp as u16)?);
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -224,6 +268,62 @@ impl<'a, M: Memory + Debug> CPU<'a, M> {
                     self.sequence_state = SequenceState::Ready;
                 }
             },
+            SequenceState::Opcode(opcodes::JSR, subcycle) => match subcycle {
+                1 => {
+                    self.adl = self.memory.read(self.reg_pc)?;
+                    self.reg_pc += 1;
+                }
+                2 => {
+                    let _ = self.memory.read(0x100 | self.reg_sp as u16);
+                }
+                3 => {
+                    self.memory
+                        .write(0x100 | self.reg_sp as u16, (self.reg_pc >> 8) as u8)?;
+                    self.reg_sp -= 1;
+                }
+                4 => {
+                    self.memory
+                        .write(0x100 | self.reg_sp as u16, self.reg_pc as u8)?;
+                    self.reg_sp -= 1;
+                }
+                _ => {
+                    let adh = self.memory.read(self.reg_pc)?;
+                    self.reg_pc = (self.adl as u16) | ((adh as u16) << 8);
+                    self.sequence_state = SequenceState::Ready;
+                }
+            },
+            SequenceState::Opcode(opcodes::RTS, subcycle) => match subcycle {
+                1 => {
+                    let _ = self.memory.read(self.reg_pc);
+                    self.reg_pc += 1;
+                }
+                2 => {
+                    let _ = self.memory.read(0x100 | self.reg_sp as u16);
+                    self.reg_sp += 1;
+                }
+                3 => {
+                    self.reg_pc =
+                        self.reg_pc & 0xFF00 | self.memory.read(0x100 | self.reg_sp as u16)? as u16;
+                    self.reg_sp += 1;
+                }
+                4 => {
+                    self.reg_pc = self.reg_pc & 0xFF
+                        | ((self.memory.read(0x100 | self.reg_sp as u16)? as u16) << 8);
+                }
+                _ => {
+                    let _ = self.memory.read(self.reg_pc);
+                    self.reg_pc += 1;
+                    self.sequence_state = SequenceState::Ready;
+                }
+            },
+
+            // Unofficial opcodes
+            SequenceState::Opcode(opcodes::HLT1, _) => {
+                return Err(Box::new(CpuHaltedError {
+                    opcode: opcodes::HLT1,
+                    address: self.reg_pc - 1,
+                }));
+            }
 
             // Oh no, we don't support it! (Yet.)
             SequenceState::Opcode(other_opcode, _) => {
@@ -346,7 +446,12 @@ impl<'a, M: Memory> fmt::Display for CPU<'a, M> {
             f,
             "A  X  Y  SP PC   NV-BDIZC\n\
             {:02X} {:02X} {:02X} {:02X} {:04X} {}",
-            self.reg_a, self.reg_x, self.reg_y, self.reg_sp, self.reg_pc, flags_to_string(self.flags)
+            self.reg_a,
+            self.reg_x,
+            self.reg_y,
+            self.reg_sp,
+            self.reg_pc,
+            flags_to_string(self.flags)
         )
     }
 }
@@ -378,14 +483,21 @@ mod opcodes {
     pub const TAX: u8 = 0xAA;
     pub const TXA: u8 = 0x8A;
     pub const TXS: u8 = 0x9A;
+    pub const TSX: u8 = 0xBA;
     pub const PHP: u8 = 0x08;
     pub const PLP: u8 = 0x28;
+    pub const PHA: u8 = 0x48;
+    pub const PLA: u8 = 0x68;
     pub const SEI: u8 = 0x78;
     pub const CLI: u8 = 0x58;
     // pub const SED: u8 = 0xF8;
     pub const CLD: u8 = 0xD8;
     pub const JMP_ABS: u8 = 0x4C;
     pub const BNE: u8 = 0xD0;
+    pub const JSR: u8 = 0x20;
+    pub const RTS: u8 = 0x60;
+
+    pub const HLT1: u8 = 0x02;
 }
 
 mod flags {
@@ -740,6 +852,91 @@ mod tests {
         reset(&mut cpu);
         cpu.ticks(4 + 4 * 9 + 8 + 3).unwrap();
         assert_eq!(cpu.memory.bytes[9..16], [0, 5, 5, 0, 5, 5, 0]);
+    }
+
+    #[test]
+    fn subroutines_and_stack() {
+        let mut memory = RAM::with_test_program(&mut [
+            // Main program. Call subroutine A to store 6 at 25. Then call
+            // subroutine B to store 7 at 28 and 6 at 26. Finally, store the 10
+            // loaded to A in the beginning at 30. Duration: 25 cycles.
+            opcodes::LDX_IMM,
+            0xFF,
+            opcodes::TXS,
+            opcodes::LDA_IMM,
+            10,
+            opcodes::LDX_IMM,
+            5,
+            opcodes::JSR,
+            0x11,
+            0xF0,
+            opcodes::INX,
+            opcodes::JSR,
+            0x19,
+            0xF0,
+            opcodes::STA_ZP,
+            30,
+            opcodes::HLT1,
+            // Subroutine A: store 6 at 20+X. Address: $F011. Duration: 19
+            // cycles.
+            opcodes::PHA,
+            opcodes::LDA_IMM,
+            6,
+            opcodes::STA_ZP_X,
+            20,
+            opcodes::PLA,
+            opcodes::RTS,
+            opcodes::HLT1,
+            // Subroutine B: store 6 at 20+X and 7 at 22+X. Address: $F019.
+            // Duration: 25 cycles.
+            opcodes::PHA,
+            opcodes::LDA_IMM,
+            7,
+            opcodes::JSR,
+            0x11,
+            0xF0,
+            opcodes::STA_ZP_X,
+            22,
+            opcodes::PLA,
+            opcodes::RTS,
+            opcodes::HLT1,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(25 + 19 + 25 + 19).unwrap();
+        assert_eq!(cpu.memory.bytes[24..32], [0, 6, 6, 0, 7, 0, 10, 0]);
+    }
+
+    #[test]
+    fn stack_wrapping() {
+        let mut memory = RAM::with_test_program(&mut [
+            opcodes::LDX_IMM,
+            1,
+            opcodes::TXS,
+            // ----
+            opcodes::TXA,
+            opcodes::PHA,
+            opcodes::TSX,
+            opcodes::TXA,
+            opcodes::PHA,
+            opcodes::TSX,
+            opcodes::TXA,
+            opcodes::PHA,
+            opcodes::TSX,
+            // ----
+            opcodes::TXA,
+            opcodes::PLA,
+            opcodes::PLA,
+            opcodes::PLA,
+            opcodes::STA_ZP,
+            5,
+        ]);
+        let mut cpu = CPU::new(&mut memory);
+        reset(&mut cpu);
+        cpu.ticks(4 + 3 * 7 + 17).unwrap();
+        assert_eq!(cpu.memory.bytes[0x1FF], 0xFF);
+        assert_eq!(cpu.memory.bytes[0x100..0x102], [0, 1]);
+        assert_eq!(cpu.memory.bytes[5], 1);
     }
 
     #[bench]
