@@ -1,17 +1,17 @@
 use crate::address_space::AddressSpace;
 use crate::colors;
-use crate::cpu::CPU;
+use crate::cpu::Cpu;
 use crate::frame_renderer::FrameRenderer;
 use crate::frame_renderer::FrameRendererBuilder;
-use crate::memory::RAM;
-use crate::tia::TIA;
+use crate::memory::Ram;
+use crate::tia::Tia;
 use image;
 use image::RgbaImage;
 
-type AtariAddressSpace = AddressSpace<TIA, RAM, RAM>;
+type AtariAddressSpace = AddressSpace<Tia, Ram, Ram>;
 
 pub struct Atari<'a> {
-    cpu: CPU<'a, AtariAddressSpace>,
+    cpu: Cpu<'a, AtariAddressSpace>,
     frame_renderer: FrameRenderer,
     running: bool,
 }
@@ -25,7 +25,7 @@ enum TickResult {
 impl<'a> Atari<'a> {
     pub fn new(address_space: &mut AtariAddressSpace) -> Atari {
         Atari {
-            cpu: CPU::new(address_space),
+            cpu: Cpu::new(address_space),
             frame_renderer: FrameRendererBuilder::new()
                 .with_palette(colors::ntsc_palette())
                 .build(),
@@ -138,9 +138,9 @@ mod tests {
     fn shows_horizontal_stripes() {
         let rom = read_test_rom("horizontal_stripes.bin");
         let mut address_space = AtariAddressSpace {
-            tia: TIA::new(),
-            ram: RAM::new(),
-            rom: RAM::with_test_program(&rom[..]),
+            tia: Tia::new(),
+            ram: Ram::new(),
+            rom: Ram::with_test_program(&rom[..]),
         };
         let mut atari = Atari::new(&mut address_space);
 
@@ -158,9 +158,9 @@ mod tests {
         let expected_image_2 = read_test_image("horizontal_stripes_2.png");
 
         let mut address_space = AtariAddressSpace {
-            tia: TIA::new(),
-            ram: RAM::new(),
-            rom: RAM::with_test_program(&rom[..]),
+            tia: Tia::new(),
+            ram: Ram::new(),
+            rom: Ram::with_test_program(&rom[..]),
         };
         let mut atari = Atari::new(&mut address_space);
 
@@ -184,9 +184,9 @@ mod tests {
     fn stops_on_error() {
         let rom = read_test_rom("halt.bin");
         let mut address_space = AtariAddressSpace {
-            tia: TIA::new(),
-            ram: RAM::new(),
-            rom: RAM::with_test_program(&rom[..]),
+            tia: Tia::new(),
+            ram: Ram::new(),
+            rom: Ram::with_test_program(&rom[..]),
         };
         let mut atari = Atari::new(&mut address_space);
 
@@ -202,9 +202,9 @@ mod tests {
         let rom = read_test_rom("horizontal_stripes.bin");
         b.iter(|| {
             let mut address_space = AtariAddressSpace {
-                tia: TIA::new(),
-                ram: RAM::new(),
-                rom: RAM::with_test_program(&rom[..]),
+                tia: Tia::new(),
+                ram: Ram::new(),
+                rom: Ram::with_test_program(&rom[..]),
             };
             let mut atari = Atari::new(&mut address_space);
 

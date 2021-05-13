@@ -1,4 +1,4 @@
-use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult, RAM};
+use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult, Ram};
 use std::fmt;
 
 /// Dispatches read/write calls to various devices with memory-mapped interfaces:
@@ -33,7 +33,7 @@ impl<T: Memory, RA: Memory, RO: Memory> Memory for AddressSpace<T, RA, RO> {
     }
 }
 
-impl<T: Memory, RO: Memory> fmt::Display for AddressSpace<T, RAM, RO> {
+impl<T: Memory, RO: Memory> fmt::Display for AddressSpace<T, Ram, RO> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let zero_page = self.ram.raw_read(0x0000, 0x0100);
         writeln!(f, "Zero page:")?;
@@ -59,15 +59,15 @@ fn hexdump(f: &mut fmt::Formatter, offset: u16, bytes: &[u8]) -> fmt::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::RAM;
+    use crate::memory::Ram;
     use std::error;
 
     #[test]
     fn reads_and_writes() -> Result<(), Box<dyn error::Error>> {
         let mut address_space = AddressSpace {
-            tia: RAM::new(),
-            ram: RAM::new(),
-            rom: RAM::new(),
+            tia: Ram::new(),
+            ram: Ram::new(),
+            rom: Ram::new(),
         };
         address_space.write(0, 8)?; // Start of TIA
         address_space.write(0x7f, 5)?; // End of TIA

@@ -13,12 +13,12 @@ pub mod test_utils;
 use address_space::AddressSpace;
 use atari::Atari;
 use image::RgbaImage;
-use memory::RAM;
+use memory::Ram;
 use piston::input::RenderEvent;
 use piston_window::WindowSettings;
 use piston_window::{PistonWindow, Texture, TextureSettings, Window};
 use std::env;
-use tia::TIA;
+use tia::Tia;
 
 fn main() {
     println!("Ready player ONE!");
@@ -28,9 +28,9 @@ fn main() {
     let rom = std::fs::read(&args[1]).unwrap();
     // Create and initialize components of the emulated system.
     let mut address_space = AddressSpace {
-        tia: TIA::new(),
-        ram: RAM::new(),
-        rom: RAM::with_program(&rom[..]),
+        tia: Tia::new(),
+        ram: Ram::new(),
+        rom: Ram::with_program(&rom[..]),
     };
     let mut atari = Atari::new(&mut address_space);
     atari.reset();

@@ -3,7 +3,7 @@ use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 /// TIA is responsible for generating the video signal, sound (not yet
 /// implemented) and for synchronizing CPU with the screen's electron beam.
 #[derive(Debug)]
-pub struct TIA {
+pub struct Tia {
     // *** REGISTERS ***
     /// If bit 1 (`flags::VSYNC_ON`) is set, TIA emits a VSYNC signal.
     reg_vsync: u8,
@@ -45,9 +45,9 @@ pub struct TIA {
     initialized_registers: [bool; 0x100],
 }
 
-impl TIA {
-    pub fn new() -> TIA {
-        TIA {
+impl Tia {
+    pub fn new() -> Tia {
+        Tia {
             reg_vsync: 0,
             reg_vblank: 0,
             reg_colupf: 0,
@@ -72,7 +72,7 @@ impl TIA {
 
     /// Processes a single TIA clock cycle. Returns a TIA output structure. A
     /// single cycle is the time needed to render a single pixel.
-    pub fn tick(&mut self) -> TIAOutput {
+    pub fn tick(&mut self) -> TiaOutput {
         match self.column_counter {
             0 => {
                 self.hblank_on = true;
@@ -86,7 +86,7 @@ impl TIA {
 
         let vsync_on = self.reg_vsync & flags::VSYNC_ON != 0;
         let vblank_on = self.reg_vblank & flags::VBLANK_ON != 0;
-        let output = TIAOutput {
+        let output = TiaOutput {
             video: VideoOutput {
                 hsync: self.hsync_on,
                 vsync: vsync_on,
@@ -145,7 +145,7 @@ impl TIA {
     }
 }
 
-impl Memory for TIA {
+impl Memory for Tia {
     fn read(&self, address: u16) -> ReadResult {
         Err(ReadError { address })
     }
@@ -175,7 +175,7 @@ impl Memory for TIA {
 
 /// TIA output structure. It indicates how a single TIA clock tick influences
 /// other parts of the system.
-pub struct TIAOutput {
+pub struct TiaOutput {
     pub video: VideoOutput,
     /// If `true`, TIA allows CPU to perform a tick. Otherwise, the CPU is put on
     /// hold.
@@ -319,7 +319,7 @@ mod tests {
     /// A utility that produces a sequence of TIA video outputs. Useful for
     /// comparing with expected sequences in tests.
     struct VideoOutputIterator<'a> {
-        tia: &'a mut TIA,
+        tia: &'a mut Tia,
     }
 
     impl<'a> Iterator for VideoOutputIterator<'a> {
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn draws_background_pixels() {
-        let mut tia = TIA::new();
+        let mut tia = Tia::new();
         for _ in 0..HBLANK_WIDTH {
             tia.tick();
         }
@@ -355,7 +355,7 @@ mod tests {
              88888888888888888888888888888888888888888888888888888888888888888888888888888888",
         );
 
-        let mut tia = TIA::new();
+        let mut tia = Tia::new();
         tia.write(registers::COLUBK, 0x08).unwrap();
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = VideoOutputIterator { tia: &mut tia }.take(2 * TOTAL_WIDTH as usize);
@@ -370,7 +370,7 @@ mod tests {
              ================================================================================",
         );
 
-        let mut tia = TIA::new();
+        let mut tia = Tia::new();
         tia.write(registers::COLUBK, 0x00).unwrap();
         tia.write(registers::VSYNC, flags::VSYNC_ON).unwrap();
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
@@ -390,7 +390,7 @@ mod tests {
              ................................................................................",
         );
 
-        let mut tia = TIA::new();
+        let mut tia = Tia::new();
         tia.write(registers::COLUBK, 0x32).unwrap();
         tia.write(registers::VBLANK, flags::VBLANK_ON).unwrap();
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
@@ -412,7 +412,7 @@ mod tests {
              --------------------------------------------------------------------------------",
         );
 
-        let mut tia = TIA::new();
+        let mut tia = Tia::new();
         tia.write(registers::VSYNC, flags::VSYNC_ON).unwrap();
         tia.write(registers::VBLANK, flags::VBLANK_ON).unwrap();
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn tells_to_tick_cpu_every_three_cycles() {
-        let mut tia = TIA::new();
+        let mut tia = Tia::new();
         assert_eq!(tia.tick().cpu_tick, true);
         assert_eq!(tia.tick().cpu_tick, false);
         assert_eq!(tia.tick().cpu_tick, false);
@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn freezes_cpu_until_wsync() {
-        let mut tia = TIA::new();
+        let mut tia = Tia::new();
         tia.tick();
         tia.write(registers::WSYNC, 0x00).unwrap();
         for i in 1..TOTAL_WIDTH {
@@ -453,7 +453,7 @@ mod tests {
              22220000222222222222000000002222222222220000222222220000222200002222222200002222",
         );
 
-        let mut tia = TIA::new();
+        let mut tia = Tia::new();
         tia.write(registers::COLUBK, 0).unwrap();
         tia.write(registers::COLUPF, 2).unwrap();
         tia.write(registers::PF0, 0b11010000).unwrap();
@@ -477,7 +477,7 @@ mod tests {
              66662222666666662222666622226666666622226666666666662222222266666666666622226666",
         );
 
-        let mut tia = TIA::new();
+        let mut tia = Tia::new();
         tia.write(registers::COLUBK, 2).unwrap();
         tia.write(registers::COLUPF, 6).unwrap();
         tia.write(registers::PF0, 0b11010000).unwrap();
@@ -502,7 +502,7 @@ mod tests {
              88888888888888888888888888888888888888888888888888888888888888888888888888888888",
         );
 
-        let mut tia = TIA::new();
+        let mut tia = Tia::new();
         tia.write(registers::COLUBK, 0x08).unwrap();
         // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
         let output = VideoOutputIterator { tia: &mut tia }.take(HBLANK_WIDTH as usize + 12);
