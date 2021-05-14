@@ -64,6 +64,12 @@ impl Ram {
         }
     }
 
+    pub fn initialized_with(value: u8) -> Ram {
+        Ram {
+            bytes: [value; RAM_SIZE],
+        }
+    }
+
     pub fn with_program(program: &[u8]) -> Ram {
         let mut ram = Ram::new();
 
