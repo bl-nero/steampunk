@@ -524,7 +524,7 @@ mod tests {
     extern crate test;
 
     use super::*;
-    use crate::memory::Ram;
+    use crate::memory::SimpleRam;
     use test::Bencher;
 
     fn reset<M: Memory + Debug>(cpu: &mut Cpu<M>) {
@@ -552,7 +552,7 @@ mod tests {
         // Finally, the second program. It stores 2 at 0x0000.
         program.extend_from_slice(&[opcodes::LDX_IMM, 2, opcodes::STX_ZP, 0]);
 
-        let mut memory = Ram::with_test_program(&program);
+        let mut memory = SimpleRam::with_test_program(&program);
         let mut cpu = Cpu::new(&mut memory);
         reset(&mut cpu);
         cpu.ticks(10).unwrap();
@@ -572,7 +572,7 @@ mod tests {
 
     #[test]
     fn lda_sta() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDA_IMM,
             65,
             opcodes::STA_ZP,
@@ -598,7 +598,7 @@ mod tests {
 
     #[test]
     fn ldx_stx() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDX_IMM,
             65,
             opcodes::STX_ZP,
@@ -624,7 +624,7 @@ mod tests {
 
     #[test]
     fn ldy_sty() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDY_IMM,
             65,
             opcodes::STY_ZP,
@@ -650,7 +650,7 @@ mod tests {
 
     #[test]
     fn multiple_registers() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDA_IMM,
             10,
             opcodes::LDX_IMM,
@@ -668,7 +668,7 @@ mod tests {
 
     #[test]
     fn loading_storing_addressing_modes() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDX_IMM,
             5,
             opcodes::LDA_IMM,
@@ -688,7 +688,7 @@ mod tests {
 
     #[test]
     fn inx_dex() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDX_IMM,
             0xFE,
             opcodes::INX,
@@ -715,7 +715,7 @@ mod tests {
 
     #[test]
     fn iny_dey() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDY_IMM,
             0xFE,
             opcodes::INY,
@@ -742,7 +742,7 @@ mod tests {
 
     #[test]
     fn tya() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDY_IMM,
             15,
             opcodes::TYA,
@@ -757,7 +757,7 @@ mod tests {
 
     #[test]
     fn tax() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDA_IMM,
             13,
             opcodes::TAX,
@@ -772,7 +772,7 @@ mod tests {
 
     #[test]
     fn txa() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDX_IMM,
             43,
             opcodes::TXA,
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn flag_manipulation() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             // Load 0 to flags and initialize SP.
             opcodes::LDX_IMM,
             0xFE,
@@ -823,7 +823,7 @@ mod tests {
 
     #[test]
     fn jmp() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDX_IMM,
             1,
             opcodes::STX_ZP,
@@ -843,7 +843,7 @@ mod tests {
 
     #[test]
     fn bne() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDX_IMM,
             5,
             opcodes::LDA_IMM,
@@ -864,7 +864,7 @@ mod tests {
 
     #[test]
     fn subroutines_and_stack() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             // Main program. Call subroutine A to store 6 at 25. Then call
             // subroutine B to store 7 at 28 and 6 at 26. Finally, store the 10
             // loaded to A in the beginning at 30. Duration: 25 cycles.
@@ -917,7 +917,7 @@ mod tests {
 
     #[test]
     fn stack_wrapping() {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDX_IMM,
             1,
             opcodes::TXS,
@@ -949,7 +949,7 @@ mod tests {
 
     #[bench]
     fn benchmark(b: &mut Bencher) {
-        let mut memory = Ram::with_test_program(&mut [
+        let mut memory = SimpleRam::with_test_program(&mut [
             opcodes::LDX_IMM,
             1,
             opcodes::LDA_IMM,

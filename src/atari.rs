@@ -3,12 +3,12 @@ use crate::colors;
 use crate::cpu::Cpu;
 use crate::frame_renderer::FrameRenderer;
 use crate::frame_renderer::FrameRendererBuilder;
-use crate::memory::Ram;
+use crate::memory::SimpleRam;
 use crate::tia::Tia;
 use image;
 use image::RgbaImage;
 
-type AtariAddressSpace = AddressSpace<Tia, Ram, Ram>;
+type AtariAddressSpace = AddressSpace<Tia, SimpleRam, SimpleRam>;
 
 pub struct Atari<'a> {
     cpu: Cpu<'a, AtariAddressSpace>,
@@ -139,8 +139,8 @@ mod tests {
         let rom = read_test_rom("horizontal_stripes.bin");
         let mut address_space = AtariAddressSpace {
             tia: Tia::new(),
-            ram: Ram::new(),
-            rom: Ram::with_test_program(&rom[..]),
+            ram: SimpleRam::new(),
+            rom: SimpleRam::with_test_program(&rom[..]),
         };
         let mut atari = Atari::new(&mut address_space);
 
@@ -159,8 +159,8 @@ mod tests {
 
         let mut address_space = AtariAddressSpace {
             tia: Tia::new(),
-            ram: Ram::new(),
-            rom: Ram::with_test_program(&rom[..]),
+            ram: SimpleRam::new(),
+            rom: SimpleRam::with_test_program(&rom[..]),
         };
         let mut atari = Atari::new(&mut address_space);
 
@@ -185,8 +185,8 @@ mod tests {
         let rom = read_test_rom("halt.bin");
         let mut address_space = AtariAddressSpace {
             tia: Tia::new(),
-            ram: Ram::new(),
-            rom: Ram::with_test_program(&rom[..]),
+            ram: SimpleRam::new(),
+            rom: SimpleRam::with_test_program(&rom[..]),
         };
         let mut atari = Atari::new(&mut address_space);
 
@@ -203,8 +203,8 @@ mod tests {
         b.iter(|| {
             let mut address_space = AtariAddressSpace {
                 tia: Tia::new(),
-                ram: Ram::new(),
-                rom: Ram::with_test_program(&rom[..]),
+                ram: SimpleRam::new(),
+                rom: SimpleRam::with_test_program(&rom[..]),
             };
             let mut atari = Atari::new(&mut address_space);
 

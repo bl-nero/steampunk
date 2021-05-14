@@ -13,7 +13,7 @@ pub mod test_utils;
 use address_space::AddressSpace;
 use atari::Atari;
 use image::RgbaImage;
-use memory::Ram;
+use memory::SimpleRam;
 use piston::input::RenderEvent;
 use piston_window::WindowSettings;
 use piston_window::{PistonWindow, Texture, TextureSettings, Window};
@@ -29,8 +29,8 @@ fn main() {
     // Create and initialize components of the emulated system.
     let mut address_space = AddressSpace {
         tia: Tia::new(),
-        ram: Ram::new(),
-        rom: Ram::with_program(&rom[..]),
+        ram: SimpleRam::new(),
+        rom: SimpleRam::with_program(&rom[..]),
     };
     let mut atari = Atari::new(&mut address_space);
     atari.reset();

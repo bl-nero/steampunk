@@ -2,8 +2,6 @@ use std::error;
 use std::fmt;
 use std::result::Result;
 
-const RAM_SIZE: usize = 0x10000; // 64 kB (64 * 1024)
-
 pub trait Memory {
     /// Writes a byte to given address. Returns error if the location is
     /// unsupported. In a release build, the errors should be ignored and the
@@ -53,25 +51,27 @@ impl fmt::Display for WriteError {
 
 /// A very simple memory structure. At the moment, it's just a 64-kilobyte chunk
 /// of RAM, for simplicity of addressing.
-pub struct Ram {
-    pub bytes: [u8; RAM_SIZE], // computer has RAM_SIZE (64k) bytes (unsigned 8-bit integers)
+pub struct SimpleRam {
+    pub bytes: [u8; Self::SIZE],
 }
 
-impl Ram {
-    pub fn new() -> Ram {
-        Ram {
-            bytes: [0; RAM_SIZE], // Fill the entire RAM with 0x00.
+impl SimpleRam {
+    const SIZE: usize = 0x10000; // 64 kB (64 * 1024)
+
+    pub fn new() -> SimpleRam {
+        SimpleRam {
+            bytes: [0; Self::SIZE], // Fill the entire RAM with 0x00.
         }
     }
 
-    pub fn initialized_with(value: u8) -> Ram {
-        Ram {
-            bytes: [value; RAM_SIZE],
+    pub fn initialized_with(value: u8) -> SimpleRam {
+        SimpleRam {
+            bytes: [value; Self::SIZE],
         }
     }
 
-    pub fn with_program(program: &[u8]) -> Ram {
-        let mut ram = Ram::new();
+    pub fn with_program(program: &[u8]) -> SimpleRam {
+        let mut ram = SimpleRam::new();
 
         // Copy the program into memory. If the program is a 2K cartridge, place
         // it in two mirror copies, starting from addresses 0xF000 and 0xF800.
@@ -86,8 +86,8 @@ impl Ram {
 
     /// Creates a new `RAM`, putting given `program` at address 0xF000. It also
     /// sets the reset pointer to 0xF000.
-    pub fn with_test_program(program: &[u8]) -> Ram {
-        let mut ram = Ram::new();
+    pub fn with_test_program(program: &[u8]) -> SimpleRam {
+        let mut ram = SimpleRam::new();
 
         // Copy the program into memory, starting from address 0xF000.
         for (i, byte) in program.iter().enumerate() {
@@ -106,7 +106,7 @@ impl Ram {
     }
 }
 
-impl Memory for Ram {
+impl Memory for SimpleRam {
     fn read(&self, address: u16) -> ReadResult {
         // this arrow means we give u16 they return u8
         Ok(self.bytes[address as usize])
@@ -118,14 +118,14 @@ impl Memory for Ram {
     }
 }
 
-impl fmt::Debug for Ram {
+impl fmt::Debug for SimpleRam {
     /// Prints out only the zero page, because come on, who would scroll through
     /// a dump of entire 64 kibibytes...
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use std::convert::TryInto;
         let zero_page: [u8; 255] = (&self.bytes[..255]).try_into().unwrap();
         return f
-            .debug_struct("Ram")
+            .debug_struct("SimpleRam")
             .field("zero page", &zero_page)
             .finish();
     }
@@ -136,14 +136,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_creates_empty_ram() {
-        let ram = Ram::with_test_program(&[]);
+    fn creating_empty_simple_ram() {
+        let ram = SimpleRam::with_test_program(&[]);
         assert_eq!(ram.bytes[..0xFFFC], [0u8; 0xFFFC][..]);
     }
 
     #[test]
-    fn it_places_program_in_memory() {
-        let ram = Ram::with_test_program(&[10, 56, 72, 255]);
+    fn simple_ram_with_test_program() {
+        let ram = SimpleRam::with_test_program(&[10, 56, 72, 255]);
         // Bytes until 0xF000 (exclusively) should have been zeroed.
         assert_eq!(ram.bytes[..0xF000], [0u8; 0xF000][..]);
         // Next, there should be our program.
@@ -153,8 +153,8 @@ mod tests {
     }
 
     #[test]
-    fn it_sets_reset_address() {
-        let ram = Ram::with_test_program(&[0xFF; 0x1000]);
+    fn simple_ram_with_test_program_sets_reset_address() {
+        let ram = SimpleRam::with_test_program(&[0xFF; 0x1000]);
         assert_eq!(ram.bytes[0xFFFC..0xFFFE], [0x00, 0xF0]); // 0xF000
     }
 }
