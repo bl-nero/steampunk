@@ -140,25 +140,17 @@ impl<'a, M: Memory + Debug> Cpu<'a, M> {
             SequenceState::Opcode(opcodes::STA_ZP, _) => {
                 self.tick_store_zero_page(self.reg_a)?;
             }
-            SequenceState::Opcode(opcodes::STA_ZP_X, subcycle) => match subcycle {
-                1 => {
-                    self.bal = self.memory.read(self.reg_pc)?;
-                    self.reg_pc += 1;
-                }
-                2 => {
-                    let _ = self.memory.read(self.bal as u16);
-                }
-                _ => {
-                    self.memory
-                        .write((self.bal + self.reg_x) as u16, self.reg_a)?;
-                    self.sequence_state = SequenceState::Ready;
-                }
-            },
+            SequenceState::Opcode(opcodes::STA_ZP_X, _) => {
+                self.tick_store_zero_page_x(self.reg_a)?;
+            }
             SequenceState::Opcode(opcodes::STX_ZP, _) => {
                 self.tick_store_zero_page(self.reg_x)?;
             }
             SequenceState::Opcode(opcodes::STY_ZP, _) => {
                 self.tick_store_zero_page(self.reg_y)?;
+            }
+            SequenceState::Opcode(opcodes::STY_ZP_X, _) => {
+                self.tick_store_zero_page_x(self.reg_y)?;
             }
             SequenceState::Opcode(opcodes::INX, _) => {
                 self.tick_simple_internal_operation(&mut |me| {
@@ -362,6 +354,23 @@ impl<'a, M: Memory + Debug> Cpu<'a, M> {
         Ok(())
     }
 
+    fn tick_store_zero_page_x(&mut self, value: u8) -> TickResult {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => {
+                self.bal = self.memory.read(self.reg_pc)?;
+                self.reg_pc += 1;
+            }
+            SequenceState::Opcode(_, 2) => {
+                let _ = self.memory.read(self.bal as u16);
+            }
+            _ => {
+                self.memory.write((self.bal + self.reg_x) as u16, value)?;
+                self.sequence_state = SequenceState::Ready;
+            }
+        };
+        Ok(())
+    }
+
     fn tick_simple_internal_operation(
         &mut self,
         operation: &mut dyn FnMut(&mut Self),
@@ -485,6 +494,7 @@ mod opcodes {
     pub const DEX: u8 = 0xCA;
     pub const LDY_IMM: u8 = 0xA0;
     pub const STY_ZP: u8 = 0x8C;
+    pub const STY_ZP_X: u8 = 0x94;
     pub const INY: u8 = 0xC8;
     pub const DEY: u8 = 0x88;
     pub const TYA: u8 = 0x98;
@@ -673,17 +683,24 @@ mod tests {
             5,
             opcodes::LDA_IMM,
             42,
+            opcodes::LDY_IMM,
+            100,
             opcodes::STA_ZP_X,
             3,
+            opcodes::STY_ZP_X,
+            9,
             opcodes::INX,
             opcodes::JMP_ABS,
-            0x04,
+            0x06,
             0xF0,
         ]);
         let mut cpu = Cpu::new(&mut memory);
         reset(&mut cpu);
-        cpu.ticks(4 + 5 * 9).unwrap();
-        assert_eq!(cpu.memory.bytes[8..13], [42, 42, 42, 42, 42]);
+        cpu.ticks(6 + 5 * 13).unwrap();
+        assert_eq!(
+            cpu.memory.bytes[8..19],
+            [42, 42, 42, 42, 42, 0, 100, 100, 100, 100, 100]
+        );
     }
 
     #[test]
