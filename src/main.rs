@@ -26,12 +26,12 @@ fn main() {
     // Load an example ROM image.
     let rom_bytes = std::fs::read(&args[1]).unwrap();
     // Create and initialize components of the emulated system.
-    let mut address_space = AtariAddressSpace {
+    let address_space = Box::new(AtariAddressSpace {
         tia: Tia::new(),
         ram: AtariRam::new(),
         rom: AtariRom::new(&rom_bytes[..]).unwrap(),
-    };
-    let mut atari = Atari::new(&mut address_space);
+    });
+    let mut atari = Atari::new(address_space);
     atari.reset();
 
     let mut window = build_window(atari.frame_image());

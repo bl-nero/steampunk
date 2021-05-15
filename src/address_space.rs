@@ -1,4 +1,4 @@
-use crate::memory::{Memory, ReadError, ReadResult, SimpleRam, WriteError, WriteResult};
+use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 use std::fmt;
 
 /// Dispatches read/write calls to various devices with memory-mapped interfaces:

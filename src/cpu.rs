@@ -12,8 +12,8 @@ enum SequenceState {
 }
 
 #[derive(Debug)]
-pub struct Cpu<'a, M: Memory> {
-    memory: &'a mut M,
+pub struct Cpu<M: Memory> {
+    memory: Box<M>,
 
     // Registers.
     reg_pc: u16,
@@ -80,11 +80,11 @@ impl fmt::Display for CpuHaltedError {
 //     }
 // }
 
-impl<'a, M: Memory + Debug> Cpu<'a, M> {
+impl<M: Memory + Debug> Cpu<M> {
     /// Creates a new `CPU` that owns given `memory`. The newly created `CPU` is
     /// not yet ready for executing programs; it first needs to be reset using
     /// the [`reset`](#method.reset) method.
-    pub fn new(memory: &'a mut M) -> Self {
+    pub fn new(memory: Box<M>) -> Self {
         let mut rng = rand::thread_rng();
         Cpu {
             memory: memory,
@@ -104,7 +104,7 @@ impl<'a, M: Memory + Debug> Cpu<'a, M> {
     }
 
     pub fn memory(&mut self) -> &mut M {
-        self.memory
+        &mut self.memory
     }
 
     /// Start the CPU reset sequence. It will last for the next 8 cycles. During
@@ -457,7 +457,7 @@ impl<'a, M: Memory + Debug> Cpu<'a, M> {
     }
 }
 
-impl<'a, M: Memory> fmt::Display for Cpu<'a, M> {
+impl<M: Memory> fmt::Display for Cpu<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
@@ -542,6 +542,13 @@ mod tests {
         cpu.ticks(8).unwrap();
     }
 
+    fn cpu_with_program(program: &[u8]) -> Cpu<SimpleRam> {
+        let memory = Box::new(SimpleRam::with_test_program(program));
+        let mut cpu = Cpu::new(memory);
+        reset(&mut cpu);
+        return cpu;
+    }
+
     #[test]
     fn it_resets() {
         // We test resetting the CPU by providing a memory image with two
@@ -562,8 +569,7 @@ mod tests {
         // Finally, the second program. It stores 2 at 0x0000.
         program.extend_from_slice(&[opcodes::LDX_IMM, 2, opcodes::STX_ZP, 0]);
 
-        let mut memory = SimpleRam::with_test_program(&program);
-        let mut cpu = Cpu::new(&mut memory);
+        let mut cpu = cpu_with_program(&program);
         reset(&mut cpu);
         cpu.ticks(10).unwrap();
         assert_eq!(cpu.memory.bytes[0], 1, "the first program wasn't executed");
@@ -577,12 +583,12 @@ mod tests {
         cpu.memory.bytes[0xFFFD] = 0xF1;
         reset(&mut cpu);
         cpu.ticks(5).unwrap();
-        assert_eq!(memory.bytes[0], 2, "the second program wasn't executed");
+        assert_eq!(cpu.memory.bytes[0], 2, "the second program wasn't executed");
     }
 
     #[test]
     fn lda_sta() {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let mut cpu = cpu_with_program(&[
             opcodes::LDA_IMM,
             65,
             opcodes::STA_ZP,
@@ -596,8 +602,6 @@ mod tests {
             opcodes::STA_ZP,
             5,
         ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
         cpu.ticks(5).unwrap();
         assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
         cpu.ticks(5).unwrap();
@@ -608,7 +612,7 @@ mod tests {
 
     #[test]
     fn ldx_stx() {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let mut cpu = cpu_with_program(&[
             opcodes::LDX_IMM,
             65,
             opcodes::STX_ZP,
@@ -622,8 +626,6 @@ mod tests {
             opcodes::STX_ZP,
             5,
         ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
         cpu.ticks(5).unwrap();
         assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
         cpu.ticks(5).unwrap();
@@ -634,7 +636,7 @@ mod tests {
 
     #[test]
     fn ldy_sty() {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let mut cpu = cpu_with_program(&[
             opcodes::LDY_IMM,
             65,
             opcodes::STY_ZP,
@@ -648,8 +650,6 @@ mod tests {
             opcodes::STY_ZP,
             5,
         ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
         cpu.ticks(5).unwrap();
         assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
         cpu.ticks(5).unwrap();
@@ -660,7 +660,7 @@ mod tests {
 
     #[test]
     fn multiple_registers() {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let mut cpu = cpu_with_program(&[
             opcodes::LDA_IMM,
             10,
             opcodes::LDX_IMM,
@@ -670,15 +670,13 @@ mod tests {
             opcodes::STX_ZP,
             1,
         ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
         cpu.ticks(10).unwrap();
         assert_eq!(cpu.memory.bytes[0..2], [10, 20]);
     }
 
     #[test]
     fn loading_storing_addressing_modes() {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let mut cpu = cpu_with_program(&[
             opcodes::LDX_IMM,
             5,
             opcodes::LDA_IMM,
@@ -694,8 +692,6 @@ mod tests {
             0x06,
             0xF0,
         ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
         cpu.ticks(6 + 5 * 13).unwrap();
         assert_eq!(
             cpu.memory.bytes[8..19],
@@ -705,7 +701,7 @@ mod tests {
 
     #[test]
     fn inx_dex() {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let mut cpu = cpu_with_program(&[
             opcodes::LDX_IMM,
             0xFE,
             opcodes::INX,
@@ -724,15 +720,13 @@ mod tests {
             opcodes::STX_ZP,
             9,
         ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
         cpu.ticks(27).unwrap();
         assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
     }
 
     #[test]
     fn iny_dey() {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let mut cpu = cpu_with_program(&[
             opcodes::LDY_IMM,
             0xFE,
             opcodes::INY,
@@ -751,60 +745,37 @@ mod tests {
             opcodes::STY_ZP,
             9,
         ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
         cpu.ticks(27).unwrap();
         assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
     }
 
     #[test]
     fn tya() {
-        let mut memory = SimpleRam::with_test_program(&mut [
-            opcodes::LDY_IMM,
-            15,
-            opcodes::TYA,
-            opcodes::STA_ZP,
-            0x01,
-        ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
+        let mut cpu =
+            cpu_with_program(&[opcodes::LDY_IMM, 15, opcodes::TYA, opcodes::STA_ZP, 0x01]);
         cpu.ticks(7).unwrap();
         assert_eq!(cpu.memory.bytes[0x01], 15);
     }
 
     #[test]
     fn tax() {
-        let mut memory = SimpleRam::with_test_program(&mut [
-            opcodes::LDA_IMM,
-            13,
-            opcodes::TAX,
-            opcodes::STX_ZP,
-            0x01,
-        ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
+        let mut cpu =
+            cpu_with_program(&[opcodes::LDA_IMM, 13, opcodes::TAX, opcodes::STX_ZP, 0x01]);
         cpu.ticks(7).unwrap();
         assert_eq!(cpu.memory.bytes[0x01], 13);
     }
 
     #[test]
     fn txa() {
-        let mut memory = SimpleRam::with_test_program(&mut [
-            opcodes::LDX_IMM,
-            43,
-            opcodes::TXA,
-            opcodes::STA_ZP,
-            0x01,
-        ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
+        let mut cpu =
+            cpu_with_program(&[opcodes::LDX_IMM, 43, opcodes::TXA, opcodes::STA_ZP, 0x01]);
         cpu.ticks(7).unwrap();
         assert_eq!(cpu.memory.bytes[0x01], 43);
     }
 
     #[test]
     fn flag_manipulation() {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let mut cpu = cpu_with_program(&[
             // Load 0 to flags and initialize SP.
             opcodes::LDX_IMM,
             0xFE,
@@ -825,8 +796,6 @@ mod tests {
             0x01,
             opcodes::PHP,
         ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
         cpu.ticks(27).unwrap();
         assert_eq!(
             cpu.memory.bytes[0x1FD..0x200],
@@ -840,7 +809,7 @@ mod tests {
 
     #[test]
     fn jmp() {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let mut cpu = cpu_with_program(&[
             opcodes::LDX_IMM,
             1,
             opcodes::STX_ZP,
@@ -850,8 +819,6 @@ mod tests {
             0x02,
             0xf0,
         ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
         cpu.ticks(13).unwrap();
         assert_eq!(cpu.memory.bytes[9], 2);
         cpu.ticks(8).unwrap();
@@ -860,7 +827,7 @@ mod tests {
 
     #[test]
     fn bne() {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let mut cpu = cpu_with_program(&[
             opcodes::LDX_IMM,
             5,
             opcodes::LDA_IMM,
@@ -873,15 +840,16 @@ mod tests {
             opcodes::STX_ZP,
             12,
         ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
         cpu.ticks(4 + 4 * 9 + 8 + 3).unwrap();
         assert_eq!(cpu.memory.bytes[9..16], [0, 5, 5, 0, 5, 5, 0]);
     }
 
     #[test]
+    fn branching_across_pages_adds_one_cpu_cycle() {}
+
+    #[test]
     fn subroutines_and_stack() {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let mut cpu = cpu_with_program(&[
             // Main program. Call subroutine A to store 6 at 25. Then call
             // subroutine B to store 7 at 28 and 6 at 26. Finally, store the 10
             // loaded to A in the beginning at 30. Duration: 25 cycles.
@@ -926,15 +894,13 @@ mod tests {
             opcodes::RTS,
             opcodes::HLT1,
         ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
         cpu.ticks(25 + 19 + 25 + 19).unwrap();
         assert_eq!(cpu.memory.bytes[24..32], [0, 6, 6, 0, 7, 0, 10, 0]);
     }
 
     #[test]
     fn stack_wrapping() {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let mut cpu = cpu_with_program(&[
             opcodes::LDX_IMM,
             1,
             opcodes::TXS,
@@ -956,17 +922,18 @@ mod tests {
             opcodes::STA_ZP,
             5,
         ]);
-        let mut cpu = Cpu::new(&mut memory);
-        reset(&mut cpu);
         cpu.ticks(4 + 3 * 7 + 17).unwrap();
         assert_eq!(cpu.memory.bytes[0x1FF], 0xFF);
         assert_eq!(cpu.memory.bytes[0x100..0x102], [0, 1]);
         assert_eq!(cpu.memory.bytes[5], 1);
     }
 
+    #[test]
+    fn pc_wrapping() {}
+
     #[bench]
     fn benchmark(b: &mut Bencher) {
-        let mut memory = SimpleRam::with_test_program(&mut [
+        let memory = Box::new(SimpleRam::with_test_program(&mut [
             opcodes::LDX_IMM,
             1,
             opcodes::LDA_IMM,
@@ -981,8 +948,8 @@ mod tests {
             opcodes::JMP_ABS,
             0x02,
             0xf0,
-        ]);
-        let mut cpu = Cpu::new(&mut memory);
+        ]));
+        let mut cpu = Cpu::new(memory);
         b.iter(|| {
             reset(&mut cpu);
             cpu.ticks(1000).unwrap();

@@ -8,10 +8,10 @@ use crate::tia::Tia;
 use image;
 use image::RgbaImage;
 
-pub type AtariAddressSpace<'a> = AddressSpace<Tia, AtariRam, AtariRom<'a>>;
+pub type AtariAddressSpace = AddressSpace<Tia, AtariRam, AtariRom>;
 
-pub struct Atari<'a> {
-    cpu: Cpu<'a, AtariAddressSpace<'a>>,
+pub struct Atari {
+    cpu: Cpu<AtariAddressSpace>,
     frame_renderer: FrameRenderer,
     running: bool,
 }
@@ -22,8 +22,8 @@ enum TickResult {
     Error,
 }
 
-impl<'a> Atari<'a> {
-    pub fn new(address_space: &'a mut AtariAddressSpace<'a>) -> Self {
+impl Atari {
+    pub fn new(address_space: Box<AtariAddressSpace>) -> Self {
         Atari {
             cpu: Cpu::new(address_space),
             frame_renderer: FrameRendererBuilder::new()
@@ -97,6 +97,18 @@ mod tests {
         image::open(Path::new("src").join("test_data").join(name)).unwrap()
     }
 
+    fn atari_with_rom(file_name: &str) -> Atari {
+        let rom = read_test_rom(file_name);
+        let address_space = Box::new(AtariAddressSpace {
+            tia: Tia::new(),
+            ram: AtariRam::new(),
+            rom: AtariRom::new(&rom).unwrap(),
+        });
+        let mut atari = Atari::new(address_space);
+        atari.reset();
+        return atari;
+    }
+
     fn assert_images_equal(mut actual: DynamicImage, mut expected: DynamicImage, test_name: &str) {
         let equal = itertools::equal(actual.pixels(), expected.pixels());
         if equal {
@@ -136,15 +148,8 @@ mod tests {
 
     #[test]
     fn shows_horizontal_stripes() {
-        let rom = read_test_rom("horizontal_stripes.bin");
-        let mut address_space = AtariAddressSpace {
-            tia: Tia::new(),
-            ram: AtariRam::new(),
-            rom: AtariRom::new(&rom).unwrap(),
-        };
-        let mut atari = Atari::new(&mut address_space);
+        let mut atari = atari_with_rom("horizontal_stripes.bin");
 
-        atari.reset();
         let expected_image = read_test_image("horizontal_stripes_1.png");
         let actual_image = DynamicImage::ImageRgba8(atari.next_frame().clone());
 
@@ -153,18 +158,10 @@ mod tests {
 
     #[test]
     fn animates_horizontal_stripes() {
-        let rom = read_test_rom("horizontal_stripes_animated.bin");
+        let mut atari = atari_with_rom("horizontal_stripes_animated.bin");
+
         let expected_image_1 = read_test_image("horizontal_stripes_1.png");
         let expected_image_2 = read_test_image("horizontal_stripes_2.png");
-
-        let mut address_space = AtariAddressSpace {
-            tia: Tia::new(),
-            ram: AtariRam::new(),
-            rom: AtariRom::new(&rom).unwrap(),
-        };
-        let mut atari = Atari::new(&mut address_space);
-
-        atari.reset();
         let actual_image_1 = DynamicImage::ImageRgba8(atari.next_frame().clone());
         let actual_image_2 = DynamicImage::ImageRgba8(atari.next_frame().clone());
 
@@ -182,15 +179,8 @@ mod tests {
 
     #[test]
     fn stops_on_error() {
-        let rom = read_test_rom("halt.bin");
-        let mut address_space = AtariAddressSpace {
-            tia: Tia::new(),
-            ram: AtariRam::new(),
-            rom: AtariRom::new(&rom).unwrap(),
-        };
-        let mut atari = Atari::new(&mut address_space);
+        let mut atari = atari_with_rom("halt.bin");
 
-        atari.reset();
         let expected_image = read_test_image("stops_on_error.png");
         let actual_image = DynamicImage::ImageRgba8(atari.next_frame().clone());
 
@@ -201,12 +191,12 @@ mod tests {
     fn benchmark(b: &mut Bencher) {
         let rom = read_test_rom("horizontal_stripes.bin");
         b.iter(|| {
-            let mut address_space = AtariAddressSpace {
+            let address_space = Box::new(AtariAddressSpace {
                 tia: Tia::new(),
                 ram: AtariRam::new(),
                 rom: AtariRom::new(&rom).unwrap(),
-            };
-            let mut atari = Atari::new(&mut address_space);
+            });
+            let mut atari = Atari::new(address_space);
 
             atari.reset();
             atari.next_frame();

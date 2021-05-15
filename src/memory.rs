@@ -167,16 +167,16 @@ impl fmt::Display for RomSizeError {
     }
 }
 
-pub struct AtariRom<'a> {
-    bytes: &'a [u8],
+pub struct AtariRom {
+    bytes: Vec<u8>,
     address_mask: u16,
 }
 
-impl<'a> AtariRom<'a> {
-    pub fn new(bytes: &'a [u8]) -> Result<Self, RomSizeError> {
+impl AtariRom {
+    pub fn new(bytes: &[u8]) -> Result<Self, RomSizeError> {
         match bytes.len() {
             2048 | 4096 => Ok(AtariRom {
-                bytes,
+                bytes: bytes.to_vec(),
                 address_mask: match bytes.len() {
                     0x1000 => 0b0000_1111_1111_1111,
                     _ => 0b0000_0111_1111_1111,
@@ -187,7 +187,7 @@ impl<'a> AtariRom<'a> {
     }
 }
 
-impl Memory for AtariRom<'_> {
+impl Memory for AtariRom {
     fn read(&self, address: u16) -> ReadResult {
         Ok(self.bytes[(address & self.address_mask) as usize])
     }
@@ -196,7 +196,7 @@ impl Memory for AtariRom<'_> {
     }
 }
 
-impl fmt::Debug for AtariRom<'_> {
+impl fmt::Debug for AtariRom {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> fmt::Result {
         f.debug_struct("AtariRom")
             .field("size", &self.bytes.len())
