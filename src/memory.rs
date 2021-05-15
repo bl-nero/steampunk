@@ -99,11 +99,6 @@ impl SimpleRam {
         ram.bytes[0xFFFD] = 0xF0; // most-significant byte
         return ram;
     }
-
-    /// Reads a range of bytes. Always succeeds.
-    pub fn raw_read(&self, start: u16, end: u16) -> &[u8] {
-        &self.bytes[start as usize..end as usize]
-    }
 }
 
 impl Memory for SimpleRam {
@@ -133,6 +128,7 @@ impl fmt::Debug for SimpleRam {
 
 // A 128-byte memory structure that acts as Atari RAM and supports memory space
 // mirroring.
+#[derive(Debug)]
 pub struct AtariRam {
     bytes: [u8; Self::SIZE],
 }
@@ -197,6 +193,15 @@ impl Memory for AtariRom<'_> {
     }
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         Err(WriteError { address, value })
+    }
+}
+
+impl fmt::Debug for AtariRom<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> fmt::Result {
+        f.debug_struct("AtariRom")
+            .field("size", &self.bytes.len())
+            .field("address_mask", &self.address_mask)
+            .finish()
     }
 }
 

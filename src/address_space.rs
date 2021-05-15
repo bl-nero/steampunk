@@ -56,11 +56,14 @@ impl<T: Memory, RA: Memory, RO: Memory> AddressSpace<T, RA, RO> {
     }
 }
 
-impl<T: Memory, RO: Memory> fmt::Display for AddressSpace<T, SimpleRam, RO> {
+impl<T: Memory, RA: Memory, RO: Memory> fmt::Display for AddressSpace<T, RA, RO> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let zero_page = self.ram.raw_read(0x0000, 0x0100);
+        let mut zero_page: [u8; 0x100] = [0; 0x100];
+        for i in 0..0x100 {
+            zero_page[i] = self.read(i as u16).unwrap_or(0);
+        }
         writeln!(f, "Zero page:")?;
-        hexdump(f, 0x0000, zero_page)
+        hexdump(f, 0x0000, &zero_page)
     }
 }
 

@@ -10,10 +10,9 @@ pub mod tia;
 
 pub mod test_utils;
 
-use address_space::AddressSpace;
-use atari::Atari;
+use atari::{Atari, AtariAddressSpace};
 use image::RgbaImage;
-use memory::SimpleRam;
+use memory::{AtariRam, AtariRom};
 use piston::input::RenderEvent;
 use piston_window::WindowSettings;
 use piston_window::{PistonWindow, Texture, TextureSettings, Window};
@@ -25,12 +24,12 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
     // Load an example ROM image.
-    let rom = std::fs::read(&args[1]).unwrap();
+    let rom_bytes = std::fs::read(&args[1]).unwrap();
     // Create and initialize components of the emulated system.
-    let mut address_space = AddressSpace {
+    let mut address_space = AtariAddressSpace {
         tia: Tia::new(),
-        ram: SimpleRam::new(),
-        rom: SimpleRam::with_program(&rom[..]),
+        ram: AtariRam::new(),
+        rom: AtariRom::new(&rom_bytes[..]).unwrap(),
     };
     let mut atari = Atari::new(&mut address_space);
     atari.reset();

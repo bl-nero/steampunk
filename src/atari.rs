@@ -3,15 +3,15 @@ use crate::colors;
 use crate::cpu::Cpu;
 use crate::frame_renderer::FrameRenderer;
 use crate::frame_renderer::FrameRendererBuilder;
-use crate::memory::SimpleRam;
+use crate::memory::{AtariRam, AtariRom};
 use crate::tia::Tia;
 use image;
 use image::RgbaImage;
 
-type AtariAddressSpace = AddressSpace<Tia, SimpleRam, SimpleRam>;
+pub type AtariAddressSpace<'a> = AddressSpace<Tia, AtariRam, AtariRom<'a>>;
 
 pub struct Atari<'a> {
-    cpu: Cpu<'a, AtariAddressSpace>,
+    cpu: Cpu<'a, AtariAddressSpace<'a>>,
     frame_renderer: FrameRenderer,
     running: bool,
 }
@@ -23,7 +23,7 @@ enum TickResult {
 }
 
 impl<'a> Atari<'a> {
-    pub fn new(address_space: &mut AtariAddressSpace) -> Atari {
+    pub fn new(address_space: &'a mut AtariAddressSpace<'a>) -> Self {
         Atari {
             cpu: Cpu::new(address_space),
             frame_renderer: FrameRendererBuilder::new()
@@ -139,8 +139,8 @@ mod tests {
         let rom = read_test_rom("horizontal_stripes.bin");
         let mut address_space = AtariAddressSpace {
             tia: Tia::new(),
-            ram: SimpleRam::new(),
-            rom: SimpleRam::with_test_program(&rom[..]),
+            ram: AtariRam::new(),
+            rom: AtariRom::new(&rom).unwrap(),
         };
         let mut atari = Atari::new(&mut address_space);
 
@@ -159,8 +159,8 @@ mod tests {
 
         let mut address_space = AtariAddressSpace {
             tia: Tia::new(),
-            ram: SimpleRam::new(),
-            rom: SimpleRam::with_test_program(&rom[..]),
+            ram: AtariRam::new(),
+            rom: AtariRom::new(&rom).unwrap(),
         };
         let mut atari = Atari::new(&mut address_space);
 
@@ -185,8 +185,8 @@ mod tests {
         let rom = read_test_rom("halt.bin");
         let mut address_space = AtariAddressSpace {
             tia: Tia::new(),
-            ram: SimpleRam::new(),
-            rom: SimpleRam::with_test_program(&rom[..]),
+            ram: AtariRam::new(),
+            rom: AtariRom::new(&rom).unwrap(),
         };
         let mut atari = Atari::new(&mut address_space);
 
@@ -203,8 +203,8 @@ mod tests {
         b.iter(|| {
             let mut address_space = AtariAddressSpace {
                 tia: Tia::new(),
-                ram: SimpleRam::new(),
-                rom: SimpleRam::with_test_program(&rom[..]),
+                ram: AtariRam::new(),
+                rom: AtariRom::new(&rom).unwrap(),
             };
             let mut atari = Atari::new(&mut address_space);
 
