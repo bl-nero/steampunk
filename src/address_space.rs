@@ -1,4 +1,4 @@
-use crate::memory::{Memory, SimpleRam, ReadError, ReadResult, WriteError, WriteResult};
+use crate::memory::{Memory, ReadError, ReadResult, SimpleRam, WriteError, WriteResult};
 use std::fmt;
 
 /// Dispatches read/write calls to various devices with memory-mapped interfaces:
@@ -20,36 +20,38 @@ enum MemoryArea {
 impl<T: Memory, RA: Memory, RO: Memory> Memory for AddressSpace<T, RA, RO> {
     fn read(&self, address: u16) -> ReadResult {
         match Self::map_address(address) {
-            MemoryArea::Tia => self.tia.read(address),
-            MemoryArea::Ram => self.ram.read(address),
-            MemoryArea::Rom => self.rom.read(address),
-            MemoryArea::Riot => Err(ReadError { address }),
+            Some(MemoryArea::Tia) => self.tia.read(address),
+            Some(MemoryArea::Ram) => self.ram.read(address),
+            Some(MemoryArea::Rom) => self.rom.read(address),
+            Some(MemoryArea::Riot) | None => Err(ReadError { address }),
         }
     }
 
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match Self::map_address(address) {
-            MemoryArea::Tia => self.tia.write(address, value),
-            MemoryArea::Ram => self.ram.write(address, value),
+            Some(MemoryArea::Tia) => self.tia.write(address, value),
+            Some(MemoryArea::Ram) => self.ram.write(address, value),
             // Yeah, I know. Writing to ROM. But hey, it's not the
             // AddressSpace's job to tell what you can or can't do with a given
             // segment of memory.
-            MemoryArea::Rom => self.rom.write(address, value),
-            MemoryArea::Riot => Err(WriteError { address, value }),
+            Some(MemoryArea::Rom) => self.rom.write(address, value),
+            Some(MemoryArea::Riot) | None => Err(WriteError { address, value }),
         }
     }
 }
 
 impl<T: Memory, RA: Memory, RO: Memory> AddressSpace<T, RA, RO> {
-    fn map_address(address: u16) -> MemoryArea {
+    fn map_address(address: u16) -> Option<MemoryArea> {
         if address & 0b0001_0000_0000_0000 != 0 {
-            MemoryArea::Rom
+            Some(MemoryArea::Rom)
         } else if address & 0b0000_0000_1000_0000 == 0 {
-            MemoryArea::Tia
+            Some(MemoryArea::Tia)
         } else if address & 0b0000_0010_1000_0000 == 0b0000_0000_1000_0000 {
-            MemoryArea::Ram
+            Some(MemoryArea::Ram)
+        } else if address & 0b0000_0010_1000_0000 == 0b0000_0010_1000_0000 {
+            Some(MemoryArea::Riot)
         } else {
-            MemoryArea::Riot
+            None
         }
     }
 }

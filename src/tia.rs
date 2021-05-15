@@ -151,7 +151,7 @@ impl Memory for Tia {
     }
 
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
-        match address {
+        match address & 0b0001_1111 {
             registers::VSYNC => self.reg_vsync = value,
             registers::VBLANK => self.reg_vblank = value,
             registers::WSYNC => self.wait_for_sync = true,
@@ -314,7 +314,7 @@ pub mod flags {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils;
+    use crate::test_utils::decode_video_outputs;
 
     /// A utility that produces a sequence of TIA video outputs. Useful for
     /// comparing with expected sequences in tests.
@@ -346,7 +346,7 @@ mod tests {
 
     #[test]
     fn draws_scanlines() {
-        let expected_output = test_utils::decode_video_outputs(
+        let expected_output = decode_video_outputs(
             "................||||||||||||||||....................................\
              88888888888888888888888888888888888888888888888888888888888888888888888888888888\
              88888888888888888888888888888888888888888888888888888888888888888888888888888888\
@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     fn emits_vsync() {
-        let expected_output = test_utils::decode_video_outputs(
+        let expected_output = decode_video_outputs(
             "----------------++++++++++++++++------------------------------------\
              ================================================================================\
              ================================================================================",
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn emits_vblank() {
-        let expected_output = test_utils::decode_video_outputs(
+        let expected_output = decode_video_outputs(
             "................||||||||||||||||....................................\
              ................................................................................\
              ................................................................................",
@@ -406,7 +406,7 @@ mod tests {
 
     #[test]
     fn emits_vblank_with_vsync() {
-        let expected_output = test_utils::decode_video_outputs(
+        let expected_output = decode_video_outputs(
             "----------------++++++++++++++++------------------------------------\
              --------------------------------------------------------------------------------\
              --------------------------------------------------------------------------------",
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn draws_playfield() {
-        let expected_output = test_utils::decode_video_outputs(
+        let expected_output = decode_video_outputs(
             "................||||||||||||||||....................................\
              22220000222222222222000000002222222222220000222222220000222200002222222200002222\
              22220000222222222222000000002222222222220000222222220000222200002222222200002222",
@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn draws_reflected_playfield() {
-        let expected_output = test_utils::decode_video_outputs(
+        let expected_output = decode_video_outputs(
             "................||||||||||||||||....................................\
              66662222666666666666222222226666666666662222666666662222666622226666666622226666\
              66662222666666662222666622226666666622226666666666662222222266666666666622226666",
@@ -491,11 +491,11 @@ mod tests {
 
     #[test]
     fn rsync() {
-        let expected_output_1 = test_utils::decode_video_outputs(
+        let expected_output_1 = decode_video_outputs(
             "................||||||||||||||||....................................\
              888888888888",
         );
-        let expected_output_2 = test_utils::decode_video_outputs(
+        let expected_output_2 = decode_video_outputs(
             "888\
              ................||||||||||||||||....................................\
              88888888888888888888888888888888888888888888888888888888888888888888888888888888\
@@ -510,5 +510,21 @@ mod tests {
         tia.write(registers::RSYNC, 0x00).unwrap();
         let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize + 3);
         itertools::assert_equal(output, expected_output_2);
+    }
+
+    #[test]
+    fn address_mirroring() {
+        let mut tia = Tia::new();
+        for _ in 0..HBLANK_WIDTH {
+            tia.tick();
+        }
+
+        tia.write(registers::COLUBK, 0x08).unwrap();
+        let output = tia.tick().video;
+        assert_eq!(output.pixel.unwrap(), 0x08);
+
+        tia.write(0x6F40 + registers::COLUBK, 0x0A).unwrap();
+        let output = tia.tick().video;
+        assert_eq!(output.pixel.unwrap(), 0x0A);
     }
 }
