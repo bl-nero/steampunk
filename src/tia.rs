@@ -162,6 +162,17 @@ impl Memory for Tia {
             registers::PF0 => self.reg_pf0 = value,
             registers::PF1 => self.reg_pf1 = value,
             registers::PF2 => self.reg_pf2 = value,
+
+            // Audio. Skip that thing for now, since it's complex and not
+            // essential.
+            registers::AUDC0
+            | registers::AUDC1
+            | registers::AUDV0
+            | registers::AUDV1
+            | registers::AUDF0
+            | registers::AUDF1 => {}
+
+            // Not (yet) supported. Allow one initialization pass, but that's it.
             _ => {
                 if self.initialized_registers[address as usize] || value != 0 {
                     return Err(WriteError { address, value });
