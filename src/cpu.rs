@@ -1,4 +1,4 @@
-use crate::memory::{Memory, ReadError};
+use crate::memory::{Memory, ReadError, ReadResult};
 use rand::Rng;
 use std::error;
 use std::fmt;
@@ -123,8 +123,7 @@ impl<M: Memory + Debug> Cpu<M> {
             // thing, returning from here with subcycle set to 1 is slower than
             // waiting for 0 to be increased. Benchmarked!
             SequenceState::Ready => {
-                self.sequence_state = SequenceState::Opcode(self.memory.read(self.reg_pc)?, 0);
-                self.reg_pc += 1;
+                self.sequence_state = SequenceState::Opcode(self.consume_byte()?, 0);
             }
 
             // List ALL the opcodes!
@@ -209,10 +208,7 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_simple_internal_operation(&mut |me| me.flags &= !flags::D)?;
             }
             SequenceState::Opcode(opcodes::JMP_ABS, subcycle) => match subcycle {
-                1 => {
-                    self.adl = self.memory.read(self.reg_pc)?;
-                    self.reg_pc += 1;
-                }
+                1 => self.adl = self.consume_byte()?,
                 _ => {
                     let adh = self.memory.read(self.reg_pc)?;
                     self.reg_pc = (self.adl as u16) | ((adh as u16) << 8);
@@ -222,23 +218,33 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::BNE, subcycle) => match subcycle {
                 // TODO: handle additional cycle when crossing page boundaries
                 1 => {
-                    self.adl = self.memory.read(self.reg_pc)?;
-                    self.reg_pc += 1;
+                    self.adl = self.consume_byte()?;
                     if self.flags & flags::Z != 0 {
                         self.sequence_state = SequenceState::Ready;
                     }
                 }
+                2 => {
+                    let new_pc = self.reg_pc.wrapping_add(self.adl as i8 as u16);
+                    if new_pc & 0xFF00 == self.reg_pc & 0xFF00 {
+                        // No page boundary crossed. Do a phantom read of the
+                        // computed address and skip the next cycle.
+                        let _ = self.memory.read(self.reg_pc);
+                        self.sequence_state = SequenceState::Ready;
+                    } else {
+                        let _ = self.memory.read((new_pc & 0x00FF) | (self.reg_pc & 0xFF00));
+                        // Page boundary crossed. Do a phantom read of a
+                        // partially computed address and continue to the next
+                        // cycle.
+                    }
+                    self.reg_pc = new_pc;
+                }
                 _ => {
-                    self.reg_pc = self.reg_pc.wrapping_add(self.adl as i8 as i16 as u16);
                     let _ = self.memory.read(self.reg_pc);
                     self.sequence_state = SequenceState::Ready;
                 }
             },
             SequenceState::Opcode(opcodes::JSR, subcycle) => match subcycle {
-                1 => {
-                    self.adl = self.memory.read(self.reg_pc)?;
-                    self.reg_pc += 1;
-                }
+                1 => self.adl = self.consume_byte()?,
                 2 => {
                     let _ = self.memory.read(self.stack_pointer());
                 }
@@ -259,8 +265,7 @@ impl<M: Memory + Debug> Cpu<M> {
             },
             SequenceState::Opcode(opcodes::RTS, subcycle) => match subcycle {
                 1 => {
-                    let _ = self.memory.read(self.reg_pc);
-                    self.reg_pc += 1;
+                    let _ = self.consume_byte();
                 }
                 2 => {
                     let _ = self.memory.read(self.stack_pointer());
@@ -276,8 +281,7 @@ impl<M: Memory + Debug> Cpu<M> {
                         self.reg_pc & 0xFF | ((self.memory.read(self.stack_pointer())? as u16) << 8)
                 }
                 _ => {
-                    let _ = self.memory.read(self.reg_pc);
-                    self.reg_pc += 1;
+                    let _ = self.consume_byte();
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -286,7 +290,7 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::HLT1, _) => {
                 return Err(Box::new(CpuHaltedError {
                     opcode: opcodes::HLT1,
-                    address: self.reg_pc - 1,
+                    address: self.reg_pc.wrapping_sub(1),
                 }));
             }
 
@@ -294,7 +298,7 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(other_opcode, _) => {
                 return Err(Box::new(UnknownOpcodeError {
                     opcode: other_opcode,
-                    address: self.reg_pc - 1,
+                    address: self.reg_pc.wrapping_sub(1),
                 }));
             }
 
@@ -333,19 +337,15 @@ impl<M: Memory + Debug> Cpu<M> {
         &mut self,
         load: &mut dyn FnMut(&mut Self, u8),
     ) -> Result<(), ReadError> {
-        self.memory.read(self.reg_pc).map(|value| {
-            load(self, value);
-            self.reg_pc += 1;
-            self.sequence_state = SequenceState::Ready;
-        })
+        let value = self.consume_byte()?;
+        load(self, value);
+        self.sequence_state = SequenceState::Ready;
+        Ok(())
     }
 
     fn tick_store_zero_page(&mut self, value: u8) -> TickResult {
         match self.sequence_state {
-            SequenceState::Opcode(_, 1) => {
-                self.adl = self.memory.read(self.reg_pc)?;
-                self.reg_pc += 1;
-            }
+            SequenceState::Opcode(_, 1) => self.adl = self.consume_byte()?,
             _ => {
                 self.memory.write(self.adl as u16, value)?;
                 self.sequence_state = SequenceState::Ready;
@@ -356,10 +356,7 @@ impl<M: Memory + Debug> Cpu<M> {
 
     fn tick_store_zero_page_x(&mut self, value: u8) -> TickResult {
         match self.sequence_state {
-            SequenceState::Opcode(_, 1) => {
-                self.bal = self.memory.read(self.reg_pc)?;
-                self.reg_pc += 1;
-            }
+            SequenceState::Opcode(_, 1) => self.bal = self.consume_byte()?,
             SequenceState::Opcode(_, 2) => {
                 let _ = self.memory.read(self.bal as u16);
             }
@@ -410,6 +407,12 @@ impl<M: Memory + Debug> Cpu<M> {
             }
         };
         Ok(())
+    }
+
+    fn consume_byte(&mut self) -> ReadResult {
+        let result = self.memory.read(self.reg_pc)?;
+        self.reg_pc = self.reg_pc.wrapping_add(1);
+        return Ok(result);
     }
 
     fn set_reg_a(&mut self, value: u8) {
@@ -845,7 +848,26 @@ mod tests {
     }
 
     #[test]
-    fn branching_across_pages_adds_one_cpu_cycle() {}
+    fn branching_across_pages_adds_one_cpu_cycle() {
+        let memory = Box::new(SimpleRam::with_test_program_at(
+            0xF0FB,
+            &[
+                opcodes::LDA_IMM,
+                10,
+                opcodes::BNE,
+                1,
+                opcodes::HLT1,
+                opcodes::STA_ZP,
+                20,
+            ],
+        ));
+        let mut cpu = Cpu::new(memory);
+        reset(&mut cpu);
+        cpu.ticks(8).unwrap();
+        assert_ne!(cpu.memory.bytes[20], 10);
+        cpu.tick().unwrap();
+        assert_eq!(cpu.memory.bytes[20], 10);
+    }
 
     #[test]
     fn subroutines_and_stack() {
@@ -929,7 +951,46 @@ mod tests {
     }
 
     #[test]
-    fn pc_wrapping() {}
+    fn pc_wrapping() {
+        let mut memory = Box::new(SimpleRam::with_test_program_at(
+            0xFFF9,
+            &[
+                opcodes::JMP_ABS,
+                0xFE,
+                0xFF,
+                0, // reset vector, will be filled
+                0, // reset vector, will be filled
+                opcodes::LDA_IMM,
+                10,
+            ],
+        ));
+        memory.bytes[0..2].copy_from_slice(&[opcodes::STA_ZP, 20]);
+        let mut cpu = Cpu::new(memory);
+        reset(&mut cpu);
+        cpu.ticks(8).unwrap();
+        assert_eq!(cpu.memory.bytes[20], 10);
+    }
+
+    #[test]
+    fn pc_wrapping_during_branch() {
+        let mut memory = Box::new(SimpleRam::with_test_program_at(
+            0xFFF8,
+            &[
+                opcodes::LDA_IMM,
+                10,
+                // Jump by 4 bytes: 0xFFFC + 0x06 mod 0x10000 = 0x02
+                opcodes::BNE,
+                6,
+                0, // reset vector, will be filled
+                0, // reset vector, will be filled
+            ],
+        ));
+        memory.bytes[2..4].copy_from_slice(&[opcodes::STA_ZP, 20]);
+        let mut cpu = Cpu::new(memory);
+        reset(&mut cpu);
+        cpu.ticks(9).unwrap();
+        assert_eq!(cpu.memory.bytes[20], 10);
+    }
 
     #[bench]
     fn benchmark(b: &mut Bencher) {

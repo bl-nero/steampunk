@@ -70,33 +70,19 @@ impl SimpleRam {
         }
     }
 
-    pub fn with_program(program: &[u8]) -> SimpleRam {
-        let mut ram = SimpleRam::new();
-
-        // Copy the program into memory. If the program is a 2K cartridge, place
-        // it in two mirror copies, starting from addresses 0xF000 and 0xF800.
-        for (i, byte) in program.iter().enumerate() {
-            ram.bytes[0xF000 + i] = *byte;
-            if program.len() == 0x800 {
-                ram.bytes[0xF800 + i] = *byte;
-            }
-        }
-        return ram;
-    }
-
     /// Creates a new `RAM`, putting given `program` at address 0xF000. It also
     /// sets the reset pointer to 0xF000.
     pub fn with_test_program(program: &[u8]) -> SimpleRam {
+        Self::with_test_program_at(0xF000, program)
+    }
+
+    /// Creates a new `RAM`, putting given `program` at a given address. It also
+    /// sets the reset pointer to this address.
+    pub fn with_test_program_at(address: u16, program: &[u8]) -> SimpleRam {
         let mut ram = SimpleRam::new();
-
-        // Copy the program into memory, starting from address 0xF000.
-        for (i, byte) in program.iter().enumerate() {
-            ram.bytes[0xF000 + i] = *byte;
-        }
-
-        // Initialize the reset address (stored at 0xFFFC) to 0xF000.
-        ram.bytes[0xFFFC] = 0x00; // least-significant byte
-        ram.bytes[0xFFFD] = 0xF0; // most-significant byte
+        ram.bytes[address as usize..address as usize + program.len()].copy_from_slice(program);
+        ram.bytes[0xFFFC] = address as u8; // least-significant byte
+        ram.bytes[0xFFFD] = (address >> 8) as u8; // most-significant byte
         return ram;
     }
 }
@@ -224,6 +210,17 @@ mod tests {
         assert_eq!(ram.bytes[0xF000..0xF004], [10, 56, 72, 255][..]);
         // The rest, until 0xFFFC, should also be zeroed.
         assert_eq!(ram.bytes[0xF004..0xFFFC], [0u8; 0xFFFC - 0xF004][..]);
+        // And finally, the reset vector.
+        assert_eq!(ram.bytes[0xFFFC..0xFFFE], [0x00, 0xF0]);
+    }
+
+    #[test]
+    fn simple_ram_with_test_program_at() {
+        let ram = SimpleRam::with_test_program_at(0xF110, &[10, 56, 72, 255]);
+        assert_eq!(ram.bytes[..0xF110], [0u8; 0xF110][..]);
+        assert_eq!(ram.bytes[0xF110..0xF114], [10, 56, 72, 255][..]);
+        assert_eq!(ram.bytes[0xF114..0xFFFC], [0u8; 0xFFFC - 0xF114][..]);
+        assert_eq!(ram.bytes[0xFFFC..0xFFFE], [0x10, 0xF1]);
     }
 
     #[test]
