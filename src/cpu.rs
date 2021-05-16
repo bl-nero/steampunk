@@ -29,6 +29,7 @@ pub struct Cpu<M: Memory> {
     sequence_state: SequenceState,
     adl: u8,
     bal: u8,
+    tmp_data: u8,
 }
 
 type TickResult = Result<(), Box<dyn error::Error>>;
@@ -100,6 +101,7 @@ impl<M: Memory + Debug> Cpu<M> {
             // adh: rng.gen(),
             adl: rng.gen(),
             bal: rng.gen(),
+            tmp_data: rng.gen(),
         }
     }
 
@@ -163,6 +165,20 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_compare_immediate(self.reg_y)?;
             }
 
+            SequenceState::Opcode(opcodes::INC_ZP, _) => {
+                self.tick_load_modify_store_zero_page(&mut |me, val| {
+                    let result = val.wrapping_add(1);
+                    me.update_flags_nz(result);
+                    result
+                })?;
+            }
+            SequenceState::Opcode(opcodes::DEC_ZP, _) => {
+                self.tick_load_modify_store_zero_page(&mut |me, val| {
+                    let result = val.wrapping_sub(1);
+                    me.update_flags_nz(result);
+                    result
+                })?;
+            }
             SequenceState::Opcode(opcodes::INX, _) => {
                 self.tick_simple_internal_operation(&mut |me| {
                     me.set_reg_x(me.reg_x.wrapping_add(1))
@@ -364,9 +380,7 @@ impl<M: Memory + Debug> Cpu<M> {
     fn tick_store_zero_page_x(&mut self, value: u8) -> TickResult {
         match self.sequence_state {
             SequenceState::Opcode(_, 1) => self.bal = self.consume_byte()?,
-            SequenceState::Opcode(_, 2) => {
-                self.phantom_read(self.bal as u16);
-            }
+            SequenceState::Opcode(_, 2) => self.phantom_read(self.bal as u16),
             _ => {
                 self.memory
                     .write((self.bal.wrapping_add(self.reg_x)) as u16, value)?;
@@ -394,11 +408,31 @@ impl<M: Memory + Debug> Cpu<M> {
         })
     }
 
+    fn tick_load_modify_store_zero_page(
+        &mut self,
+        operation: &mut dyn FnMut(&mut Self, u8) -> u8,
+    ) -> TickResult {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.adl = self.consume_byte()?,
+            SequenceState::Opcode(_, 2) => self.tmp_data = self.memory.read(self.adl as u16)?,
+            SequenceState::Opcode(_, 3) => {
+                // A rare case of a "phantom write". Since we write the same
+                // data, it doesn't really matter (that much), but we need to
+                // simulate it anyway.
+                self.memory.write(self.adl as u16, self.tmp_data)?;
+            }
+            _ => {
+                let result = operation(self, self.tmp_data);
+                self.memory.write(self.adl as u16, result)?;
+                self.sequence_state = SequenceState::Ready;
+            }
+        }
+        Ok(())
+    }
+
     fn tick_push(&mut self, value: u8) -> TickResult {
         match self.sequence_state {
-            SequenceState::Opcode(_, 1) => {
-                self.phantom_read(self.reg_pc);
-            }
+            SequenceState::Opcode(_, 1) => self.phantom_read(self.reg_pc),
             _ => {
                 self.memory.write(self.stack_pointer(), value)?;
                 self.reg_sp = self.reg_sp.wrapping_sub(1);
@@ -410,9 +444,7 @@ impl<M: Memory + Debug> Cpu<M> {
 
     fn tick_pull(&mut self, load: &mut dyn FnMut(&mut Self, u8)) -> Result<(), ReadError> {
         match self.sequence_state {
-            SequenceState::Opcode(_, 1) => {
-                self.phantom_read(self.reg_pc);
-            }
+            SequenceState::Opcode(_, 1) => self.phantom_read(self.reg_pc),
             SequenceState::Opcode(_, 2) => {
                 self.phantom_read(self.stack_pointer());
                 self.reg_sp = self.reg_sp.wrapping_add(1);
@@ -570,6 +602,8 @@ mod opcodes {
     pub const CPX_IMM: u8 = 0xE0;
     pub const CPY_IMM: u8 = 0xC0;
 
+    pub const INC_ZP: u8 = 0xE6;
+    pub const DEC_ZP: u8 = 0xC6;
     pub const INX: u8 = 0xE8;
     pub const INY: u8 = 0xC8;
     pub const DEX: u8 = 0xCA;
@@ -785,6 +819,22 @@ mod tests {
             cpu.memory.bytes[0x00..0x09],
             [42, 42, 0, 100, 100, 100, 100, 100, 0]
         );
+    }
+
+    #[test]
+    fn inc_dec() {
+        let mut cpu = cpu_with_program(&[
+            opcodes::INC_ZP,
+            10,
+            opcodes::INC_ZP,
+            10,
+            opcodes::DEC_ZP,
+            11,
+            opcodes::DEC_ZP,
+            11,
+        ]);
+        cpu.ticks(20).unwrap();
+        assert_eq!(cpu.memory.bytes[10..=11], [2, -2 as i8 as u8]);
     }
 
     #[test]
