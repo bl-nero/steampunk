@@ -128,14 +128,15 @@ impl<M: Memory + Debug> Cpu<M> {
 
             // List ALL the opcodes!
             SequenceState::Opcode(opcodes::LDA_IMM, _) => {
-                self.tick_load_register_immediate(&mut |me, value| me.set_reg_a(value))?;
+                self.tick_load_immediate(&mut |me, value| me.set_reg_a(value))?;
             }
             SequenceState::Opcode(opcodes::LDX_IMM, _) => {
-                self.tick_load_register_immediate(&mut |me, value| me.set_reg_x(value))?;
+                self.tick_load_immediate(&mut |me, value| me.set_reg_x(value))?;
             }
             SequenceState::Opcode(opcodes::LDY_IMM, _) => {
-                self.tick_load_register_immediate(&mut |me, value| me.set_reg_y(value))?;
+                self.tick_load_immediate(&mut |me, value| me.set_reg_y(value))?;
             }
+
             SequenceState::Opcode(opcodes::STA_ZP, _) => {
                 self.tick_store_zero_page(self.reg_a)?;
             }
@@ -151,6 +152,17 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::STY_ZP_X, _) => {
                 self.tick_store_zero_page_x(self.reg_y)?;
             }
+
+            SequenceState::Opcode(opcodes::CMP_IMM, _) => {
+                self.tick_compare_immediate(self.reg_a)?;
+            }
+            SequenceState::Opcode(opcodes::CPX_IMM, _) => {
+                self.tick_compare_immediate(self.reg_x)?;
+            }
+            SequenceState::Opcode(opcodes::CPY_IMM, _) => {
+                self.tick_compare_immediate(self.reg_y)?;
+            }
+
             SequenceState::Opcode(opcodes::INX, _) => {
                 self.tick_simple_internal_operation(&mut |me| {
                     me.set_reg_x(me.reg_x.wrapping_add(1))
@@ -171,6 +183,7 @@ impl<M: Memory + Debug> Cpu<M> {
                     me.set_reg_y(me.reg_y.wrapping_sub(1))
                 })?;
             }
+
             SequenceState::Opcode(opcodes::TYA, _) => {
                 self.tick_simple_internal_operation(&mut |me| me.set_reg_a(me.reg_y))?;
             }
@@ -186,6 +199,7 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::TSX, _) => {
                 self.tick_simple_internal_operation(&mut |me| me.set_reg_x(me.reg_sp))?;
             }
+
             SequenceState::Opcode(opcodes::PHP, _) => {
                 self.tick_push(self.flags)?;
             }
@@ -198,6 +212,7 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::PLA, _) => {
                 self.tick_pull(&mut |me, value| me.set_reg_a(value))?;
             }
+
             SequenceState::Opcode(opcodes::SEI, _) => {
                 self.tick_simple_internal_operation(&mut |me| me.flags |= flags::I)?;
             }
@@ -207,39 +222,31 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::CLD, _) => {
                 self.tick_simple_internal_operation(&mut |me| me.flags &= !flags::D)?;
             }
+
+            SequenceState::Opcode(opcodes::BEQ, _) => {
+                self.tick_branch_if_flag(flags::Z, flags::Z)?;
+            }
+            SequenceState::Opcode(opcodes::BNE, _) => {
+                self.tick_branch_if_flag(flags::Z, 0)?;
+            }
+            SequenceState::Opcode(opcodes::BCC, _) => {
+                self.tick_branch_if_flag(flags::C, 0)?;
+            }
+            SequenceState::Opcode(opcodes::BCS, _) => {
+                self.tick_branch_if_flag(flags::C, flags::C)?;
+            }
+            SequenceState::Opcode(opcodes::BPL, _) => {
+                self.tick_branch_if_flag(flags::N, 0)?;
+            }
+            SequenceState::Opcode(opcodes::BMI, _) => {
+                self.tick_branch_if_flag(flags::N, flags::N)?;
+            }
+
             SequenceState::Opcode(opcodes::JMP_ABS, subcycle) => match subcycle {
                 1 => self.adl = self.consume_byte()?,
                 _ => {
                     let adh = self.memory.read(self.reg_pc)?;
                     self.reg_pc = (self.adl as u16) | ((adh as u16) << 8);
-                    self.sequence_state = SequenceState::Ready;
-                }
-            },
-            SequenceState::Opcode(opcodes::BNE, subcycle) => match subcycle {
-                // TODO: handle additional cycle when crossing page boundaries
-                1 => {
-                    self.adl = self.consume_byte()?;
-                    if self.flags & flags::Z != 0 {
-                        self.sequence_state = SequenceState::Ready;
-                    }
-                }
-                2 => {
-                    let new_pc = self.reg_pc.wrapping_add(self.adl as i8 as u16);
-                    if new_pc & 0xFF00 == self.reg_pc & 0xFF00 {
-                        // No page boundary crossed. Do a phantom read of the
-                        // computed address and skip the next cycle.
-                        self.phantom_read(self.reg_pc);
-                        self.sequence_state = SequenceState::Ready;
-                    } else {
-                        self.phantom_read((new_pc & 0x00FF) | (self.reg_pc & 0xFF00));
-                        // Page boundary crossed. Do a phantom read of a
-                        // partially computed address and continue to the next
-                        // cycle.
-                    }
-                    self.reg_pc = new_pc;
-                }
-                _ => {
-                    self.phantom_read(self.reg_pc);
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -333,7 +340,7 @@ impl<M: Memory + Debug> Cpu<M> {
         Ok(())
     }
 
-    fn tick_load_register_immediate(
+    fn tick_load_immediate(
         &mut self,
         load: &mut dyn FnMut(&mut Self, u8),
     ) -> Result<(), ReadError> {
@@ -379,6 +386,14 @@ impl<M: Memory + Debug> Cpu<M> {
         Ok(())
     }
 
+    fn tick_compare_immediate(&mut self, register: u8) -> Result<(), ReadError> {
+        self.tick_load_immediate(&mut |me, value| {
+            let (difference, borrow) = register.overflowing_sub(value);
+            me.update_flags_nz(difference);
+            me.flags = me.flags & !flags::C | if borrow { 0 } else { flags::C };
+        })
+    }
+
     fn tick_push(&mut self, value: u8) -> TickResult {
         match self.sequence_state {
             SequenceState::Opcode(_, 1) => {
@@ -404,6 +419,39 @@ impl<M: Memory + Debug> Cpu<M> {
             }
             _ => {
                 load(self, self.memory.read(self.stack_pointer())?);
+                self.sequence_state = SequenceState::Ready;
+            }
+        };
+        Ok(())
+    }
+
+    fn tick_branch_if_flag(&mut self, flag: u8, value: u8) -> Result<(), ReadError> {
+        match self.sequence_state {
+            // TODO: handle additional cycle when crossing page boundaries
+            SequenceState::Opcode(_, 1) => {
+                self.adl = self.consume_byte()?;
+                if self.flags & flag != value {
+                    // Condition not met; don't branch.
+                    self.sequence_state = SequenceState::Ready;
+                }
+            }
+            SequenceState::Opcode(_, 2) => {
+                let new_pc = self.reg_pc.wrapping_add(self.adl as i8 as u16);
+                if new_pc & 0xFF00 == self.reg_pc & 0xFF00 {
+                    // No page boundary crossed. Do a phantom read of the
+                    // computed address and skip the next cycle.
+                    self.phantom_read(self.reg_pc);
+                    self.sequence_state = SequenceState::Ready;
+                } else {
+                    self.phantom_read((new_pc & 0x00FF) | (self.reg_pc & 0xFF00));
+                    // Page boundary crossed. Do a phantom read of a
+                    // partially computed address and continue to the next
+                    // cycle.
+                }
+                self.reg_pc = new_pc;
+            }
+            _ => {
+                self.phantom_read(self.reg_pc);
                 self.sequence_state = SequenceState::Ready;
             }
         };
@@ -457,6 +505,17 @@ impl<M: Memory + Debug> Cpu<M> {
         self.flags = (self.flags & !(flags::Z | flags::N)) | flag_z | flag_n;
     }
 
+    /// Updates the N and Z flags to reflect the given value.
+    fn update_flags_nz(&mut self, value: u8) {
+        let flag_z = if value == 0 { flags::Z } else { 0 };
+        let flag_n = if value & 0b1000_0000 != 0 {
+            flags::N
+        } else {
+            0
+        };
+        self.flags = (self.flags & !(flags::Z | flags::N)) | flag_z | flag_n;
+    }
+
     fn stack_pointer(&self) -> u16 {
         0x100 | self.reg_sp as u16
     }
@@ -498,32 +557,48 @@ fn flags_to_string(flags: u8) -> String {
 
 mod opcodes {
     pub const LDA_IMM: u8 = 0xA9;
+    pub const LDX_IMM: u8 = 0xA2;
+    pub const LDY_IMM: u8 = 0xA0;
+
     pub const STA_ZP: u8 = 0x85;
     pub const STA_ZP_X: u8 = 0x95;
-    pub const LDX_IMM: u8 = 0xA2;
     pub const STX_ZP: u8 = 0x86;
-    pub const INX: u8 = 0xE8;
-    pub const DEX: u8 = 0xCA;
-    pub const LDY_IMM: u8 = 0xA0;
-    pub const STY_ZP: u8 = 0x8C;
+    pub const STY_ZP: u8 = 0x84;
     pub const STY_ZP_X: u8 = 0x94;
+
+    pub const CMP_IMM: u8 = 0xC9;
+    pub const CPX_IMM: u8 = 0xE0;
+    pub const CPY_IMM: u8 = 0xC0;
+
+    pub const INX: u8 = 0xE8;
     pub const INY: u8 = 0xC8;
+    pub const DEX: u8 = 0xCA;
     pub const DEY: u8 = 0x88;
+
     pub const TYA: u8 = 0x98;
     pub const TAX: u8 = 0xAA;
     pub const TXA: u8 = 0x8A;
     pub const TXS: u8 = 0x9A;
     pub const TSX: u8 = 0xBA;
+
     pub const PHP: u8 = 0x08;
-    pub const PLP: u8 = 0x28;
     pub const PHA: u8 = 0x48;
+    pub const PLP: u8 = 0x28;
     pub const PLA: u8 = 0x68;
+
     pub const SEI: u8 = 0x78;
     pub const CLI: u8 = 0x58;
     // pub const SED: u8 = 0xF8;
     pub const CLD: u8 = 0xD8;
-    pub const JMP_ABS: u8 = 0x4C;
+
+    pub const BEQ: u8 = 0xF0;
     pub const BNE: u8 = 0xD0;
+    pub const BCC: u8 = 0x90;
+    pub const BCS: u8 = 0xB0;
+    pub const BPL: u8 = 0x10;
+    pub const BMI: u8 = 0x30;
+
+    pub const JMP_ABS: u8 = 0x4C;
     pub const JSR: u8 = 0x20;
     pub const RTS: u8 = 0x60;
 
@@ -538,7 +613,7 @@ mod flags {
     pub const D: u8 = 1 << 3;
     pub const I: u8 = 1 << 2;
     pub const Z: u8 = 1 << 1;
-    // pub const C: u8 = 1;
+    pub const C: u8 = 1;
 }
 
 #[cfg(test)]
@@ -705,10 +780,7 @@ mod tests {
             0xF0,
         ]);
         cpu.ticks(6 + 5 * 13).unwrap();
-        assert_eq!(
-            cpu.memory.bytes[0xFC..0x100],
-            [0, 42, 42, 42]
-        );
+        assert_eq!(cpu.memory.bytes[0xFC..0x100], [0, 42, 42, 42]);
         assert_eq!(
             cpu.memory.bytes[0x00..0x09],
             [42, 42, 0, 100, 100, 100, 100, 100, 0]
@@ -763,6 +835,86 @@ mod tests {
         ]);
         cpu.ticks(27).unwrap();
         assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
+    }
+
+    #[test]
+    fn cmp() {
+        let mut cpu = cpu_with_program(&[
+            opcodes::LDA_IMM,
+            7,
+            // ----
+            opcodes::CMP_IMM,
+            6,
+            opcodes::BEQ,
+            37,
+            opcodes::BCC,
+            35,
+            opcodes::BMI,
+            33,
+            opcodes::STA_ZP,
+            30,
+            // ----
+            opcodes::CMP_IMM,
+            7,
+            opcodes::BNE,
+            27,
+            opcodes::BCC,
+            25,
+            opcodes::BMI,
+            23,
+            opcodes::STA_ZP,
+            31,
+            // ----
+            opcodes::CMP_IMM,
+            8,
+            opcodes::BEQ,
+            17,
+            opcodes::BCS,
+            15,
+            opcodes::BPL,
+            13,
+            opcodes::STA_ZP,
+            32,
+            // ----
+            opcodes::CMP_IMM,
+            -7i8 as u8,
+            opcodes::BEQ,
+            7,
+            opcodes::BCS,
+            5,
+            opcodes::BMI,
+            3,
+            opcodes::STA_ZP,
+            33,
+            opcodes::HLT1, // This makes sure that we don't use too many cycles.
+            // If the test fails, just loop and wait.
+            opcodes::JMP_ABS,
+            0x2B,
+            0xF0,
+        ]);
+        cpu.ticks(2 + 4 * 11).unwrap();
+        assert_eq!(cpu.memory.bytes[30..=33], [7, 7, 7, 7]);
+    }
+
+    #[test]
+    fn cpx_cpy() {
+        let mut cpu = cpu_with_program(&[
+            opcodes::LDX_IMM,
+            0xFF,
+            opcodes::TXS,
+            opcodes::LDY_IMM,
+            10,
+            opcodes::CPX_IMM,
+            6,
+            opcodes::PHP,
+            opcodes::CPY_IMM,
+            25,
+            opcodes::PHP,
+        ]);
+        cpu.ticks(16).unwrap();
+        let mask = flags::C | flags::Z | flags::N;
+        assert_eq!(cpu.memory.bytes[0x1FF] & mask, flags::N | flags::C);
+        assert_eq!(cpu.memory.bytes[0x1FE] & mask, flags::N);
     }
 
     #[test]
@@ -824,24 +976,6 @@ mod tests {
     }
 
     #[test]
-    fn jmp() {
-        let mut cpu = cpu_with_program(&[
-            opcodes::LDX_IMM,
-            1,
-            opcodes::STX_ZP,
-            9,
-            opcodes::INX,
-            opcodes::JMP_ABS,
-            0x02,
-            0xf0,
-        ]);
-        cpu.ticks(13).unwrap();
-        assert_eq!(cpu.memory.bytes[9], 2);
-        cpu.ticks(8).unwrap();
-        assert_eq!(cpu.memory.bytes[9], 3);
-    }
-
-    #[test]
     fn bne() {
         let mut cpu = cpu_with_program(&[
             opcodes::LDX_IMM,
@@ -880,6 +1014,24 @@ mod tests {
         assert_ne!(cpu.memory.bytes[20], 10);
         cpu.ticks(1).unwrap();
         assert_eq!(cpu.memory.bytes[20], 10);
+    }
+
+    #[test]
+    fn jmp() {
+        let mut cpu = cpu_with_program(&[
+            opcodes::LDX_IMM,
+            1,
+            opcodes::STX_ZP,
+            9,
+            opcodes::INX,
+            opcodes::JMP_ABS,
+            0x02,
+            0xf0,
+        ]);
+        cpu.ticks(13).unwrap();
+        assert_eq!(cpu.memory.bytes[9], 2);
+        cpu.ticks(8).unwrap();
+        assert_eq!(cpu.memory.bytes[9], 3);
     }
 
     #[test]
