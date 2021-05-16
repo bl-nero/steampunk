@@ -228,10 +228,10 @@ impl<M: Memory + Debug> Cpu<M> {
                     if new_pc & 0xFF00 == self.reg_pc & 0xFF00 {
                         // No page boundary crossed. Do a phantom read of the
                         // computed address and skip the next cycle.
-                        let _ = self.memory.read(self.reg_pc);
+                        self.phantom_read(self.reg_pc);
                         self.sequence_state = SequenceState::Ready;
                     } else {
-                        let _ = self.memory.read((new_pc & 0x00FF) | (self.reg_pc & 0xFF00));
+                        self.phantom_read((new_pc & 0x00FF) | (self.reg_pc & 0xFF00));
                         // Page boundary crossed. Do a phantom read of a
                         // partially computed address and continue to the next
                         // cycle.
@@ -239,14 +239,14 @@ impl<M: Memory + Debug> Cpu<M> {
                     self.reg_pc = new_pc;
                 }
                 _ => {
-                    let _ = self.memory.read(self.reg_pc);
+                    self.phantom_read(self.reg_pc);
                     self.sequence_state = SequenceState::Ready;
                 }
             },
             SequenceState::Opcode(opcodes::JSR, subcycle) => match subcycle {
                 1 => self.adl = self.consume_byte()?,
                 2 => {
-                    let _ = self.memory.read(self.stack_pointer());
+                    self.phantom_read(self.stack_pointer());
                 }
                 3 => {
                     self.memory
@@ -268,7 +268,7 @@ impl<M: Memory + Debug> Cpu<M> {
                     let _ = self.consume_byte();
                 }
                 2 => {
-                    let _ = self.memory.read(self.stack_pointer());
+                    self.phantom_read(self.stack_pointer());
                     self.reg_sp = self.reg_sp.wrapping_add(1);
                 }
                 3 => {
@@ -358,7 +358,7 @@ impl<M: Memory + Debug> Cpu<M> {
         match self.sequence_state {
             SequenceState::Opcode(_, 1) => self.bal = self.consume_byte()?,
             SequenceState::Opcode(_, 2) => {
-                let _ = self.memory.read(self.bal as u16);
+                self.phantom_read(self.bal as u16);
             }
             _ => {
                 self.memory
@@ -373,7 +373,7 @@ impl<M: Memory + Debug> Cpu<M> {
         &mut self,
         operation: &mut dyn FnMut(&mut Self),
     ) -> Result<(), ReadError> {
-        let _ = self.memory.read(self.reg_pc);
+        self.phantom_read(self.reg_pc);
         operation(self);
         self.sequence_state = SequenceState::Ready;
         Ok(())
@@ -382,7 +382,7 @@ impl<M: Memory + Debug> Cpu<M> {
     fn tick_push(&mut self, value: u8) -> TickResult {
         match self.sequence_state {
             SequenceState::Opcode(_, 1) => {
-                let _ = self.memory.read(self.reg_pc);
+                self.phantom_read(self.reg_pc);
             }
             _ => {
                 self.memory.write(self.stack_pointer(), value)?;
@@ -396,10 +396,10 @@ impl<M: Memory + Debug> Cpu<M> {
     fn tick_pull(&mut self, load: &mut dyn FnMut(&mut Self, u8)) -> Result<(), ReadError> {
         match self.sequence_state {
             SequenceState::Opcode(_, 1) => {
-                let _ = self.memory.read(self.reg_pc);
+                self.phantom_read(self.reg_pc);
             }
             SequenceState::Opcode(_, 2) => {
-                let _ = self.memory.read(self.stack_pointer());
+                self.phantom_read(self.stack_pointer());
                 self.reg_sp = self.reg_sp.wrapping_add(1);
             }
             _ => {
@@ -414,6 +414,14 @@ impl<M: Memory + Debug> Cpu<M> {
         let result = self.memory.read(self.reg_pc)?;
         self.reg_pc = self.reg_pc.wrapping_add(1);
         return Ok(result);
+    }
+
+    /// Performs a "phantom read", a side effect that usually doesn't matter,
+    /// but may matter to some devices that react to reading its pins. Because
+    /// we don't use the result value, we don't even care if it was a read
+    /// error.
+    fn phantom_read(&self, address: u16) {
+        let _ = self.memory.read(address);
     }
 
     fn set_reg_a(&mut self, value: u8) {
