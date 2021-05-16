@@ -251,11 +251,11 @@ impl<M: Memory + Debug> Cpu<M> {
                 3 => {
                     self.memory
                         .write(self.stack_pointer(), (self.reg_pc >> 8) as u8)?;
-                    self.reg_sp -= 1;
+                    self.reg_sp = self.reg_sp.wrapping_sub(1);
                 }
                 4 => {
                     self.memory.write(self.stack_pointer(), self.reg_pc as u8)?;
-                    self.reg_sp -= 1;
+                    self.reg_sp = self.reg_sp.wrapping_sub(1);
                 }
                 _ => {
                     let adh = self.memory.read(self.reg_pc)?;
@@ -269,12 +269,12 @@ impl<M: Memory + Debug> Cpu<M> {
                 }
                 2 => {
                     let _ = self.memory.read(self.stack_pointer());
-                    self.reg_sp += 1;
+                    self.reg_sp = self.reg_sp.wrapping_add(1);
                 }
                 3 => {
                     self.reg_pc =
                         self.reg_pc & 0xFF00 | self.memory.read(self.stack_pointer())? as u16;
-                    self.reg_sp += 1;
+                    self.reg_sp = self.reg_sp.wrapping_add(1);
                 }
                 4 => {
                     self.reg_pc =
@@ -361,7 +361,8 @@ impl<M: Memory + Debug> Cpu<M> {
                 let _ = self.memory.read(self.bal as u16);
             }
             _ => {
-                self.memory.write((self.bal + self.reg_x) as u16, value)?;
+                self.memory
+                    .write((self.bal.wrapping_add(self.reg_x)) as u16, value)?;
                 self.sequence_state = SequenceState::Ready;
             }
         };
@@ -687,9 +688,9 @@ mod tests {
             opcodes::LDY_IMM,
             100,
             opcodes::STA_ZP_X,
-            3,
+            0xF8,
             opcodes::STY_ZP_X,
-            9,
+            0xFE,
             opcodes::INX,
             opcodes::JMP_ABS,
             0x06,
@@ -697,8 +698,12 @@ mod tests {
         ]);
         cpu.ticks(6 + 5 * 13).unwrap();
         assert_eq!(
-            cpu.memory.bytes[8..19],
-            [42, 42, 42, 42, 42, 0, 100, 100, 100, 100, 100]
+            cpu.memory.bytes[0xFC..0x100],
+            [0, 42, 42, 42]
+        );
+        assert_eq!(
+            cpu.memory.bytes[0x00..0x09],
+            [42, 42, 0, 100, 100, 100, 100, 100, 0]
         );
     }
 
@@ -865,7 +870,7 @@ mod tests {
         reset(&mut cpu);
         cpu.ticks(8).unwrap();
         assert_ne!(cpu.memory.bytes[20], 10);
-        cpu.tick().unwrap();
+        cpu.ticks(1).unwrap();
         assert_eq!(cpu.memory.bytes[20], 10);
     }
 
@@ -948,6 +953,27 @@ mod tests {
         assert_eq!(cpu.memory.bytes[0x1FF], 0xFF);
         assert_eq!(cpu.memory.bytes[0x100..0x102], [0, 1]);
         assert_eq!(cpu.memory.bytes[5], 1);
+    }
+
+    #[test]
+    fn stack_wrapping_with_subroutines() {
+        let mut cpu = cpu_with_program(&[
+            opcodes::LDX_IMM,
+            0x00,
+            opcodes::TXS,
+            opcodes::JSR,
+            0x09,
+            0xF0,
+            opcodes::STA_ZP,
+            20,
+            opcodes::HLT1,
+            // Subroutine. Address: $F009.
+            opcodes::LDA_IMM,
+            34,
+            opcodes::RTS,
+        ]);
+        cpu.ticks(21).unwrap();
+        assert_eq!(cpu.memory.bytes[20], 34);
     }
 
     #[test]
