@@ -289,6 +289,12 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::CLD, _) => {
                 self.tick_simple_internal_operation(&mut |me| me.flags &= !flags::D)?;
             }
+            SequenceState::Opcode(opcodes::CLC, _) => {
+                self.tick_simple_internal_operation(&mut |me| me.flags &= !flags::C)?;
+            }
+            SequenceState::Opcode(opcodes::SEC, _) => {
+                self.tick_simple_internal_operation(&mut |me| me.flags |= flags::C)?;
+            }
 
             SequenceState::Opcode(opcodes::BEQ, _) => {
                 self.tick_branch_if_flag(flags::Z, flags::Z)?;
@@ -679,6 +685,8 @@ mod opcodes {
     pub const CLI: u8 = 0x58;
     // pub const SED: u8 = 0xF8;
     pub const CLD: u8 = 0xD8;
+    pub const CLC: u8 = 0x18;
+    pub const SEC: u8 = 0x38;
 
     pub const BEQ: u8 = 0xF0;
     pub const BNE: u8 = 0xD0;
@@ -1122,6 +1130,7 @@ mod tests {
             opcodes::PLP,
             // Set I and Z.
             opcodes::SEI,
+            opcodes::SEC,
             opcodes::LDA_IMM,
             0,
             opcodes::PHP,
@@ -1134,14 +1143,17 @@ mod tests {
             opcodes::LDY_IMM,
             0x01,
             opcodes::PHP,
+            opcodes::CLC,
+            opcodes::PHP,
         ]);
-        cpu.ticks(27).unwrap();
+        cpu.ticks(34).unwrap();
         assert_eq!(
-            cpu.memory.bytes[0x1FD..0x200],
+            cpu.memory.bytes[0x1FC..0x200],
             [
                 flags::UNUSED,
-                flags::I | flags::N | flags::UNUSED,
-                flags::I | flags::Z | flags::UNUSED,
+                flags::C | flags::UNUSED,
+                flags::C | flags::I | flags::N | flags::UNUSED,
+                flags::C | flags::I | flags::Z | flags::UNUSED,
             ]
         );
     }
@@ -1352,19 +1364,18 @@ mod tests {
     #[bench]
     fn benchmark(b: &mut Bencher) {
         let memory = Box::new(SimpleRam::with_test_program(&mut [
+            opcodes::CLC,
             opcodes::LDX_IMM,
             1,
             opcodes::LDA_IMM,
             42,
             opcodes::STA_ZP_X,
             0x00,
-            opcodes::LDA_IMM,
+            opcodes::ADC_IMM,
             64,
-            opcodes::STA_ZP_X,
-            0x80,
             opcodes::INX,
             opcodes::JMP_ABS,
-            0x02,
+            0x05,
             0xf0,
         ]));
         let mut cpu = Cpu::new(memory);
