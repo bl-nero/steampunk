@@ -165,6 +165,57 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_compare_immediate(self.reg_y)?;
             }
 
+            SequenceState::Opcode(opcodes::ADC_IMM, _) => {
+                self.tick_load_immediate(&mut |me, value| {
+                    let (mut unsigned_sum, mut unsigned_overflow) = me.reg_a.overflowing_add(value);
+                    if me.flags & flags::C != 0 {
+                        let (unsigned_sum_2, unsigned_overflow_2) = unsigned_sum.overflowing_add(1);
+                        unsigned_sum = unsigned_sum_2;
+                        unsigned_overflow |= unsigned_overflow_2;
+                    }
+                    let signed_a = me.reg_a as i8;
+                    let signed_value = value as i8;
+                    let (mut signed_sum, mut signed_overflow) =
+                        signed_a.overflowing_add(signed_value);
+                    if me.flags & flags::C != 0 {
+                        let (signed_sum_2, signed_overflow_2) = signed_sum.overflowing_add(1);
+                        signed_sum = signed_sum_2;
+                        signed_overflow |= signed_overflow_2;
+                    }
+                    debug_assert_eq!(unsigned_sum, signed_sum as u8); // sanity check
+                    me.set_reg_a(unsigned_sum);
+                    me.flags = (me.flags & !(flags::C | flags::V))
+                        | if unsigned_overflow { flags::C } else { 0 }
+                        | if signed_overflow { flags::V } else { 0 };
+                })?;
+            }
+            SequenceState::Opcode(opcodes::SBC_IMM, _) => {
+                self.tick_load_immediate(&mut |me, value| {
+                    let (mut unsigned_diff, mut unsigned_overflow) =
+                        me.reg_a.overflowing_sub(value);
+                    if me.flags & flags::C == 0 {
+                        let (unsigned_diff_2, unsigned_overflow_2) =
+                            unsigned_diff.overflowing_sub(1);
+                        unsigned_diff = unsigned_diff_2;
+                        unsigned_overflow |= unsigned_overflow_2;
+                    }
+                    let signed_a = me.reg_a as i8;
+                    let signed_value = value as i8;
+                    let (mut signed_diff, mut signed_overflow) =
+                        signed_a.overflowing_sub(signed_value);
+                    if me.flags & flags::C == 0 {
+                        let (signed_diff_2, signed_overflow_2) = signed_diff.overflowing_sub(1);
+                        signed_diff = signed_diff_2;
+                        signed_overflow |= signed_overflow_2;
+                    }
+                    debug_assert_eq!(unsigned_diff, signed_diff as u8); // sanity check
+                    me.set_reg_a(unsigned_diff);
+                    me.flags = (me.flags & !(flags::C | flags::V))
+                        | if unsigned_overflow { 0 } else { flags::C }
+                        | if signed_overflow { flags::V } else { 0 };
+                })?;
+            }
+
             SequenceState::Opcode(opcodes::INC_ZP, _) => {
                 self.tick_load_modify_store_zero_page(&mut |me, val| {
                     let result = val.wrapping_add(1);
@@ -602,6 +653,10 @@ mod opcodes {
     pub const CPX_IMM: u8 = 0xE0;
     pub const CPY_IMM: u8 = 0xC0;
 
+    pub const ADC_IMM: u8 = 0x69;
+    pub const SBC_IMM: u8 = 0xE9;
+    pub const SBC_ZP: u8 = 0xE5;
+
     pub const INC_ZP: u8 = 0xE6;
     pub const DEC_ZP: u8 = 0xC6;
     pub const INX: u8 = 0xE8;
@@ -641,7 +696,7 @@ mod opcodes {
 
 mod flags {
     pub const N: u8 = 1 << 7;
-    // pub const V: u8 = 1 << 6;
+    pub const V: u8 = 1 << 6;
     pub const UNUSED: u8 = 1 << 5;
     // pub const B: u8 = 1 << 4;
     pub const D: u8 = 1 << 3;
@@ -965,6 +1020,72 @@ mod tests {
         let mask = flags::C | flags::Z | flags::N;
         assert_eq!(cpu.memory.bytes[0x1FF] & mask, flags::N | flags::C);
         assert_eq!(cpu.memory.bytes[0x1FE] & mask, flags::N);
+    }
+
+    #[test]
+    fn adc_sbc() {
+        let mut cpu = cpu_with_program(&[
+            opcodes::LDX_IMM,
+            0xFE,
+            opcodes::TXS,
+            opcodes::PLP,
+            opcodes::LDA_IMM,
+            0x45,
+            opcodes::ADC_IMM,
+            0x2A,
+            opcodes::PHA,
+            opcodes::PHP,
+            opcodes::ADC_IMM,
+            0x20,
+            opcodes::PHA,
+            opcodes::PHP,
+            opcodes::ADC_IMM,
+            0xAC,
+            opcodes::PHA,
+            opcodes::PHP,
+            opcodes::ADC_IMM,
+            0x01,
+            opcodes::PHA,
+            opcodes::PHP,
+            opcodes::SBC_IMM,
+            0x45,
+            opcodes::PHA,
+            opcodes::PHP,
+            opcodes::SBC_IMM,
+            0x7F,
+            opcodes::PHA,
+            opcodes::PHP,
+            opcodes::SBC_IMM,
+            0xBF,
+            opcodes::PHA,
+            opcodes::PHP,
+        ]);
+        cpu.ticks(10 + 7 * 8).unwrap();
+
+        let reversed_stack: Vec<u8> = cpu.memory.bytes[0x1F2..=0x1FF]
+            .iter()
+            .copied()
+            .rev()
+            .collect();
+        assert_eq!(
+            reversed_stack,
+            [
+                0x6F,
+                flags::UNUSED,
+                0x8F,
+                flags::UNUSED | flags::V | flags::N,
+                0x3B,
+                flags::UNUSED | flags::C | flags::V,
+                0x3D,
+                flags::UNUSED,
+                0xF7,
+                flags::UNUSED | flags::N,
+                0x77,
+                flags::UNUSED | flags::C | flags::V,
+                0xB8,
+                flags::UNUSED | flags::V | flags::N,
+            ]
+        );
     }
 
     #[test]
