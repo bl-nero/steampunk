@@ -1,14 +1,14 @@
 #![feature(test)]
 
-pub mod address_space;
-pub mod atari;
-pub mod colors;
-pub mod cpu;
-pub mod frame_renderer;
-pub mod memory;
-pub mod tia;
+mod address_space;
+mod atari;
+mod colors;
+mod cpu;
+mod frame_renderer;
+mod memory;
+mod tia;
 
-pub mod test_utils;
+mod test_utils;
 
 use atari::{Atari, AtariAddressSpace};
 use image::RgbaImage;

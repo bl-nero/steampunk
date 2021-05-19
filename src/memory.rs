@@ -51,10 +51,13 @@ impl fmt::Display for WriteError {
 
 /// A very simple memory structure. At the moment, it's just a 64-kilobyte chunk
 /// of RAM, for simplicity of addressing.
+
+#[cfg(test)]
 pub struct SimpleRam {
     pub bytes: [u8; Self::SIZE],
 }
 
+#[cfg(test)]
 impl SimpleRam {
     const SIZE: usize = 0x10000; // 64 kB (64 * 1024)
 
@@ -87,6 +90,7 @@ impl SimpleRam {
     }
 }
 
+#[cfg(test)]
 impl Memory for SimpleRam {
     fn read(&self, address: u16) -> ReadResult {
         // this arrow means we give u16 they return u8
@@ -99,6 +103,7 @@ impl Memory for SimpleRam {
     }
 }
 
+#[cfg(test)]
 impl fmt::Debug for SimpleRam {
     /// Prints out only the zero page, because come on, who would scroll through
     /// a dump of entire 64 kibibytes...

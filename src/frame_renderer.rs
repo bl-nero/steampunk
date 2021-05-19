@@ -135,6 +135,7 @@ impl FrameRendererBuilder {
     }
 
     /// Changes the viewport height.
+    #[cfg(test)]
     pub fn with_height(mut self, height: u32) -> Self {
         self.height = height;
         return self;
@@ -142,6 +143,7 @@ impl FrameRendererBuilder {
 
     /// Sets which scanline will be the first one visible in the viewport. 0
     /// means the scanline that occurs immediately after VSYNC signal ends.
+    #[cfg(test)]
     pub fn with_first_visible_scanline_index(mut self, index: i32) -> Self {
         self.first_visible_scanline_index = index;
         return self;

@@ -51,7 +51,7 @@ pub fn ntsc_palette() -> Palette {
 
 /// Returns an NTSC palette. Source:
 /// https://www.randomterrain.com/atari-2600-memories-tutorial-andrew-davie-11.html
-pub fn ntsc_palette_alternative() -> Palette {
+pub fn _ntsc_palette_alternative() -> Palette {
     create_palette(&[
         0x000000, 0x1A1A1A, 0x393939, 0x5B5B5B, 0x7E7E7E, 0xA2A2A2, 0xC7C7C7, 0xEDEDED, 0x190200,
         0x3A1F00, 0x5D4100, 0x826400, 0xA78800, 0xCCAD00, 0xF2D219, 0xFEFA40, 0x370000, 0x5E0800,
