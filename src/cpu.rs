@@ -28,6 +28,7 @@ pub struct Cpu<M: Memory> {
     // Number of cycle within execution of the current instruction.
     sequence_state: SequenceState,
     adl: u8,
+    adh: u8,
     bal: u8,
     tmp_data: u8,
 }
@@ -100,6 +101,7 @@ impl<M: Memory + Debug> Cpu<M> {
             sequence_state: SequenceState::Reset(0),
             // adh: rng.gen(),
             adl: rng.gen(),
+            adh: rng.gen(),
             bal: rng.gen(),
             tmp_data: rng.gen(),
         }
@@ -142,17 +144,20 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::STA_ZP, _) => {
                 self.tick_store_zero_page(self.reg_a)?;
             }
-            SequenceState::Opcode(opcodes::STA_ZP_X, _) => {
-                self.tick_store_zero_page_x(self.reg_a)?;
-            }
             SequenceState::Opcode(opcodes::STX_ZP, _) => {
                 self.tick_store_zero_page(self.reg_x)?;
             }
             SequenceState::Opcode(opcodes::STY_ZP, _) => {
                 self.tick_store_zero_page(self.reg_y)?;
             }
+            SequenceState::Opcode(opcodes::STA_ZP_X, _) => {
+                self.tick_store_zero_page_x(self.reg_a)?;
+            }
             SequenceState::Opcode(opcodes::STY_ZP_X, _) => {
                 self.tick_store_zero_page_x(self.reg_y)?;
+            }
+            SequenceState::Opcode(opcodes::STA_ABS, _) => {
+                self.tick_store_abs(self.reg_a)?;
             }
 
             SequenceState::Opcode(opcodes::CMP_IMM, _) => {
@@ -182,13 +187,13 @@ impl<M: Memory + Debug> Cpu<M> {
                     let sum = me.add_with_carry(me.reg_a, value);
                     me.set_reg_a(sum);
                 })?;
-            },
+            }
             SequenceState::Opcode(opcodes::SBC_ZP, _) => {
                 self.tick_load_zero_page(&mut |me, value| {
                     let diff = me.sub_with_carry(me.reg_a, value);
                     me.set_reg_a(diff);
                 })?;
-            },
+            }
 
             SequenceState::Opcode(opcodes::INC_ZP, _) => {
                 self.tick_load_modify_store_zero_page(&mut |me, val| {
@@ -435,6 +440,18 @@ impl<M: Memory + Debug> Cpu<M> {
         Ok(())
     }
 
+    fn tick_store_abs(&mut self, value: u8) -> TickResult {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.adl = self.consume_byte()?,
+            SequenceState::Opcode(_, 2) => self.adh = self.consume_byte()?,
+            _ => {
+                self.memory
+                    .write(((self.adh as u16) << 8) | self.adl as u16, value)?;
+            }
+        }
+        Ok(())
+    }
+
     fn tick_simple_internal_operation(
         &mut self,
         operation: &mut dyn FnMut(&mut Self),
@@ -644,7 +661,6 @@ impl<M: Memory + Debug> Cpu<M> {
         return unsigned_diff;
     }
 
-
     pub fn ticks(&mut self, n_ticks: u32) -> TickResult {
         for _ in 0..n_ticks {
             self.tick()?;
@@ -686,10 +702,11 @@ mod opcodes {
     pub const LDY_IMM: u8 = 0xA0;
 
     pub const STA_ZP: u8 = 0x85;
-    pub const STA_ZP_X: u8 = 0x95;
     pub const STX_ZP: u8 = 0x86;
     pub const STY_ZP: u8 = 0x84;
+    pub const STA_ZP_X: u8 = 0x95;
     pub const STY_ZP_X: u8 = 0x94;
+    pub const STA_ABS: u8 = 0x8D;
 
     pub const CMP_IMM: u8 = 0xC9;
     pub const CPX_IMM: u8 = 0xE0;
@@ -896,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    fn loading_storing_addressing_modes() {
+    fn storing_addressing_modes() {
         let mut cpu = cpu_with_program(&[
             opcodes::LDX_IMM,
             5,
@@ -904,21 +921,26 @@ mod tests {
             42,
             opcodes::LDY_IMM,
             100,
+            // ----
             opcodes::STA_ZP_X,
-            0xF8,
+            0xFC,
             opcodes::STY_ZP_X,
-            0xFE,
-            opcodes::INX,
-            opcodes::JMP_ABS,
-            0x06,
-            0xF0,
+            0x02,
+            opcodes::DEX,
+            opcodes::BNE,
+            -7i8 as u8,
+            // ----
+            opcodes::STA_ABS,
+            0xCD,
+            0xAB,
         ]);
-        cpu.ticks(6 + 5 * 13).unwrap();
+        cpu.ticks(6 + 5 * 13 + 4).unwrap();
         assert_eq!(cpu.memory.bytes[0xFC..0x100], [0, 42, 42, 42]);
         assert_eq!(
             cpu.memory.bytes[0x00..0x09],
             [42, 42, 0, 100, 100, 100, 100, 100, 0]
         );
+        assert_eq!(cpu.memory.bytes[0xABCD], 42);
     }
 
     #[test]
