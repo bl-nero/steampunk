@@ -167,54 +167,28 @@ impl<M: Memory + Debug> Cpu<M> {
 
             SequenceState::Opcode(opcodes::ADC_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| {
-                    let (mut unsigned_sum, mut unsigned_overflow) = me.reg_a.overflowing_add(value);
-                    if me.flags & flags::C != 0 {
-                        let (unsigned_sum_2, unsigned_overflow_2) = unsigned_sum.overflowing_add(1);
-                        unsigned_sum = unsigned_sum_2;
-                        unsigned_overflow |= unsigned_overflow_2;
-                    }
-                    let signed_a = me.reg_a as i8;
-                    let signed_value = value as i8;
-                    let (mut signed_sum, mut signed_overflow) =
-                        signed_a.overflowing_add(signed_value);
-                    if me.flags & flags::C != 0 {
-                        let (signed_sum_2, signed_overflow_2) = signed_sum.overflowing_add(1);
-                        signed_sum = signed_sum_2;
-                        signed_overflow |= signed_overflow_2;
-                    }
-                    debug_assert_eq!(unsigned_sum, signed_sum as u8); // sanity check
-                    me.set_reg_a(unsigned_sum);
-                    me.flags = (me.flags & !(flags::C | flags::V))
-                        | if unsigned_overflow { flags::C } else { 0 }
-                        | if signed_overflow { flags::V } else { 0 };
+                    let sum = me.add_with_carry(me.reg_a, value);
+                    me.set_reg_a(sum);
                 })?;
             }
             SequenceState::Opcode(opcodes::SBC_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| {
-                    let (mut unsigned_diff, mut unsigned_overflow) =
-                        me.reg_a.overflowing_sub(value);
-                    if me.flags & flags::C == 0 {
-                        let (unsigned_diff_2, unsigned_overflow_2) =
-                            unsigned_diff.overflowing_sub(1);
-                        unsigned_diff = unsigned_diff_2;
-                        unsigned_overflow |= unsigned_overflow_2;
-                    }
-                    let signed_a = me.reg_a as i8;
-                    let signed_value = value as i8;
-                    let (mut signed_diff, mut signed_overflow) =
-                        signed_a.overflowing_sub(signed_value);
-                    if me.flags & flags::C == 0 {
-                        let (signed_diff_2, signed_overflow_2) = signed_diff.overflowing_sub(1);
-                        signed_diff = signed_diff_2;
-                        signed_overflow |= signed_overflow_2;
-                    }
-                    debug_assert_eq!(unsigned_diff, signed_diff as u8); // sanity check
-                    me.set_reg_a(unsigned_diff);
-                    me.flags = (me.flags & !(flags::C | flags::V))
-                        | if unsigned_overflow { 0 } else { flags::C }
-                        | if signed_overflow { flags::V } else { 0 };
+                    let diff = me.sub_with_carry(me.reg_a, value);
+                    me.set_reg_a(diff);
                 })?;
             }
+            SequenceState::Opcode(opcodes::ADC_ZP, _) => {
+                self.tick_load_zero_page(&mut |me, value| {
+                    let sum = me.add_with_carry(me.reg_a, value);
+                    me.set_reg_a(sum);
+                })?;
+            },
+            SequenceState::Opcode(opcodes::SBC_ZP, _) => {
+                self.tick_load_zero_page(&mut |me, value| {
+                    let diff = me.sub_with_carry(me.reg_a, value);
+                    me.set_reg_a(diff);
+                })?;
+            },
 
             SequenceState::Opcode(opcodes::INC_ZP, _) => {
                 self.tick_load_modify_store_zero_page(&mut |me, val| {
@@ -423,6 +397,20 @@ impl<M: Memory + Debug> Cpu<M> {
         Ok(())
     }
 
+    fn tick_load_zero_page(
+        &mut self,
+        load: &mut dyn FnMut(&mut Self, u8),
+    ) -> Result<(), ReadError> {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.adl = self.consume_byte()?,
+            _ => {
+                load(self, self.memory.read(self.adl as u16)?);
+                self.sequence_state = SequenceState::Ready;
+            }
+        };
+        Ok(())
+    }
+
     fn tick_store_zero_page(&mut self, value: u8) -> TickResult {
         match self.sequence_state {
             SequenceState::Opcode(_, 1) => self.adl = self.consume_byte()?,
@@ -609,6 +597,54 @@ impl<M: Memory + Debug> Cpu<M> {
         0x100 | self.reg_sp as u16
     }
 
+    /// Calculates lhs+rhs+C, updates the C and V flags, and returns the result.
+    fn add_with_carry(&mut self, lhs: u8, rhs: u8) -> u8 {
+        let (mut unsigned_sum, mut unsigned_overflow) = lhs.overflowing_add(rhs);
+        if self.flags & flags::C != 0 {
+            let (unsigned_sum_2, unsigned_overflow_2) = unsigned_sum.overflowing_add(1);
+            unsigned_sum = unsigned_sum_2;
+            unsigned_overflow |= unsigned_overflow_2;
+        }
+        let signed_lhs = lhs as i8;
+        let signed_rhs = rhs as i8;
+        let (mut signed_sum, mut signed_overflow) = signed_lhs.overflowing_add(signed_rhs);
+        if self.flags & flags::C != 0 {
+            let (signed_sum_2, signed_overflow_2) = signed_sum.overflowing_add(1);
+            signed_sum = signed_sum_2;
+            signed_overflow |= signed_overflow_2;
+        }
+        debug_assert_eq!(unsigned_sum, signed_sum as u8); // sanity check
+        self.flags = (self.flags & !(flags::C | flags::V))
+            | if unsigned_overflow { flags::C } else { 0 }
+            | if signed_overflow { flags::V } else { 0 };
+        return unsigned_sum;
+    }
+
+    /// Calculates lhs-rhs-(1-C), updates the C and V flags, and returns the
+    /// result.
+    fn sub_with_carry(&mut self, lhs: u8, rhs: u8) -> u8 {
+        let (mut unsigned_diff, mut unsigned_overflow) = lhs.overflowing_sub(rhs);
+        if self.flags & flags::C == 0 {
+            let (unsigned_diff_2, unsigned_overflow_2) = unsigned_diff.overflowing_sub(1);
+            unsigned_diff = unsigned_diff_2;
+            unsigned_overflow |= unsigned_overflow_2;
+        }
+        let signed_lhs = lhs as i8;
+        let signed_rhs = rhs as i8;
+        let (mut signed_diff, mut signed_overflow) = signed_lhs.overflowing_sub(signed_rhs);
+        if self.flags & flags::C == 0 {
+            let (signed_diff_2, signed_overflow_2) = signed_diff.overflowing_sub(1);
+            signed_diff = signed_diff_2;
+            signed_overflow |= signed_overflow_2;
+        }
+        debug_assert_eq!(unsigned_diff, signed_diff as u8); // sanity check
+        self.flags = (self.flags & !(flags::C | flags::V))
+            | if unsigned_overflow { 0 } else { flags::C }
+            | if signed_overflow { flags::V } else { 0 };
+        return unsigned_diff;
+    }
+
+
     pub fn ticks(&mut self, n_ticks: u32) -> TickResult {
         for _ in 0..n_ticks {
             self.tick()?;
@@ -660,6 +696,7 @@ mod opcodes {
     pub const CPY_IMM: u8 = 0xC0;
 
     pub const ADC_IMM: u8 = 0x69;
+    pub const ADC_ZP: u8 = 0x65;
     pub const SBC_IMM: u8 = 0xE9;
     pub const SBC_ZP: u8 = 0xE5;
 
@@ -1094,6 +1131,41 @@ mod tests {
                 flags::UNUSED | flags::V | flags::N,
             ]
         );
+    }
+
+    #[test]
+    fn adc_sbc_addressing_modes() {
+        let mut cpu = cpu_with_program(&[
+            opcodes::LDX_IMM,
+            0xFE,
+            opcodes::TXS,
+            opcodes::PLP,
+            opcodes::LDX_IMM,
+            15,
+            opcodes::STX_ZP,
+            0x05,
+            opcodes::INX,
+            opcodes::STX_ZP,
+            0x06,
+            // ----
+            opcodes::LDA_IMM,
+            20,
+            opcodes::ADC_ZP,
+            0x05,
+            opcodes::PHA,
+            opcodes::SEC,
+            opcodes::SBC_ZP,
+            0x06,
+            opcodes::PHA,
+        ]);
+        cpu.ticks(18 + 16).unwrap();
+
+        let reversed_stack: Vec<u8> = cpu.memory.bytes[0x1FE..=0x1FF]
+            .iter()
+            .copied()
+            .rev()
+            .collect();
+        assert_eq!(reversed_stack, [35, 19]);
     }
 
     #[test]
