@@ -4,11 +4,12 @@ use crate::cpu::Cpu;
 use crate::frame_renderer::FrameRenderer;
 use crate::frame_renderer::FrameRendererBuilder;
 use crate::memory::{AtariRam, AtariRom};
+use crate::riot::Riot;
 use crate::tia::Tia;
 use image;
 use image::RgbaImage;
 
-pub type AtariAddressSpace = AddressSpace<Tia, AtariRam, AtariRom>;
+pub type AtariAddressSpace = AddressSpace<Tia, AtariRam, Riot, AtariRom>;
 
 pub struct Atari {
     cpu: Cpu<AtariAddressSpace>,
@@ -102,6 +103,7 @@ mod tests {
         let address_space = Box::new(AtariAddressSpace {
             tia: Tia::new(),
             ram: AtariRam::new(),
+            riot: Riot::new(),
             rom: AtariRom::new(&rom).unwrap(),
         });
         let mut atari = Atari::new(address_space);
@@ -194,6 +196,7 @@ mod tests {
             let address_space = Box::new(AtariAddressSpace {
                 tia: Tia::new(),
                 ram: AtariRam::new(),
+                riot: Riot::new(),
                 rom: AtariRom::new(&rom).unwrap(),
             });
             let mut atari = Atari::new(address_space);

@@ -6,6 +6,7 @@ mod colors;
 mod cpu;
 mod frame_renderer;
 mod memory;
+mod riot;
 mod tia;
 
 mod test_utils;
@@ -16,6 +17,7 @@ use memory::{AtariRam, AtariRom};
 use piston::input::RenderEvent;
 use piston_window::WindowSettings;
 use piston_window::{PistonWindow, Texture, TextureSettings, Window};
+use riot::Riot;
 use std::env;
 use tia::Tia;
 
@@ -29,6 +31,7 @@ fn main() {
     let address_space = Box::new(AtariAddressSpace {
         tia: Tia::new(),
         ram: AtariRam::new(),
+        riot: Riot::new(),
         rom: AtariRom::new(&rom_bytes[..]).unwrap(),
     });
     let mut atari = Atari::new(address_space);
