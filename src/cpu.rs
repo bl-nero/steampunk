@@ -390,6 +390,8 @@ impl<M: Memory + Debug> Cpu<M> {
         // Now move on to the next subcycle.
         match self.sequence_state {
             SequenceState::Opcode(opcode, subcycle) => {
+                // OMG, there's a bug in the state machine!
+                debug_assert!(subcycle < 7, "Runaway instruction: ${:02X}", opcode);
                 self.sequence_state = SequenceState::Opcode(opcode, subcycle + 1)
             }
             SequenceState::Reset(subcycle) => {
@@ -455,6 +457,7 @@ impl<M: Memory + Debug> Cpu<M> {
             _ => {
                 self.memory
                     .write(((self.adh as u16) << 8) | self.adl as u16, value)?;
+                self.sequence_state = SequenceState::Ready;
             }
         }
         Ok(())
