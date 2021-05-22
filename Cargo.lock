@@ -59,6 +59,7 @@ dependencies = [
 name = "atari-emulator"
 version = "0.1.0"
 dependencies = [
+ "ctrlc",
  "image",
  "itertools",
  "lcs-image-diff",
@@ -277,6 +278,16 @@ checksum = "f8306fcef4a7b563b76b7dd949ca48f52bc1141aa067d2ea09565f3e2652aa5c"
 dependencies = [
  "cfg-if 0.1.9",
  "lazy_static",
+]
+
+[[package]]
+name = "ctrlc"
+version = "3.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "232295399409a8b7ae41276757b5a1cc21032848d42bff2352261f958b3ca29a"
+dependencies = [
+ "nix 0.20.0",
+ "winapi",
 ]
 
 [[package]]
@@ -688,6 +699,18 @@ dependencies = [
  "cfg-if 0.1.9",
  "libc",
  "void",
+]
+
+[[package]]
+name = "nix"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa9b4819da1bc61c0ea48b63b7bc8604064dd43013e7cc325df098d49cd7c18a"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
 ]
 
 [[package]]
@@ -1329,7 +1352,7 @@ dependencies = [
  "dlib",
  "lazy_static",
  "memmap",
- "nix",
+ "nix 0.14.1",
  "wayland-client",
  "wayland-commons",
  "wayland-protocols",
@@ -1459,7 +1482,7 @@ dependencies = [
  "bitflags",
  "downcast-rs",
  "libc",
- "nix",
+ "nix 0.14.1",
  "wayland-commons",
  "wayland-scanner",
  "wayland-sys",
@@ -1471,7 +1494,7 @@ version = "0.21.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c08896768b667e1df195d88a62a53a2d1351a1ed96188be79c196b35bb32ec"
 dependencies = [
- "nix",
+ "nix 0.14.1",
  "wayland-sys",
 ]
 

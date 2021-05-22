@@ -11,7 +11,7 @@ mod tia;
 
 mod test_utils;
 
-use atari::{Atari, AtariAddressSpace};
+use atari::{Atari, AtariAddressSpace, FrameStatus};
 use image::RgbaImage;
 use memory::{AtariRam, AtariRom};
 use piston::input::RenderEvent;
@@ -19,6 +19,8 @@ use piston_window::WindowSettings;
 use piston_window::{PistonWindow, Texture, TextureSettings, Window};
 use riot::Riot;
 use std::env;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tia::Tia;
 
 fn main() {
@@ -26,16 +28,16 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
     // Load an example ROM image.
-    let rom_bytes = std::fs::read(&args[1]).unwrap();
+    let rom_bytes = std::fs::read(&args[1]).expect("Unable to read the ROM image file");
     // Create and initialize components of the emulated system.
     let address_space = Box::new(AtariAddressSpace {
         tia: Tia::new(),
         ram: AtariRam::new(),
         riot: Riot::new(),
-        rom: AtariRom::new(&rom_bytes[..]).unwrap(),
+        rom: AtariRom::new(&rom_bytes[..]).expect("Unable to load the ROM into Atari"),
     });
     let mut atari = Atari::new(address_space);
-    atari.reset();
+    atari.reset().expect("Unable to reset Atari");
 
     let mut window = build_window(atari.frame_image());
 
@@ -46,10 +48,43 @@ fn main() {
             .expect("Could not create a texture");
 
     // Main loop.
+    let interrupted = Arc::new(AtomicBool::new(false));
+    {
+        let interrupted = interrupted.clone();
+        ctrlc::set_handler(move || {
+            eprintln!("Terminating.");
+            interrupted.store(true, Ordering::Relaxed);
+        })
+        .expect("Unable to set the Ctrl-C handler");
+    }
+    let mut running = true;
     while let Some(e) = window.next() {
         let window_size = window.size();
         if e.render_args().is_some() {
-            let frame_image = atari.next_frame();
+            // TODO: This code is a total mess. I need to clean it up.
+            while running {
+                match atari.tick() {
+                    Ok(FrameStatus::Pending) => {}
+                    Ok(FrameStatus::Complete) => break,
+                    Err(e) => {
+                        running = false;
+                        eprintln!("ERROR: {}. Atari halted.", e);
+                        eprintln!("{}", atari.cpu());
+                        eprintln!("{}", atari.cpu().memory());
+                    }
+                }
+                if interrupted.load(Ordering::Relaxed) {
+                    eprintln!("{}", atari.cpu());
+                    eprintln!("{}", atari.cpu().memory());
+                    std::process::exit(1);
+                }
+            }
+            if interrupted.load(Ordering::Relaxed) {
+                eprintln!("{}", atari.cpu());
+                eprintln!("{}", atari.cpu().memory());
+                std::process::exit(1);
+            }
+            let frame_image = atari.frame_image();
             texture
                 .update(&mut window.encoder, frame_image)
                 .expect("Unable to update texture");

@@ -111,7 +111,11 @@ impl<M: Memory + Debug> Cpu<M> {
         }
     }
 
-    pub fn memory(&mut self) -> &mut M {
+    pub fn memory(&self) -> &M {
+        &self.memory
+    }
+
+    pub fn mut_memory(&mut self) -> &mut M {
         &mut self.memory
     }
 
