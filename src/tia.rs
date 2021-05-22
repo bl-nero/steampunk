@@ -96,6 +96,7 @@ impl Tia {
                     Some(self.color_at(self.column_counter - HBLANK_WIDTH))
                 },
             },
+            riot_tick: self.column_counter % 3 == 0,
             cpu_tick: !self.wait_for_sync && self.column_counter % 3 == 0,
         };
 
@@ -191,6 +192,8 @@ pub struct TiaOutput {
     /// If `true`, TIA allows CPU to perform a tick. Otherwise, the CPU is put on
     /// hold.
     pub cpu_tick: bool,
+    /// If `true`, TIA tells RIOT to perform a tick.
+    pub riot_tick: bool,
 }
 
 /// TIA video output. The TIA chip actually produces a composite sync signal, but
@@ -456,6 +459,20 @@ mod tests {
         assert_eq!(tia.tick().cpu_tick, false);
         assert_eq!(tia.tick().cpu_tick, false);
         assert_eq!(tia.tick().cpu_tick, true);
+    }
+
+    #[test]
+    fn tells_riot_to_tick_every_three_cycles() {
+        let mut tia = Tia::new();
+        assert_eq!(tia.tick().riot_tick, true);
+        assert_eq!(tia.tick().riot_tick, false);
+        assert_eq!(tia.tick().riot_tick, false);
+        assert_eq!(tia.tick().riot_tick, true);
+        //Even if WSYNC is turned on!
+        tia.write(registers::WSYNC, 0x00).unwrap();
+        assert_eq!(tia.tick().riot_tick, false);
+        assert_eq!(tia.tick().riot_tick, false);
+        assert_eq!(tia.tick().riot_tick, true);
     }
 
     #[test]

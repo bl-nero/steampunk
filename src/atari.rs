@@ -45,6 +45,7 @@ impl Atari {
             if let Err(e) = self.cpu.tick() {
                 return Err(e);
             }
+            self.cpu.mut_memory().riot.tick();
         }
         return if self.frame_renderer.consume(tia_result.video) {
             Ok(FrameStatus::Complete)
@@ -181,6 +182,26 @@ mod tests {
             expected_image_2,
             "animates_horizontal_stripes_2",
         );
+    }
+
+    #[test]
+    fn uses_riot_timer_for_waiting() {
+        let mut atari = atari_with_rom("skipping_stripes.bin");
+
+        let expected_image = read_test_image("horizontal_stripes_1.png");
+        let actual_image = DynamicImage::ImageRgba8(next_frame(&mut atari).unwrap());
+
+        assert_images_equal(actual_image, expected_image, "uses_riot_timer_for_waiting");
+    }
+
+    #[test]
+    fn stops_on_error() {
+        let mut atari = atari_with_rom("halt.bin");
+
+        let expected_image = read_test_image("stops_on_error.png");
+        let actual_image = DynamicImage::ImageRgba8(next_frame(&mut atari).unwrap());
+
+        assert_images_equal(actual_image, expected_image, "stops_on_error");
     }
 
     #[bench]
