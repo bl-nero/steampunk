@@ -51,7 +51,6 @@ impl fmt::Display for WriteError {
 
 /// A very simple memory structure. At the moment, it's just a 64-kilobyte chunk
 /// of RAM, for simplicity of addressing.
-
 #[cfg(test)]
 pub struct SimpleRam {
     pub bytes: [u8; Self::SIZE],
