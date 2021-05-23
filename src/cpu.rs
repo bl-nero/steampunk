@@ -1,5 +1,5 @@
 mod flags;
-mod opcodes;
+pub mod opcodes;
 mod tests;
 
 use crate::memory::{Memory, ReadError, ReadResult};
@@ -46,8 +46,8 @@ type TickResult = Result<(), Box<dyn error::Error>>;
 
 #[derive(Debug, Clone)]
 struct UnknownOpcodeError {
-    opcode: u8,
-    address: u16,
+    pub opcode: u8,
+    pub address: u16,
 }
 
 impl error::Error for UnknownOpcodeError {}
@@ -62,10 +62,10 @@ impl fmt::Display for UnknownOpcodeError {
     }
 }
 
-#[derive(Debug, Clone)]
-struct CpuHaltedError {
-    opcode: u8,
-    address: u16,
+#[derive(Debug, Clone, PartialEq)]
+pub struct CpuHaltedError {
+    pub opcode: u8,
+    pub address: u16,
 }
 
 impl error::Error for CpuHaltedError {}
@@ -147,6 +147,9 @@ impl<M: Memory + Debug> Cpu<M> {
             }
             SequenceState::Opcode(opcodes::LDY_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| me.set_reg_y(value))?;
+            }
+            SequenceState::Opcode(opcodes::LDA_ABS, _) => {
+                self.tick_load_absolute(&mut |me, value| me.set_reg_a(value))?;
             }
 
             SequenceState::Opcode(opcodes::STA_ZP, _) => {
@@ -409,6 +412,21 @@ impl<M: Memory + Debug> Cpu<M> {
         let value = self.consume_byte()?;
         load(self, value);
         self.sequence_state = SequenceState::Ready;
+        Ok(())
+    }
+
+    fn tick_load_absolute(&mut self, load: &mut dyn FnMut(&mut Self, u8)) -> Result<(), ReadError> {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.adl = self.consume_byte()?,
+            SequenceState::Opcode(_, 2) => self.adh = self.consume_byte()?,
+            _ => {
+                load(
+                    self,
+                    self.memory.read(self.adl as u16 | (self.adh as u16) << 8)?,
+                );
+                self.sequence_state = SequenceState::Ready;
+            }
+        };
         Ok(())
     }
 

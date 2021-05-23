@@ -17,6 +17,14 @@ fn cpu_with_program(program: &[u8]) -> Cpu<SimpleRam> {
     return cpu;
 }
 
+fn reversed_stack(cpu: &Cpu<SimpleRam>) -> Vec<u8> {
+    cpu.memory.bytes[(cpu.stack_pointer() as usize + 1)..=0x1FF]
+        .iter()
+        .copied()
+        .rev()
+        .collect()
+}
+
 #[test]
 fn it_resets() {
     // We test resetting the CPU by providing a memory image with two
@@ -140,6 +148,22 @@ fn multiple_registers() {
     ]);
     cpu.ticks(10).unwrap();
     assert_eq!(cpu.memory.bytes[0..2], [10, 20]);
+}
+
+#[test]
+fn loading_addressing_modes() {
+    let mut cpu = cpu_with_program(&[
+        opcodes::LDX_IMM,
+        0xFF,
+        opcodes::TXS,
+        // Load 0xF002, which should point to the TXS instruction above.
+        opcodes::LDA_ABS,
+        0x02,
+        0xF0,
+        opcodes::PHA,
+    ]);
+    cpu.ticks(11).unwrap();
+    assert_eq!(reversed_stack(&cpu), [opcodes::TXS]);
 }
 
 #[test]
@@ -359,13 +383,8 @@ fn adc_sbc() {
     ]);
     cpu.ticks(10 + 7 * 8).unwrap();
 
-    let reversed_stack: Vec<u8> = cpu.memory.bytes[0x1F2..=0x1FF]
-        .iter()
-        .copied()
-        .rev()
-        .collect();
     assert_eq!(
-        reversed_stack,
+        reversed_stack(&cpu),
         [
             0x6F,
             flags::UNUSED,
@@ -411,13 +430,7 @@ fn adc_sbc_addressing_modes() {
         opcodes::PHA,
     ]);
     cpu.ticks(18 + 16).unwrap();
-
-    let reversed_stack: Vec<u8> = cpu.memory.bytes[0x1FE..=0x1FF]
-        .iter()
-        .copied()
-        .rev()
-        .collect();
-    assert_eq!(reversed_stack, [35, 19]);
+    assert_eq!(reversed_stack(&cpu), [35, 19]);
 }
 
 #[test]

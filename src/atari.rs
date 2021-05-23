@@ -1,6 +1,6 @@
 use crate::address_space::AddressSpace;
 use crate::colors;
-use crate::cpu::Cpu;
+use crate::cpu::{opcodes, Cpu, CpuHaltedError};
 use crate::frame_renderer::FrameRenderer;
 use crate::frame_renderer::FrameRendererBuilder;
 use crate::memory::{AtariRam, AtariRom};
@@ -188,20 +188,26 @@ mod tests {
     fn uses_riot_timer_for_waiting() {
         let mut atari = atari_with_rom("skipping_stripes.bin");
 
-        let expected_image = read_test_image("horizontal_stripes_1.png");
+        let expected_image = read_test_image("uses_riot_timer_for_waiting.png");
         let actual_image = DynamicImage::ImageRgba8(next_frame(&mut atari).unwrap());
 
         assert_images_equal(actual_image, expected_image, "uses_riot_timer_for_waiting");
     }
 
     #[test]
-    fn stops_on_error() {
+    fn reports_halt() {
         let mut atari = atari_with_rom("halt.bin");
 
-        let expected_image = read_test_image("stops_on_error.png");
-        let actual_image = DynamicImage::ImageRgba8(next_frame(&mut atari).unwrap());
-
-        assert_images_equal(actual_image, expected_image, "stops_on_error");
+        let expected_image = read_test_image("reports_halt.png");
+        assert_eq!(
+            *(*next_frame(&mut atari).unwrap_err()).downcast_ref::<CpuHaltedError>().unwrap(),
+            CpuHaltedError {
+                opcode: opcodes::HLT1,
+                address: 0xF2BA
+            }
+        );
+        let actual_image = DynamicImage::ImageRgba8(atari.frame_image().clone());
+        assert_images_equal(actual_image, expected_image, "reports_halt");
     }
 
     #[bench]

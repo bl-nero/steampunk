@@ -1,6 +1,7 @@
 pub const LDA_IMM: u8 = 0xA9;
 pub const LDX_IMM: u8 = 0xA2;
 pub const LDY_IMM: u8 = 0xA0;
+pub const LDA_ABS: u8 = 0xAD;
 
 pub const STA_ZP: u8 = 0x85;
 pub const STX_ZP: u8 = 0x86;
