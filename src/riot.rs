@@ -17,7 +17,7 @@ impl Riot {
         Riot {
             timer: rng.gen(),
             divider: rng.gen(),
-            interval_length: rng.gen(),
+            interval_length: [1, 8, 64, 1024][rng.gen_range(0..4)],
         }
     }
 
