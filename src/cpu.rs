@@ -1,3 +1,4 @@
+mod bcd;
 mod flags;
 pub mod opcodes;
 mod tests;
