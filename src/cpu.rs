@@ -149,6 +149,9 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::LDY_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| me.set_reg_y(value))?;
             }
+            SequenceState::Opcode(opcodes::LDX_ZP, _) => {
+                self.tick_load_zero_page(&mut |me, value| me.set_reg_x(value))?;
+            }
             SequenceState::Opcode(opcodes::LDA_ABS, _) => {
                 self.tick_load_absolute(&mut |me, value| me.set_reg_a(value))?;
             }
@@ -277,14 +280,17 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::CLI, _) => {
                 self.tick_simple_internal_operation(&mut |me| me.flags &= !flags::I)?;
             }
+            SequenceState::Opcode(opcodes::SED, _) => {
+                self.tick_simple_internal_operation(&mut |me| me.flags |= flags::D)?;
+            }
             SequenceState::Opcode(opcodes::CLD, _) => {
                 self.tick_simple_internal_operation(&mut |me| me.flags &= !flags::D)?;
             }
-            SequenceState::Opcode(opcodes::CLC, _) => {
-                self.tick_simple_internal_operation(&mut |me| me.flags &= !flags::C)?;
-            }
             SequenceState::Opcode(opcodes::SEC, _) => {
                 self.tick_simple_internal_operation(&mut |me| me.flags |= flags::C)?;
+            }
+            SequenceState::Opcode(opcodes::CLC, _) => {
+                self.tick_simple_internal_operation(&mut |me| me.flags &= !flags::C)?;
             }
 
             SequenceState::Opcode(opcodes::BEQ, _) => {
@@ -645,7 +651,19 @@ impl<M: Memory + Debug> Cpu<M> {
     }
 
     /// Calculates lhs+rhs+C, updates the C and V flags, and returns the result.
+    /// The V flag is not set in BCD mode, which is not how the real CPU works,
+    /// but it's undefined anyway.
     fn add_with_carry(&mut self, lhs: u8, rhs: u8) -> u8 {
+        if self.flags & flags::D != 0 {
+            let (result, carry) = bcd::bcd_add(lhs, rhs, self.flags & flags::C != 0);
+            self.flags = if carry {
+                self.flags | flags::C
+            } else {
+                self.flags & !flags::C
+            };
+            return result;
+        }
+
         let (mut unsigned_sum, mut unsigned_overflow) = lhs.overflowing_add(rhs);
         if self.flags & flags::C != 0 {
             let (unsigned_sum_2, unsigned_overflow_2) = unsigned_sum.overflowing_add(1);
@@ -670,6 +688,16 @@ impl<M: Memory + Debug> Cpu<M> {
     /// Calculates lhs-rhs-(1-C), updates the C and V flags, and returns the
     /// result.
     fn sub_with_carry(&mut self, lhs: u8, rhs: u8) -> u8 {
+        if self.flags & flags::D != 0 {
+            let (result, borrow) = bcd::bcd_sub(lhs, rhs, self.flags & flags::C == 0);
+            self.flags = if borrow {
+                self.flags & !flags::C
+            } else {
+                self.flags | flags::C
+            };
+            return result;
+        }
+
         let (mut unsigned_diff, mut unsigned_overflow) = lhs.overflowing_sub(rhs);
         if self.flags & flags::C == 0 {
             let (unsigned_diff_2, unsigned_overflow_2) = unsigned_diff.overflowing_sub(1);

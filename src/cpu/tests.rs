@@ -101,6 +101,10 @@ fn ldx_stx() {
         12,
         opcodes::STX_ZP,
         5,
+        opcodes::LDX_ZP,
+        4,
+        opcodes::STX_ZP,
+        6,
     ]);
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
@@ -108,6 +112,8 @@ fn ldx_stx() {
     assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
+    cpu.ticks(6).unwrap();
+    assert_eq!(cpu.memory.bytes[4..7], [73, 12, 73]);
 }
 
 #[test]
@@ -400,6 +406,50 @@ fn adc_sbc() {
             flags::UNUSED | flags::C | flags::V,
             0xB8,
             flags::UNUSED | flags::V | flags::N,
+        ]
+    );
+}
+
+#[test]
+fn adc_sbc_decimal_mode() {
+    let mut cpu = cpu_with_program(&[
+        opcodes::LDX_IMM,
+        0xFE,
+        opcodes::TXS,
+        opcodes::PLP,
+        opcodes::SED,
+        opcodes::LDA_IMM,
+        0x45,
+        opcodes::ADC_IMM,
+        0x68,
+        opcodes::PHA,
+        opcodes::PHP,
+        opcodes::ADC_IMM,
+        0x16,
+        opcodes::PHA,
+        opcodes::PHP,
+        opcodes::SBC_IMM,
+        0x25,
+        opcodes::PHA,
+        opcodes::PHP,
+        opcodes::SBC_IMM,
+        0x56,
+        opcodes::PHA,
+        opcodes::PHP,
+    ]);
+    cpu.ticks(12 + 4 * 8).unwrap();
+
+    assert_eq!(
+        reversed_stack(&cpu),
+        [
+            0x13,
+            flags::UNUSED | flags::D | flags::C,
+            0x30,
+            flags::UNUSED | flags::D,
+            0x04,
+            flags::UNUSED | flags::D | flags::C,
+            0x48,
+            flags::UNUSED | flags::D,
         ]
     );
 }

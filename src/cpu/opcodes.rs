@@ -1,6 +1,7 @@
 pub const LDA_IMM: u8 = 0xA9;
 pub const LDX_IMM: u8 = 0xA2;
 pub const LDY_IMM: u8 = 0xA0;
+pub const LDX_ZP: u8 = 0xA6;
 pub const LDA_ABS: u8 = 0xAD;
 
 pub const STA_ZP: u8 = 0x85;
@@ -39,10 +40,10 @@ pub const PLA: u8 = 0x68;
 
 pub const SEI: u8 = 0x78;
 pub const CLI: u8 = 0x58;
-// pub const SED: u8 = 0xF8;
+pub const SED: u8 = 0xF8;
 pub const CLD: u8 = 0xD8;
-pub const CLC: u8 = 0x18;
 pub const SEC: u8 = 0x38;
+pub const CLC: u8 = 0x18;
 
 pub const BEQ: u8 = 0xF0;
 pub const BNE: u8 = 0xD0;
