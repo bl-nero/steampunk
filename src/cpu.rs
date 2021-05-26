@@ -175,6 +175,10 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_store_abs(self.reg_a)?;
             }
 
+            SequenceState::Opcode(opcodes::AND_IMM, _) => {
+                self.tick_load_immediate(&mut |me, value| me.set_reg_a(me.reg_a & value))?;
+            }
+
             SequenceState::Opcode(opcodes::CMP_IMM, _) => {
                 self.tick_compare_immediate(self.reg_a)?;
             }
@@ -183,6 +187,13 @@ impl<M: Memory + Debug> Cpu<M> {
             }
             SequenceState::Opcode(opcodes::CPY_IMM, _) => {
                 self.tick_compare_immediate(self.reg_y)?;
+            }
+
+            SequenceState::Opcode(opcodes::BIT_ZP, _) => {
+                self.tick_load_zero_page(&mut |me, value| me.test_bits(value))?;
+            }
+            SequenceState::Opcode(opcodes::BIT_ABS, _) => {
+                self.tick_load_absolute(&mut |me, value| me.test_bits(value))?;
             }
 
             SequenceState::Opcode(opcodes::ADC_IMM, _) => {
@@ -648,6 +659,14 @@ impl<M: Memory + Debug> Cpu<M> {
 
     fn stack_pointer(&self) -> u16 {
         0x100 | self.reg_sp as u16
+    }
+
+    fn test_bits(&mut self, value: u8) {
+        // Clear N, V, and Z. Then load N and V (bits 7 and 6) directly from the
+        // value, and update Z by performing an AND with the accumolator.
+        self.flags = self.flags & !(flags::N | flags::V | flags::Z)
+            | (value & (flags::N | flags::V))
+            | if value & self.reg_a == 0 { flags::Z } else { 0 };
     }
 
     /// Calculates lhs+rhs+C, updates the C and V flags, and returns the result.

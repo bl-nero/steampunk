@@ -1,6 +1,6 @@
 use crate::address_space::AddressSpace;
 use crate::colors;
-use crate::cpu::{opcodes, Cpu, CpuHaltedError};
+use crate::cpu::Cpu;
 use crate::frame_renderer::FrameRenderer;
 use crate::frame_renderer::FrameRendererBuilder;
 use crate::memory::{AtariRam, AtariRom};
@@ -72,6 +72,7 @@ mod tests {
     extern crate test;
 
     use super::*;
+    use crate::cpu::{opcodes, CpuHaltedError};
     use image::DynamicImage;
     use image::GenericImageView;
     use lcs_image_diff;
@@ -200,7 +201,9 @@ mod tests {
 
         let expected_image = read_test_image("reports_halt.png");
         assert_eq!(
-            *(*next_frame(&mut atari).unwrap_err()).downcast_ref::<CpuHaltedError>().unwrap(),
+            *(*next_frame(&mut atari).unwrap_err())
+                .downcast_ref::<CpuHaltedError>()
+                .unwrap(),
             CpuHaltedError {
                 opcode: opcodes::HLT1,
                 address: 0xF2BA

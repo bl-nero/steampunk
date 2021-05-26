@@ -177,56 +177,6 @@ fn storing_addressing_modes() {
 }
 
 #[test]
-fn inc_dec() {
-    let mut cpu = cpu_with_code! {
-            inc 10
-            inc 10
-            dec 11
-            dec 11
-    };
-    cpu.ticks(20).unwrap();
-    assert_eq!(cpu.memory.bytes[10..=11], [2, -2 as i8 as u8]);
-}
-
-#[test]
-fn inx_dex() {
-    let mut cpu = cpu_with_code! {
-            ldx #0xFE
-            inx
-            stx 5
-            inx
-            stx 6
-            inx
-            stx 7
-            dex
-            stx 8
-            dex
-            stx 9
-    };
-    cpu.ticks(27).unwrap();
-    assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
-}
-
-#[test]
-fn iny_dey() {
-    let mut cpu = cpu_with_code! {
-            ldy #0xFE
-            iny
-            sty 5
-            iny
-            sty 6
-            iny
-            sty 7
-            dey
-            sty 8
-            dey
-            sty 9
-    };
-    cpu.ticks(27).unwrap();
-    assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
-}
-
-#[test]
 fn cmp() {
     let mut program = assemble6502! ({
         start: 0xF000,
@@ -285,6 +235,42 @@ fn cpx_cpy() {
     let mask = flags::C | flags::Z | flags::N;
     assert_eq!(cpu.memory.bytes[0x1FF] & mask, flags::N | flags::C);
     assert_eq!(cpu.memory.bytes[0x1FE] & mask, flags::N);
+}
+
+#[test]
+fn bit() {
+    let mut cpu = cpu_with_code! {
+            ldx #0xFE
+            txs
+            plp
+            lda #0b1000_0001
+            sta 0x01
+            lda #0b0100_0001
+            sta 0x02
+            lda #0b0011_1110
+            sta 0x03
+            lda #0b1111_1110
+            sta abs 0x1234
+            lda #0b0000_0001
+            bit 0x01
+            php
+            bit 0x02
+            php
+            bit 0x03
+            php
+            bit abs 0x1234
+            php
+    };
+    cpu.ticks(56).unwrap();
+    assert_eq!(
+        reversed_stack(&cpu),
+        &[
+            flags::UNUSED | flags::N,
+            flags::UNUSED | flags::V,
+            flags::UNUSED | flags::Z,
+            flags::UNUSED | flags::N | flags::V | flags::Z,
+        ]
+    );
 }
 
 #[test]
@@ -408,6 +394,69 @@ fn adc_sbc_addressing_modes() {
     };
     cpu.ticks(18 + 16).unwrap();
     assert_eq!(reversed_stack(&cpu), [35, 19]);
+}
+
+#[test]
+fn logical_operations() {
+    let mut cpu = cpu_with_code! {
+            ldx #0xFF
+            txs
+            lda #0b0000_1111
+            and #0b1100_1100
+            pha
+    };
+    cpu.ticks(11).unwrap();
+    assert_eq!(reversed_stack(&cpu), [0b0000_1100])
+}
+
+#[test]
+fn inc_dec() {
+    let mut cpu = cpu_with_code! {
+            inc 10
+            inc 10
+            dec 11
+            dec 11
+    };
+    cpu.ticks(20).unwrap();
+    assert_eq!(cpu.memory.bytes[10..=11], [2, -2 as i8 as u8]);
+}
+
+#[test]
+fn inx_dex() {
+    let mut cpu = cpu_with_code! {
+            ldx #0xFE
+            inx
+            stx 5
+            inx
+            stx 6
+            inx
+            stx 7
+            dex
+            stx 8
+            dex
+            stx 9
+    };
+    cpu.ticks(27).unwrap();
+    assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
+}
+
+#[test]
+fn iny_dey() {
+    let mut cpu = cpu_with_code! {
+            ldy #0xFE
+            iny
+            sty 5
+            iny
+            sty 6
+            iny
+            sty 7
+            dey
+            sty 8
+            dey
+            sty 9
+    };
+    cpu.ticks(27).unwrap();
+    assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
 }
 
 #[test]

@@ -11,9 +11,14 @@ pub const STA_ZP_X: u8 = 0x95;
 pub const STY_ZP_X: u8 = 0x94;
 pub const STA_ABS: u8 = 0x8D;
 
+pub const AND_IMM: u8 = 0x29;
+
 pub const CMP_IMM: u8 = 0xC9;
 pub const CPX_IMM: u8 = 0xE0;
 pub const CPY_IMM: u8 = 0xC0;
+
+pub const BIT_ZP: u8 = 0x24;
+pub const BIT_ABS: u8 = 0x2C;
 
 pub const ADC_IMM: u8 = 0x69;
 pub const ADC_ZP: u8 = 0x65;
