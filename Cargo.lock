@@ -67,6 +67,7 @@ dependencies = [
  "piston2d-graphics",
  "piston_window",
  "rand 0.8.3",
+ "rustasm6502",
 ]
 
 [[package]]
@@ -1232,6 +1233,12 @@ checksum = "7e891cfe48e9100a70a3b6eb652fef28920c117d366339687bd5576160db0f76"
 dependencies = [
  "redox_syscall",
 ]
+
+[[package]]
+name = "rustasm6502"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7748510490c5e06e6696f4cbabcb821b68cfcc9823eebe6b52f1fb41f02d8f5e"
 
 [[package]]
 name = "rustc-demangle"

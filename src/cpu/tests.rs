@@ -1,4 +1,5 @@
 #![cfg(test)]
+
 extern crate test;
 
 use super::*;
@@ -15,6 +16,15 @@ fn cpu_with_program(program: &[u8]) -> Cpu<SimpleRam> {
     let mut cpu = Cpu::new(memory);
     reset(&mut cpu);
     return cpu;
+}
+
+macro_rules! cpu_with_code {
+    ($($tokens:tt)*) => {
+        cpu_with_program(&assemble6502!({
+            start: 0xF000,
+            code: {$($tokens)*}
+        }))
+    };
 }
 
 fn reversed_stack(cpu: &Cpu<SimpleRam>) -> Vec<u8> {
@@ -64,20 +74,14 @@ fn it_resets() {
 
 #[test]
 fn lda_sta() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDA_IMM,
-        65,
-        opcodes::STA_ZP,
-        4,
-        opcodes::LDA_IMM,
-        73,
-        opcodes::STA_ZP,
-        4,
-        opcodes::LDA_IMM,
-        12,
-        opcodes::STA_ZP,
-        5,
-    ]);
+    let mut cpu = cpu_with_code! {
+            lda #65
+            sta 4
+            lda #73
+            sta 4
+            lda #12
+            sta 5
+    };
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
     cpu.ticks(5).unwrap();
@@ -88,24 +92,16 @@ fn lda_sta() {
 
 #[test]
 fn ldx_stx() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDX_IMM,
-        65,
-        opcodes::STX_ZP,
-        4,
-        opcodes::LDX_IMM,
-        73,
-        opcodes::STX_ZP,
-        4,
-        opcodes::LDX_IMM,
-        12,
-        opcodes::STX_ZP,
-        5,
-        opcodes::LDX_ZP,
-        4,
-        opcodes::STX_ZP,
-        6,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #65
+            stx 4
+            ldx #73
+            stx 4
+            ldx #12
+            stx 5
+            ldx 4
+            stx 6
+    };
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
     cpu.ticks(5).unwrap();
@@ -118,20 +114,14 @@ fn ldx_stx() {
 
 #[test]
 fn ldy_sty() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDY_IMM,
-        65,
-        opcodes::STY_ZP,
-        4,
-        opcodes::LDY_IMM,
-        73,
-        opcodes::STY_ZP,
-        4,
-        opcodes::LDY_IMM,
-        12,
-        opcodes::STY_ZP,
-        5,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldy #65
+            sty 4
+            ldy #73
+            sty 4
+            ldy #12
+            sty 5
+    };
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
     cpu.ticks(5).unwrap();
@@ -142,58 +132,41 @@ fn ldy_sty() {
 
 #[test]
 fn multiple_registers() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDA_IMM,
-        10,
-        opcodes::LDX_IMM,
-        20,
-        opcodes::STA_ZP,
-        0,
-        opcodes::STX_ZP,
-        1,
-    ]);
+    let mut cpu = cpu_with_code! {
+            lda #10
+            ldx #20
+            sta 0
+            stx 1
+    };
     cpu.ticks(10).unwrap();
     assert_eq!(cpu.memory.bytes[0..2], [10, 20]);
 }
 
 #[test]
 fn loading_addressing_modes() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDX_IMM,
-        0xFF,
-        opcodes::TXS,
-        // Load 0xF002, which should point to the TXS instruction above.
-        opcodes::LDA_ABS,
-        0x02,
-        0xF0,
-        opcodes::PHA,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #0xFF
+            txs
+            lda abs 0xF002
+            pha
+    };
     cpu.ticks(11).unwrap();
     assert_eq!(reversed_stack(&cpu), [opcodes::TXS]);
 }
 
 #[test]
 fn storing_addressing_modes() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDX_IMM,
-        5,
-        opcodes::LDA_IMM,
-        42,
-        opcodes::LDY_IMM,
-        100,
-        // ----
-        opcodes::STA_ZP_X,
-        0xFC,
-        opcodes::STY_ZP_X,
-        0x02,
-        opcodes::DEX,
-        opcodes::BNE,
-        -7i8 as u8,
-        // ----
-        opcodes::STA_ABS,
-        0xCD,
-        0xAB,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #5
+            lda #42
+            ldy #100
+        loop:
+            sta 0xFC,x
+            sty 0x02,x
+            dex
+            bne loop
+            sta abs 0xABCD
+    };
     cpu.ticks(6 + 5 * 13 + 4).unwrap();
     assert_eq!(cpu.memory.bytes[0xFC..0x100], [0, 42, 42, 42]);
     assert_eq!(
@@ -205,144 +178,109 @@ fn storing_addressing_modes() {
 
 #[test]
 fn inc_dec() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::INC_ZP,
-        10,
-        opcodes::INC_ZP,
-        10,
-        opcodes::DEC_ZP,
-        11,
-        opcodes::DEC_ZP,
-        11,
-    ]);
+    let mut cpu = cpu_with_code! {
+            inc 10
+            inc 10
+            dec 11
+            dec 11
+    };
     cpu.ticks(20).unwrap();
     assert_eq!(cpu.memory.bytes[10..=11], [2, -2 as i8 as u8]);
 }
 
 #[test]
 fn inx_dex() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDX_IMM,
-        0xFE,
-        opcodes::INX,
-        opcodes::STX_ZP,
-        5,
-        opcodes::INX,
-        opcodes::STX_ZP,
-        6,
-        opcodes::INX,
-        opcodes::STX_ZP,
-        7,
-        opcodes::DEX,
-        opcodes::STX_ZP,
-        8,
-        opcodes::DEX,
-        opcodes::STX_ZP,
-        9,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #0xFE
+            inx
+            stx 5
+            inx
+            stx 6
+            inx
+            stx 7
+            dex
+            stx 8
+            dex
+            stx 9
+    };
     cpu.ticks(27).unwrap();
     assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
 }
 
 #[test]
 fn iny_dey() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDY_IMM,
-        0xFE,
-        opcodes::INY,
-        opcodes::STY_ZP,
-        5,
-        opcodes::INY,
-        opcodes::STY_ZP,
-        6,
-        opcodes::INY,
-        opcodes::STY_ZP,
-        7,
-        opcodes::DEY,
-        opcodes::STY_ZP,
-        8,
-        opcodes::DEY,
-        opcodes::STY_ZP,
-        9,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldy #0xFE
+            iny
+            sty 5
+            iny
+            sty 6
+            iny
+            sty 7
+            dey
+            sty 8
+            dey
+            sty 9
+    };
     cpu.ticks(27).unwrap();
     assert_eq!(cpu.memory.bytes[5..10], [0xFF, 0x00, 0x01, 0x00, 0xFF]);
 }
 
 #[test]
 fn cmp() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDA_IMM,
-        7,
-        // ----
-        opcodes::CMP_IMM,
-        6,
-        opcodes::BEQ,
-        37,
-        opcodes::BCC,
-        35,
-        opcodes::BMI,
-        33,
-        opcodes::STA_ZP,
-        30,
-        // ----
-        opcodes::CMP_IMM,
-        7,
-        opcodes::BNE,
-        27,
-        opcodes::BCC,
-        25,
-        opcodes::BMI,
-        23,
-        opcodes::STA_ZP,
-        31,
-        // ----
-        opcodes::CMP_IMM,
-        8,
-        opcodes::BEQ,
-        17,
-        opcodes::BCS,
-        15,
-        opcodes::BPL,
-        13,
-        opcodes::STA_ZP,
-        32,
-        // ----
-        opcodes::CMP_IMM,
-        -7i8 as u8,
-        opcodes::BEQ,
-        7,
-        opcodes::BCS,
-        5,
-        opcodes::BMI,
-        3,
-        opcodes::STA_ZP,
-        33,
-        opcodes::HLT1, // This makes sure that we don't use too many cycles.
-        // If the test fails, just loop and wait.
-        opcodes::JMP_ABS,
-        0x2B,
-        0xF0,
-    ]);
+    let mut program = assemble6502! ({
+        start: 0xF000,
+        code: {
+                lda #7
+
+                cmp #6
+                beq fail
+                bcc fail
+                bmi fail
+                sta 30
+
+                cmp #7
+                bne fail
+                bcc fail
+                bmi fail
+                sta 31
+
+                cmp #8
+                beq fail
+                bcs fail
+                bpl fail
+                sta 32
+
+                cmp #(-7i8 as u8)
+                beq fail
+                bcs fail
+                bmi fail
+
+                sta 33
+                nop  // to be replaced
+            fail:
+                jmp fail
+        }
+    });
+    // Deliberately inject HLT1 instead of NOP to make sure we never reach that
+    // place and test timing.
+    program[program.len() - 4] = opcodes::HLT1;
+    let mut cpu = cpu_with_program(&program);
     cpu.ticks(2 + 4 * 11).unwrap();
     assert_eq!(cpu.memory.bytes[30..=33], [7, 7, 7, 7]);
 }
 
 #[test]
 fn cpx_cpy() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDX_IMM,
-        0xFF,
-        opcodes::TXS,
-        opcodes::LDY_IMM,
-        10,
-        opcodes::CPX_IMM,
-        6,
-        opcodes::PHP,
-        opcodes::CPY_IMM,
-        25,
-        opcodes::PHP,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #0xFF
+            txs
+            ldy #10
+            cpx #6
+            php
+            cpy #25
+            php
+    };
     cpu.ticks(16).unwrap();
     let mask = flags::C | flags::Z | flags::N;
     assert_eq!(cpu.memory.bytes[0x1FF] & mask, flags::N | flags::C);
@@ -351,42 +289,40 @@ fn cpx_cpy() {
 
 #[test]
 fn adc_sbc() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDX_IMM,
-        0xFE,
-        opcodes::TXS,
-        opcodes::PLP,
-        opcodes::LDA_IMM,
-        0x45,
-        opcodes::ADC_IMM,
-        0x2A,
-        opcodes::PHA,
-        opcodes::PHP,
-        opcodes::ADC_IMM,
-        0x20,
-        opcodes::PHA,
-        opcodes::PHP,
-        opcodes::ADC_IMM,
-        0xAC,
-        opcodes::PHA,
-        opcodes::PHP,
-        opcodes::ADC_IMM,
-        0x01,
-        opcodes::PHA,
-        opcodes::PHP,
-        opcodes::SBC_IMM,
-        0x45,
-        opcodes::PHA,
-        opcodes::PHP,
-        opcodes::SBC_IMM,
-        0x7F,
-        opcodes::PHA,
-        opcodes::PHP,
-        opcodes::SBC_IMM,
-        0xBF,
-        opcodes::PHA,
-        opcodes::PHP,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #0xFE
+            txs
+            plp
+            lda #0x45
+
+            adc #0x2A
+            pha
+            php
+
+            adc #0x20
+            pha
+            php
+
+            adc #0xAC
+            pha
+            php
+
+            adc #0x01
+            pha
+            php
+
+            sbc #0x45
+            pha
+            php
+
+            sbc #0x7F
+            pha
+            php
+
+            sbc #0xBF
+            pha
+            php
+    };
     cpu.ticks(10 + 7 * 8).unwrap();
 
     assert_eq!(
@@ -412,31 +348,29 @@ fn adc_sbc() {
 
 #[test]
 fn adc_sbc_decimal_mode() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDX_IMM,
-        0xFE,
-        opcodes::TXS,
-        opcodes::PLP,
-        opcodes::SED,
-        opcodes::LDA_IMM,
-        0x45,
-        opcodes::ADC_IMM,
-        0x68,
-        opcodes::PHA,
-        opcodes::PHP,
-        opcodes::ADC_IMM,
-        0x16,
-        opcodes::PHA,
-        opcodes::PHP,
-        opcodes::SBC_IMM,
-        0x25,
-        opcodes::PHA,
-        opcodes::PHP,
-        opcodes::SBC_IMM,
-        0x56,
-        opcodes::PHA,
-        opcodes::PHP,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #0xFE
+            txs
+            plp
+            sed
+            lda #0x45
+
+            adc #0x68
+            pha
+            php
+
+            adc #0x16
+            pha
+            php
+
+            sbc #0x25
+            pha
+            php
+
+            sbc #0x56
+            pha
+            php
+    };
     cpu.ticks(12 + 4 * 8).unwrap();
 
     assert_eq!(
@@ -456,80 +390,81 @@ fn adc_sbc_decimal_mode() {
 
 #[test]
 fn adc_sbc_addressing_modes() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDX_IMM,
-        0xFE,
-        opcodes::TXS,
-        opcodes::PLP,
-        opcodes::LDX_IMM,
-        15,
-        opcodes::STX_ZP,
-        0x05,
-        opcodes::INX,
-        opcodes::STX_ZP,
-        0x06,
-        // ----
-        opcodes::LDA_IMM,
-        20,
-        opcodes::ADC_ZP,
-        0x05,
-        opcodes::PHA,
-        opcodes::SEC,
-        opcodes::SBC_ZP,
-        0x06,
-        opcodes::PHA,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #0xFE
+            txs
+            plp
+            ldx #15
+            stx 5
+            inx
+            stx 6
+
+            lda #20
+            adc 5
+            pha
+            sec
+            sbc 6
+            pha
+    };
     cpu.ticks(18 + 16).unwrap();
     assert_eq!(reversed_stack(&cpu), [35, 19]);
 }
 
 #[test]
 fn tya() {
-    let mut cpu = cpu_with_program(&[opcodes::LDY_IMM, 15, opcodes::TYA, opcodes::STA_ZP, 0x01]);
+    let mut cpu = cpu_with_code! {
+            ldy #15
+            tya
+            sta 1
+    };
     cpu.ticks(7).unwrap();
     assert_eq!(cpu.memory.bytes[0x01], 15);
 }
 
 #[test]
 fn tax() {
-    let mut cpu = cpu_with_program(&[opcodes::LDA_IMM, 13, opcodes::TAX, opcodes::STX_ZP, 0x01]);
+    let mut cpu = cpu_with_code! {
+            lda #13
+            tax
+            stx 0x01
+    };
     cpu.ticks(7).unwrap();
     assert_eq!(cpu.memory.bytes[0x01], 13);
 }
 
 #[test]
 fn txa() {
-    let mut cpu = cpu_with_program(&[opcodes::LDX_IMM, 43, opcodes::TXA, opcodes::STA_ZP, 0x01]);
+    let mut cpu = cpu_with_code! {
+            ldx #43
+            txa
+            sta 0x01
+    };
     cpu.ticks(7).unwrap();
     assert_eq!(cpu.memory.bytes[0x01], 43);
 }
 
 #[test]
 fn flag_manipulation() {
-    let mut cpu = cpu_with_program(&[
-        // Load 0 to flags and initialize SP.
-        opcodes::LDX_IMM,
-        0xFE,
-        opcodes::TXS,
-        opcodes::PLP,
-        // Set I and Z.
-        opcodes::SEI,
-        opcodes::SEC,
-        opcodes::LDA_IMM,
-        0,
-        opcodes::PHP,
-        // Clear Z, set N.
-        opcodes::LDX_IMM,
-        0xFF,
-        opcodes::PHP,
-        // Clear I, Z, and N.
-        opcodes::CLI,
-        opcodes::LDY_IMM,
-        0x01,
-        opcodes::PHP,
-        opcodes::CLC,
-        opcodes::PHP,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #0xFE
+            txs
+            plp
+
+            sei
+            sec
+            lda #0
+            php
+
+            ldx #0xFF
+            php
+
+            cli
+            ldy #0x01
+            php
+
+            clc
+            php
+    };
     cpu.ticks(34).unwrap();
     assert_eq!(
         cpu.memory.bytes[0x1FC..0x200],
@@ -544,19 +479,15 @@ fn flag_manipulation() {
 
 #[test]
 fn bne() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDX_IMM,
-        5,
-        opcodes::LDA_IMM,
-        5,
-        opcodes::STA_ZP_X,
-        9,
-        opcodes::DEX,
-        opcodes::BNE,
-        (-5i8) as u8,
-        opcodes::STX_ZP,
-        12,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #5
+            lda #5
+        loop:
+            sta 9,x
+            dex
+            bne loop
+            stx 12
+    };
     cpu.ticks(4 + 4 * 9 + 8 + 3).unwrap();
     assert_eq!(cpu.memory.bytes[9..16], [0, 5, 5, 0, 5, 5, 0]);
 }
@@ -585,16 +516,14 @@ fn branching_across_pages_adds_one_cpu_cycle() {
 
 #[test]
 fn jmp() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDX_IMM,
-        1,
-        opcodes::STX_ZP,
-        9,
-        opcodes::INX,
-        opcodes::JMP_ABS,
-        0x02,
-        0xf0,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #1
+        loop:
+            stx 9
+            inx
+            jmp loop
+    };
+
     cpu.ticks(13).unwrap();
     assert_eq!(cpu.memory.bytes[9], 2);
     cpu.ticks(8).unwrap();
@@ -603,79 +532,69 @@ fn jmp() {
 
 #[test]
 fn subroutines_and_stack() {
-    let mut cpu = cpu_with_program(&[
+    let mut cpu = cpu_with_code! {
         // Main program. Call subroutine A to store 6 at 25. Then call
         // subroutine B to store 7 at 28 and 6 at 26. Finally, store the 10
         // loaded to A in the beginning at 30. Duration: 25 cycles.
-        opcodes::LDX_IMM,
-        0xFF,
-        opcodes::TXS,
-        opcodes::LDA_IMM,
-        10,
-        opcodes::LDX_IMM,
-        5,
-        opcodes::JSR,
-        0x11,
-        0xF0,
-        opcodes::INX,
-        opcodes::JSR,
-        0x19,
-        0xF0,
-        opcodes::STA_ZP,
-        30,
-        opcodes::HLT1,
-        // Subroutine A: store 6 at 20+X. Address: $F011. Duration: 19
-        // cycles.
-        opcodes::PHA,
-        opcodes::LDA_IMM,
-        6,
-        opcodes::STA_ZP_X,
-        20,
-        opcodes::PLA,
-        opcodes::RTS,
-        opcodes::HLT1,
-        // Subroutine B: store 6 at 20+X and 7 at 22+X. Address: $F019.
-        // Duration: 25 cycles.
-        opcodes::PHA,
-        opcodes::LDA_IMM,
-        7,
-        opcodes::JSR,
-        0x11,
-        0xF0,
-        opcodes::STA_ZP_X,
-        22,
-        opcodes::PLA,
-        opcodes::RTS,
-        opcodes::HLT1,
-    ]);
+            ldx #0xFF
+            txs
+            lda #10
+            ldx #5
+            jsr sub_a
+            inx
+            jsr sub_b
+            sta 30
+            nop  // to be replaced
+
+        // Subroutine A: store 6 at 20+X. Duration: 19 cycles.
+        sub_a:
+            pha
+            lda #6
+            sta 20,x
+            pla
+            rts
+            nop  // to be replaced
+
+        // Subroutine B: store 6 at 20+X and 7 at 22+X. Duration: 25 cycles.
+        sub_b:
+            pha
+            lda #7
+            jsr sub_a
+            sta 22,x
+            pla
+            rts
+            nop  // to be replaced
+    };
+    cpu.mut_memory().bytes[0xF010] = opcodes::HLT1;
+    cpu.mut_memory().bytes[0xF018] = opcodes::HLT1;
+    cpu.mut_memory().bytes[0xF023] = opcodes::HLT1;
+
     cpu.ticks(25 + 19 + 25 + 19).unwrap();
     assert_eq!(cpu.memory.bytes[24..32], [0, 6, 6, 0, 7, 0, 10, 0]);
 }
 
 #[test]
 fn stack_wrapping() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDX_IMM,
-        1,
-        opcodes::TXS,
-        // ----
-        opcodes::TXA,
-        opcodes::PHA,
-        opcodes::TSX,
-        opcodes::TXA,
-        opcodes::PHA,
-        opcodes::TSX,
-        opcodes::TXA,
-        opcodes::PHA,
-        opcodes::TSX,
-        // ----
-        opcodes::TXA,
-        opcodes::PLA,
-        opcodes::PLA,
-        opcodes::PLA,
-        opcodes::STA_ZP,
-        5,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #1
+            txs
+
+            txa
+            pha
+            tsx
+            txa
+            pha
+            tsx
+            txa
+            pha
+            tsx
+
+            txa
+            pla
+            pla
+            pla
+            sta 5
+    };
     cpu.ticks(4 + 3 * 7 + 17).unwrap();
     assert_eq!(cpu.memory.bytes[0x1FF], 0xFF);
     assert_eq!(cpu.memory.bytes[0x100..0x102], [0, 1]);
@@ -684,21 +603,17 @@ fn stack_wrapping() {
 
 #[test]
 fn stack_wrapping_with_subroutines() {
-    let mut cpu = cpu_with_program(&[
-        opcodes::LDX_IMM,
-        0x00,
-        opcodes::TXS,
-        opcodes::JSR,
-        0x09,
-        0xF0,
-        opcodes::STA_ZP,
-        20,
-        opcodes::HLT1,
-        // Subroutine. Address: $F009.
-        opcodes::LDA_IMM,
-        34,
-        opcodes::RTS,
-    ]);
+    let mut cpu = cpu_with_code! {
+            ldx #0x00
+            txs
+            jsr subroutine
+            sta 20
+            nop  // to be replaced
+        subroutine:
+            lda #34
+            rts
+    };
+    cpu.mut_memory().bytes[0xF008] = opcodes::HLT1;
     cpu.ticks(21).unwrap();
     assert_eq!(cpu.memory.bytes[20], 34);
 }
@@ -747,22 +662,17 @@ fn pc_wrapping_during_branch() {
 
 #[bench]
 fn benchmark(b: &mut Bencher) {
-    let memory = Box::new(SimpleRam::with_test_program(&mut [
-        opcodes::CLC,
-        opcodes::LDX_IMM,
-        1,
-        opcodes::LDA_IMM,
-        42,
-        opcodes::STA_ZP_X,
-        0x00,
-        opcodes::ADC_IMM,
-        64,
-        opcodes::INX,
-        opcodes::JMP_ABS,
-        0x05,
-        0xf0,
-    ]));
-    let mut cpu = Cpu::new(memory);
+    let mut cpu = cpu_with_code! {
+            clc
+            cld
+            ldx #1
+            lda #42
+        loop:
+            sta 0,x
+            adc #64
+            inx
+            jmp loop
+    };
     b.iter(|| {
         reset(&mut cpu);
         cpu.ticks(1000).unwrap();
