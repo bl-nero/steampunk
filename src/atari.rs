@@ -75,7 +75,7 @@ mod tests {
     use crate::cpu::{opcodes, CpuHaltedError};
     use image::DynamicImage;
     use image::GenericImageView;
-    use lcs_image_diff;
+    use image_diff;
     use std::fs;
     use std::path::Path;
     use test::Bencher;
@@ -117,7 +117,7 @@ mod tests {
         return Ok(atari.frame_renderer.frame_image().clone());
     }
 
-    fn assert_images_equal(mut actual: DynamicImage, mut expected: DynamicImage, test_name: &str) {
+    fn assert_images_equal(actual: DynamicImage, expected: DynamicImage, test_name: &str) {
         let equal = itertools::equal(actual.pixels(), expected.pixels());
         if equal {
             return;
@@ -139,7 +139,8 @@ mod tests {
             .with_extension("png");
         actual.save(&new_golden_path).unwrap();
 
-        let diff = lcs_image_diff::compare(&mut actual, &mut expected, 0.8).unwrap();
+        let diff = image_diff::diff(&expected, &actual).unwrap();
+        // let diff = lcs_image_diff::compare(&mut actual, &mut expected, 0.8).unwrap();
 
         actual.save(&actual_path).unwrap();
         expected.save(&expected_path).unwrap();

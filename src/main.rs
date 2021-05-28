@@ -20,9 +20,11 @@ mod test_utils;
 use atari::{Atari, AtariAddressSpace, FrameStatus};
 use image::RgbaImage;
 use memory::{AtariRam, AtariRom};
-use piston::input::RenderEvent;
 use piston_window::WindowSettings;
-use piston_window::{PistonWindow, Texture, TextureSettings, Window};
+use piston_window::{
+    Button, ButtonState, Event, Filter, Input, Key, Loop, PistonWindow, Texture, TextureSettings,
+    Window,
+};
 use riot::Riot;
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -48,12 +50,12 @@ fn main() {
     let mut window = build_window(atari.frame_image());
 
     // Create a texture.
-    let texture_settings = TextureSettings::new().mag(piston_window::Filter::Nearest);
+    let texture_settings = TextureSettings::new().mag(Filter::Nearest);
+    let mut texture_context = window.create_texture_context();
     let mut texture =
-        Texture::from_image(&mut window.factory, atari.frame_image(), &texture_settings)
+        Texture::from_image(&mut texture_context, atari.frame_image(), &texture_settings)
             .expect("Could not create a texture");
 
-    // Main loop.
     let interrupted = Arc::new(AtomicBool::new(false));
     {
         let interrupted = interrupted.clone();
@@ -63,20 +65,39 @@ fn main() {
         })
         .expect("Unable to set the Ctrl-C handler");
     }
+
+    // Main loop.
     let mut running = true;
     while let Some(e) = window.next() {
         let window_size = window.size();
-        if e.render_args().is_some() {
-            // TODO: This code is a total mess. I need to clean it up.
-            while running {
-                match atari.tick() {
-                    Ok(FrameStatus::Pending) => {}
-                    Ok(FrameStatus::Complete) => break,
-                    Err(e) => {
-                        running = false;
-                        eprintln!("ERROR: {}. Atari halted.", e);
+        match e {
+            Event::Input(
+                Input::Button(piston_window::ButtonArgs {
+                    state: ButtonState::Press,
+                    button: Button::Keyboard(key @ (Key::D1 | Key::D2 | Key::D3 | Key::D4)),
+                    ..
+                }),
+                _timestamp,
+            ) => {
+                println!("A {:?} key was pressed!", key);
+            }
+            Event::Loop(Loop::Render(_)) => {
+                // TODO: This code is a total mess. I need to clean it up.
+                while running {
+                    match atari.tick() {
+                        Ok(FrameStatus::Pending) => {}
+                        Ok(FrameStatus::Complete) => break,
+                        Err(e) => {
+                            running = false;
+                            eprintln!("ERROR: {}. Atari halted.", e);
+                            eprintln!("{}", atari.cpu());
+                            eprintln!("{}", atari.cpu().memory());
+                        }
+                    }
+                    if interrupted.load(Ordering::Relaxed) {
                         eprintln!("{}", atari.cpu());
                         eprintln!("{}", atari.cpu().memory());
+                        std::process::exit(1);
                     }
                 }
                 if interrupted.load(Ordering::Relaxed) {
@@ -84,23 +105,21 @@ fn main() {
                     eprintln!("{}", atari.cpu().memory());
                     std::process::exit(1);
                 }
+                window.draw_2d(&e, |ctx, g, device| {
+                    let frame_image = atari.frame_image();
+                    texture
+                        .update(&mut texture_context, frame_image)
+                        .expect("Unable to update texture");
+                    graphics::clear([0.0, 0.0, 0.0, 1.0], g);
+                    graphics::Image::new()
+                        .rect([0.0, 0.0, window_size.width, window_size.height])
+                        .draw(&texture, &ctx.draw_state, ctx.transform, g);
+                    texture_context.encoder.flush(device);
+                });
             }
-            if interrupted.load(Ordering::Relaxed) {
-                eprintln!("{}", atari.cpu());
-                eprintln!("{}", atari.cpu().memory());
-                std::process::exit(1);
-            }
-            let frame_image = atari.frame_image();
-            texture
-                .update(&mut window.encoder, frame_image)
-                .expect("Unable to update texture");
-            window.draw_2d(&e, |ctx, g| {
-                graphics::clear([0.0, 0.0, 0.0, 1.0], g);
-                graphics::Image::new()
-                    .rect([0.0, 0.0, window_size.width, window_size.height])
-                    .draw(&texture, &ctx.draw_state, ctx.transform, g);
-            });
-        }
+            _ => {}
+        };
+        window.event(&e);
     }
 }
 

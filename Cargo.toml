@@ -7,15 +7,7 @@ opt-level = 2
 opt-level = 2
 [profile.dev.package.deflate]
 opt-level = 2
-[profile.dev.package.inflate]
-opt-level = 2
 [profile.dev.package.adler32]
-opt-level = 2
-
-# The same applies to the "lcs-image-diff" crate.
-[profile.dev.package.lcs-image-diff]
-opt-level = 2
-[profile.dev.package.lcs-diff]
 opt-level = 2
 
 [package]
@@ -25,12 +17,12 @@ authors = ["domin"]
 edition = "2018"
 
 [dependencies]
-image = "0.20.1"
-lcs-image-diff = "0.1.7"
-piston_window = "0.85.0"
-piston2d-graphics = "0.28.0"
-piston = "0.39.0"
+image = "0.23.14"
+piston_window = "0.120.0"
+piston2d-graphics = "0.40.0"
+piston = "0.53.0"
 rand = "0.8.3"
 itertools = "0.10.0"
 ctrlc = "3.1.9"
 rustasm6502 = "0.1.2"
+image-diff = "0.1.13"
