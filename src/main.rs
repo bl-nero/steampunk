@@ -25,7 +25,7 @@ use piston_window::{
     Button, ButtonState, Event, Filter, Input, Key, Loop, PistonWindow, Texture, TextureSettings,
     Window,
 };
-use riot::Riot;
+use riot::{Riot, Switch, SwitchPosition};
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -74,12 +74,41 @@ fn main() {
             Event::Input(
                 Input::Button(piston_window::ButtonArgs {
                     state: ButtonState::Press,
-                    button: Button::Keyboard(key @ (Key::D1 | Key::D2 | Key::D3 | Key::D4)),
+                    button: Button::Keyboard(key @ (Key::D1 | Key::D2 | Key::D3)),
                     ..
                 }),
                 _timestamp,
             ) => {
-                println!("A {:?} key was pressed!", key);
+                if let Some(switch) = match key {
+                    Key::D1 => Some(Switch::TvType),
+                    Key::D2 => Some(Switch::LeftDifficulty),
+                    Key::D3 => Some(Switch::RightDifficulty),
+                    _ => None,
+                } {
+                    atari.flip_switch(switch, !atari.switch_position(switch));
+                }
+            }
+            Event::Input(
+                Input::Button(piston_window::ButtonArgs {
+                    state,
+                    button: Button::Keyboard(key @ (Key::D4 | Key::D5)),
+                    ..
+                }),
+                _timestamp,
+            ) => {
+                if let Some(switch) = match key {
+                    Key::D4 => Some(Switch::GameSelect),
+                    Key::D5 => Some(Switch::GameReset),
+                    _ => None,
+                } {
+                    atari.flip_switch(
+                        switch,
+                        match state {
+                            ButtonState::Press => SwitchPosition::Down,
+                            ButtonState::Release => SwitchPosition::Up,
+                        },
+                    );
+                }
             }
             Event::Loop(Loop::Render(_)) => {
                 // TODO: This code is a total mess. I need to clean it up.

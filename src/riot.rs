@@ -1,6 +1,43 @@
 use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 use rand::Rng;
 
+#[derive(Debug, Copy, Clone)]
+pub enum Switch {
+    TvType,
+    LeftDifficulty,
+    RightDifficulty,
+    GameSelect,
+    GameReset,
+}
+
+impl Switch {
+    fn mask(&self) -> u8 {
+        match self {
+            Self::RightDifficulty => 1 << 7,
+            Self::LeftDifficulty => 1 << 6,
+            Self::TvType => 1 << 3,
+            Self::GameSelect => 1 << 1,
+            Self::GameReset => 1,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum SwitchPosition {
+    Up,
+    Down,
+}
+
+impl std::ops::Not for SwitchPosition {
+    type Output = SwitchPosition;
+    fn not(self) -> Self {
+        match self {
+            Self::Up => Self::Down,
+            Self::Down => Self::Up,
+        }
+    }
+}
+
 // A MOS Technology 6532 RIOT chip. Note that originally, this chip also
 // included 128 bytes of RAM, but for the sake of single-responsibility
 // principle, it's been split out to a separate struct: `memory::AtariRam`.
@@ -9,6 +46,8 @@ pub struct Riot {
     timer: u8,
     divider: u32,
     interval_length: u32,
+
+    reg_swchb: u8,
 }
 
 impl Riot {
@@ -18,6 +57,7 @@ impl Riot {
             timer: rng.gen(),
             divider: rng.gen(),
             interval_length: [1, 8, 64, 1024][rng.gen_range(0..4)],
+            reg_swchb: 0xFF,
         }
     }
 
@@ -33,12 +73,29 @@ impl Riot {
         self.interval_length = interval_length;
         self.divider = 0;
     }
+
+    pub fn switch_position(&self, switch: Switch) -> SwitchPosition {
+        if self.reg_swchb & switch.mask() != 0 {
+            SwitchPosition::Up
+        } else {
+            SwitchPosition::Down
+        }
+    }
+
+    pub fn flip_switch(&mut self, switch: Switch, position: SwitchPosition) {
+        if position == SwitchPosition::Up {
+            self.reg_swchb |= switch.mask();
+        } else {
+            self.reg_swchb &= !switch.mask();
+        };
+    }
 }
 
 impl Memory for Riot {
     fn read(&self, address: u16) -> ReadResult {
         match address {
             registers::INTIM => Ok(self.timer),
+            registers::SWCHB => Ok(self.reg_swchb),
             _ => Err(ReadError { address }),
         }
     }
@@ -56,6 +113,7 @@ impl Memory for Riot {
 }
 
 mod registers {
+    pub const SWCHB: u16 = 0x282;
     pub const INTIM: u16 = 0x284;
     pub const TIM1T: u16 = 0x294;
     pub const TIM8T: u16 = 0x295;
@@ -100,6 +158,49 @@ mod tests {
                 .chain(itertools::repeat_n(1, 64))
                 .chain(itertools::repeat_n(0, 64))
                 .chain(std::iter::once(0xFF)),
+        );
+    }
+
+    #[test]
+    fn flipping_switches() {
+        use Switch::*;
+        use SwitchPosition::*;
+        let mut riot = Riot::new();
+        const UNUSED: u8 = 0b0011_0100;
+        const ALL_UP: u8 = 0xFF;
+
+        assert_eq!(riot.switch_position(TvType), Up);
+        assert_eq!(riot.switch_position(LeftDifficulty), Up);
+        assert_eq!(riot.switch_position(RightDifficulty), Up);
+        assert_eq!(riot.switch_position(GameSelect), Up);
+        assert_eq!(riot.switch_position(GameReset), Up);
+        assert_eq!(riot.read(registers::SWCHB).unwrap(), ALL_UP);
+
+        riot.flip_switch(TvType, Down);
+        assert_eq!(riot.switch_position(TvType), Down);
+        assert_eq!(riot.read(registers::SWCHB).unwrap(), !TvType.mask());
+        riot.flip_switch(TvType, Up);
+        assert_eq!(riot.switch_position(TvType), Up);
+        assert_eq!(riot.read(registers::SWCHB).unwrap(), ALL_UP);
+
+        riot.flip_switch(LeftDifficulty, Down);
+        riot.flip_switch(RightDifficulty, Down);
+        riot.flip_switch(GameSelect, Down);
+        riot.flip_switch(GameReset, Down);
+        assert_eq!(riot.switch_position(TvType), Up);
+        assert_eq!(riot.switch_position(LeftDifficulty), Down);
+        assert_eq!(riot.switch_position(RightDifficulty), Down);
+        assert_eq!(riot.switch_position(GameSelect), Down);
+        assert_eq!(riot.switch_position(GameReset), Down);
+        assert_eq!(riot.read(registers::SWCHB).unwrap(), UNUSED | TvType.mask());
+
+        riot.flip_switch(RightDifficulty, Up);
+        riot.flip_switch(GameSelect, Up);
+        assert_eq!(riot.switch_position(RightDifficulty), Up);
+        assert_eq!(riot.switch_position(GameSelect), Up);
+        assert_eq!(
+            riot.read(registers::SWCHB).unwrap(),
+            UNUSED | TvType.mask() | RightDifficulty.mask() | GameSelect.mask(),
         );
     }
 

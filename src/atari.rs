@@ -4,7 +4,7 @@ use crate::cpu::Cpu;
 use crate::frame_renderer::FrameRenderer;
 use crate::frame_renderer::FrameRendererBuilder;
 use crate::memory::{AtariRam, AtariRom};
-use crate::riot::Riot;
+use crate::riot::{Riot, Switch, SwitchPosition};
 use crate::tia::Tia;
 use image;
 use image::RgbaImage;
@@ -64,6 +64,14 @@ impl Atari {
             self.tick()?;
         }
         Ok(())
+    }
+
+    pub fn switch_position(&self, switch: Switch) -> SwitchPosition {
+        self.cpu.memory().riot.switch_position(switch)
+    }
+
+    pub fn flip_switch(&mut self, switch: Switch, position: SwitchPosition) {
+        self.cpu.mut_memory().riot.flip_switch(switch, position);
     }
 }
 
