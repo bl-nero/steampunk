@@ -81,6 +81,10 @@ fn lda_sta() {
             sta 4
             lda #12
             sta 5
+            lda 4
+            sta 6
+            lda abs 0xF002  // should load the STA opcode
+            sta abs 0xABCD
     };
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
@@ -88,6 +92,9 @@ fn lda_sta() {
     assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
+    cpu.ticks(14).unwrap();
+    assert_eq!(cpu.memory.bytes[4..7], [73, 12, 73]);
+    assert_eq!(cpu.memory.bytes[0xABCD], opcodes::STA_ZP);
 }
 
 #[test]
@@ -101,6 +108,8 @@ fn ldx_stx() {
             stx 5
             ldx 4
             stx 6
+            ldx abs 0xF002  // should load the STX opcode
+            stx abs 0xABCD
     };
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
@@ -108,8 +117,9 @@ fn ldx_stx() {
     assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
-    cpu.ticks(6).unwrap();
+    cpu.ticks(14).unwrap();
     assert_eq!(cpu.memory.bytes[4..7], [73, 12, 73]);
+    assert_eq!(cpu.memory.bytes[0xABCD], opcodes::STX_ZP);
 }
 
 #[test]
@@ -121,6 +131,10 @@ fn ldy_sty() {
             sty 4
             ldy #12
             sty 5
+            ldy 4
+            sty 6
+            ldy abs 0xF002  // should load the STY opcode
+            sty abs 0xABCD
     };
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
@@ -128,6 +142,9 @@ fn ldy_sty() {
     assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
+    cpu.ticks(14).unwrap();
+    assert_eq!(cpu.memory.bytes[4..7], [73, 12, 73]);
+    assert_eq!(cpu.memory.bytes[0xABCD], opcodes::STY_ZP);
 }
 
 #[test]

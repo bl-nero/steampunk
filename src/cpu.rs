@@ -149,11 +149,23 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::LDY_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| me.set_reg_y(value))?;
             }
+            SequenceState::Opcode(opcodes::LDA_ZP, _) => {
+                self.tick_load_zero_page(&mut |me, value| me.set_reg_a(value))?;
+            }
             SequenceState::Opcode(opcodes::LDX_ZP, _) => {
                 self.tick_load_zero_page(&mut |me, value| me.set_reg_x(value))?;
             }
+            SequenceState::Opcode(opcodes::LDY_ZP, _) => {
+                self.tick_load_zero_page(&mut |me, value| me.set_reg_y(value))?;
+            }
             SequenceState::Opcode(opcodes::LDA_ABS, _) => {
                 self.tick_load_absolute(&mut |me, value| me.set_reg_a(value))?;
+            }
+            SequenceState::Opcode(opcodes::LDX_ABS, _) => {
+                self.tick_load_absolute(&mut |me, value| me.set_reg_x(value))?;
+            }
+            SequenceState::Opcode(opcodes::LDY_ABS, _) => {
+                self.tick_load_absolute(&mut |me, value| me.set_reg_y(value))?;
             }
 
             SequenceState::Opcode(opcodes::STA_ZP, _) => {
@@ -173,6 +185,12 @@ impl<M: Memory + Debug> Cpu<M> {
             }
             SequenceState::Opcode(opcodes::STA_ABS, _) => {
                 self.tick_store_abs(self.reg_a)?;
+            }
+            SequenceState::Opcode(opcodes::STX_ABS, _) => {
+                self.tick_store_abs(self.reg_x)?;
+            }
+            SequenceState::Opcode(opcodes::STY_ABS, _) => {
+                self.tick_store_abs(self.reg_y)?;
             }
 
             SequenceState::Opcode(opcodes::AND_IMM, _) => {
