@@ -73,6 +73,19 @@ fn it_resets() {
 }
 
 #[test]
+fn nop() {
+    let mut cpu = cpu_with_code! {
+        lda #0xFF
+        nop
+        sta 1
+    };
+    cpu.ticks(4).unwrap();
+    assert_eq!(cpu.memory.bytes[1], 0);
+    cpu.ticks(3).unwrap();
+    assert_eq!(cpu.memory.bytes[1], 0xFF);
+}
+
+#[test]
 fn lda_sta() {
     let mut cpu = cpu_with_code! {
             lda #65

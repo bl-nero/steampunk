@@ -140,6 +140,9 @@ impl<M: Memory + Debug> Cpu<M> {
             }
 
             // List ALL the opcodes!
+            SequenceState::Opcode(opcodes::NOP, _) => {
+                self.tick_simple_internal_operation(&mut |_| {})?;
+            }
             SequenceState::Opcode(opcodes::LDA_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| me.set_reg_a(value))?;
             }

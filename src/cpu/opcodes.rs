@@ -1,3 +1,4 @@
+pub const NOP: u8 = 0xEA;
 pub const LDA_IMM: u8 = 0xA9;
 pub const LDX_IMM: u8 = 0xA2;
 pub const LDY_IMM: u8 = 0xA0;
