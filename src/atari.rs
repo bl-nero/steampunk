@@ -222,6 +222,16 @@ mod tests {
         assert_images_equal(actual_image, expected_image, "reports_halt");
     }
 
+    #[test]
+    fn playfield_timing() {
+        let mut atari = atari_with_rom("playfield_timing.bin");
+
+        let expected_image = read_test_image("playfield_timing.png");
+        let actual_image = DynamicImage::ImageRgba8(next_frame(&mut atari).unwrap());
+
+        assert_images_equal(actual_image, expected_image, "playfield_timing");
+    }
+
     #[bench]
     fn benchmark(b: &mut Bencher) {
         let rom = read_test_rom("horizontal_stripes.bin");

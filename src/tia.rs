@@ -34,6 +34,10 @@ pub struct Tia {
     hsync_on: bool,
     /// Holds CPU ticks until we reach the end of a scanline.
     wait_for_sync: bool,
+    /// Temporarily stores a playfield register bit.
+    playfield_bit_latch_1: bool,
+    /// Temporarily stores a playfield register bit.
+    playfield_bit_latch_2: bool,
 
     // player_0_pos: u32,
     // player_1_pos: u32,
@@ -61,6 +65,8 @@ impl Tia {
             hsync_on: false,
             hblank_on: false,
             wait_for_sync: false,
+            playfield_bit_latch_1: false,
+            playfield_bit_latch_2: false,
             // player_0_pos: 0,
             // player_1_pos: 0,
             // missile_0_pos: 0,
@@ -86,6 +92,7 @@ impl Tia {
 
         let vsync_on = self.reg_vsync & flags::VSYNC_ON != 0;
         let vblank_on = self.reg_vblank & flags::VBLANK_ON != 0;
+        let playfield_color = self.playfield_tick();
         let output = TiaOutput {
             video: VideoOutput {
                 hsync: self.hsync_on,
@@ -93,7 +100,7 @@ impl Tia {
                 pixel: if self.hblank_on || vblank_on {
                     None
                 } else {
-                    Some(self.color_at(self.column_counter - HBLANK_WIDTH))
+                    Some(playfield_color)
                 },
             },
             riot_tick: self.column_counter % 3 == 0,
@@ -104,35 +111,46 @@ impl Tia {
         return output;
     }
 
-    fn color_at(&self, x: u32) -> u8 {
-        let x_playfield = self.playfield_x(x);
-        let mask = match x_playfield {
-            0..=3 => 0b0001_0000 << x_playfield,
-            4..=11 => 0b1000_0000 >> (x_playfield - 4),
-            12..=19 => 0b0000_0001 << (x_playfield - 12),
-            _ => 0,
-        };
-        let playfield_register_value = match x_playfield {
-            0..=3 => self.reg_pf0,
-            4..=11 => self.reg_pf1,
-            12..=19 => self.reg_pf2,
-            _ => 0,
-        };
-
-        return if mask & playfield_register_value != 0 {
+    fn playfield_tick(&mut self) -> u8 {
+        if self.column_counter % 4 == 0 {
+            self.playfield_bit_latch_2 = self.playfield_bit_latch_1;
+            self.playfield_bit_latch_1 = self.playfield_bit_at(self.playfiled_bit_index_to_latch());
+        }
+        return if self.playfield_bit_latch_2 {
             self.reg_colupf
         } else {
             self.reg_colubk
         };
     }
 
-    /// Returns a playfield pixel X coordinate from a [0, 20) range for a
-    /// full-resolution X coordinate (starting from the left edge of the visible
-    /// screen). The resulting value can be directly used to access the playfield
-    /// registers, because it takes into consideration playfield reflection.
-    fn playfield_x(&self, x: u32) -> u32 {
+    fn playfield_bit_at(&self, playfield_bit_index: i32) -> bool {
+        let mask = match playfield_bit_index {
+            0..=3 => 0b0001_0000 << playfield_bit_index,
+            4..=11 => 0b1000_0000 >> (playfield_bit_index - 4),
+            12..=19 => 0b0000_0001 << (playfield_bit_index - 12),
+            _ => 0,
+        };
+        let playfield_register_value = match playfield_bit_index {
+            0..=3 => self.reg_pf0,
+            4..=11 => self.reg_pf1,
+            12..=19 => self.reg_pf2,
+            _ => 0,
+        };
+
+        return mask & playfield_register_value != 0;
+    }
+
+    /// Returns a playfield pixel bit index from a [0, 20) range that should be
+    /// latched in the playfield bit latch during current cycle.  The resulting
+    /// value can be directly used to access the playfield registers, because it
+    /// takes into consideration playfield reflection.
+    fn playfiled_bit_index_to_latch(&self) -> i32 {
         // Playfield has 4 times lower resolution than other stuff.
-        let x = x / 4;
+        let hsync_counter = self.column_counter as i32 / 4;
+        // We start latching one hsync clock cycle before the actual pixels
+        // start.
+        let playfield_start = HBLANK_WIDTH as i32 / 4 - 1;
+        let x = hsync_counter - playfield_start;
         return if x < 20 {
             x // Left half of the screen.
         } else {
