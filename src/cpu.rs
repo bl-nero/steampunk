@@ -32,8 +32,10 @@ pub struct Cpu<M: Memory> {
 
     // Number of cycle within execution of the current instruction.
     sequence_state: SequenceState,
+    // Address
     adl: u8,
     adh: u8,
+    // Base address
     bal: u8,
     tmp_data: u8,
 }
@@ -198,6 +200,28 @@ impl<M: Memory + Debug> Cpu<M> {
 
             SequenceState::Opcode(opcodes::AND_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| me.set_reg_a(me.reg_a & value))?;
+            }
+
+            SequenceState::Opcode(opcodes::ASL_A, _) => {
+                self.tick_simple_internal_operation(&mut |me| {
+                    let carry = (me.reg_a & (1 << 7)) >> 7;
+                    me.flags = (me.flags & !flags::C) | carry;
+                    me.set_reg_a(me.reg_a << 1);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::ASL_ZP, _) => {
+                self.tick_load_modify_store_zero_page(&mut |me, value| {
+                    let carry = (value & (1 << 7)) >> 7;
+                    me.flags = (me.flags & !flags::C) | carry;
+                    return value << 1;
+                })?;
+            }
+            SequenceState::Opcode(opcodes::ASL_ZP_X, _) => {
+                self.tick_load_modify_store_zero_page_x(&mut |me, value| {
+                    let carry = (value & (1 << 7)) >> 7;
+                    me.flags = (me.flags & !flags::C) | carry;
+                    return value << 1;
+                })?;
             }
 
             SequenceState::Opcode(opcodes::CMP_IMM, _) => {
@@ -549,6 +573,30 @@ impl<M: Memory + Debug> Cpu<M> {
                 // A rare case of a "phantom write". Since we write the same
                 // data, it doesn't really matter (that much), but we need to
                 // simulate it anyway.
+                self.memory.write(self.adl as u16, self.tmp_data)?;
+            }
+            _ => {
+                let result = operation(self, self.tmp_data);
+                self.memory.write(self.adl as u16, result)?;
+                self.sequence_state = SequenceState::Ready;
+            }
+        }
+        Ok(())
+    }
+
+    fn tick_load_modify_store_zero_page_x(
+        &mut self,
+        operation: &mut dyn FnMut(&mut Self, u8) -> u8,
+    ) -> TickResult {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.bal = self.consume_byte()?,
+            SequenceState::Opcode(_, 2) => self.phantom_read(self.bal as u16),
+            SequenceState::Opcode(_, 3) => {
+                self.adl = self.bal.wrapping_add(self.reg_x);
+                self.tmp_data = self.memory.read(self.adl as u16)?;
+            }
+            SequenceState::Opcode(_, 4) => {
+                // Phantom write.
                 self.memory.write(self.adl as u16, self.tmp_data)?;
             }
             _ => {

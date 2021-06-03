@@ -20,6 +20,10 @@ pub const STY_ABS: u8 = 0x8C;
 
 pub const AND_IMM: u8 = 0x29;
 
+pub const ASL_A: u8 = 0x0A;
+pub const ASL_ZP: u8 = 0x06;
+pub const ASL_ZP_X: u8 = 0x16;
+
 pub const CMP_IMM: u8 = 0xC9;
 pub const CPX_IMM: u8 = 0xE0;
 pub const CPY_IMM: u8 = 0xC0;

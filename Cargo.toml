@@ -13,7 +13,10 @@ opt-level = 2
 [package]
 name = "atari-emulator"
 version = "0.1.0"
-authors = ["domin"]
+authors = [
+    "Bartosz Leper <bl.nero@gmail.com>",
+    "technomaniak",
+]
 edition = "2018"
 
 [dependencies]
@@ -26,3 +29,8 @@ itertools = "0.10.0"
 ctrlc = "3.1.9"
 rustasm6502 = "0.1.2"
 image-diff = "0.1.13"
+
+[patch.crates-io]
+# Must override the rustasm6502 crate because it doesn't properly support
+# accumulator addressing.
+rustasm6502 = { git = "https://github.com/bl-nero/rustasm6502" }

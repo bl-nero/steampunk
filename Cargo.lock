@@ -1412,8 +1412,7 @@ dependencies = [
 [[package]]
 name = "rustasm6502"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7748510490c5e06e6696f4cbabcb821b68cfcc9823eebe6b52f1fb41f02d8f5e"
+source = "git+https://github.com/bl-nero/rustasm6502#5bb8c135de69142914778b93b853d535401c1687"
 
 [[package]]
 name = "rusttype"

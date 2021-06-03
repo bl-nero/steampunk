@@ -440,6 +440,29 @@ fn logical_operations() {
 }
 
 #[test]
+fn shifting() {
+    let mut cpu = cpu_with_code! {
+            sec
+            lda #0b0101_0000
+
+            asl a
+        stop1:
+            bcs stop1
+            sta 0x01
+
+            asl 0x01
+        stop2:
+            bcc stop2
+            sta 0x02
+
+            ldx #1
+            asl 0x01,x
+    };
+    cpu.ticks(4 + 7 + 10 + 8).unwrap();
+    assert_eq!(cpu.memory.bytes[1..=2], [0b0100_0000, 0b0100_0000]);
+}
+
+#[test]
 fn inc_dec() {
     let mut cpu = cpu_with_code! {
             inc 10
