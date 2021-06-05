@@ -1,4 +1,11 @@
 use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
+use enum_map::{enum_map, Enum, EnumMap};
+
+#[derive(Debug, Enum, Copy, Clone)]
+pub enum Port {
+    Input4,
+    Input5,
+}
 
 /// TIA is responsible for generating the video signal, sound (not yet
 /// implemented) and for synchronizing CPU with the screen's electron beam.
@@ -7,7 +14,8 @@ pub struct Tia {
     // *** REGISTERS ***
     /// If bit 1 (`flags::VSYNC_ON`) is set, TIA emits a VSYNC signal.
     reg_vsync: u8,
-    /// If bit 1 (`flags::VBLANK_ON`) is set, TIA doesn't emit pixels.
+    /// If bit 1 (`flags::VBLANK_ON`) is set, TIA doesn't emit pixels. Bit 6
+    /// (`flags::VBLANK_INPUT_LATCH`) enables latches on input ports 4 and 5.
     reg_vblank: u8,
     /// Color and luminance of playfield. See
     /// [`VideoOutput::pixel`](struct.VideoOutput.html#structfield.pixel) for details.
@@ -24,6 +32,8 @@ pub struct Tia {
     reg_pf1: u8,
     /// Playfield register 2 (rightmost 8 bits, mirrored).
     reg_pf2: u8,
+    /// Input port registers.
+    reg_inpt: EnumMap<Port, u8>,
 
     /// Each frame has 228 cycles, including 160 cycles that actually emit
     /// pixels.
@@ -44,6 +54,11 @@ pub struct Tia {
     // missile_0_pos: u32,
     // missile_1_pos: u32,
     // ball_pos: u32,
+
+    // "Raw" values on the input port pins. They don't necessarily directly
+    // reflect `reg_inpt`, since they are not latched.
+    input_ports: EnumMap<Port, bool>,
+
     // A temporary hack to allow one-time initialization before complaining each
     // time a register is written to.
     initialized_registers: [bool; 0x100],
@@ -60,6 +75,10 @@ impl Tia {
             reg_pf0: 0,
             reg_pf1: 0,
             reg_pf2: 0,
+            reg_inpt: enum_map! {
+                Port::Input4 => flags::INPUT_HIGH,
+                Port::Input5 => flags::INPUT_HIGH,
+            },
 
             column_counter: 0,
             hsync_on: false,
@@ -72,6 +91,10 @@ impl Tia {
             // missile_0_pos: 0,
             // missile_1_pos: 0,
             // ball_pos: 0,
+            input_ports: enum_map! {
+                Port::Input4 => true,
+                Port::Input5 => true,
+            },
             initialized_registers: [false; 0x100],
         }
     }
@@ -162,17 +185,40 @@ impl Tia {
             }
         };
     }
+
+    pub fn set_port(&mut self, port: Port, value: bool) {
+        self.input_ports[port] = value;
+        self.update_port_register(port);
+    }
+
+    fn update_port_register(&mut self, port: Port) {
+        let port_value = self.input_ports[port];
+        let reg_previous = self.reg_inpt[port] != 0;
+        let latch = self.reg_vblank & flags::VBLANK_INPUT_LATCH != 0;
+
+        let reg_next = port_value && (!latch || reg_previous);
+        self.reg_inpt[port] = if reg_next {flags::INPUT_HIGH} else {0};
+    }
 }
 
 impl Memory for Tia {
     fn read(&self, address: u16) -> ReadResult {
-        Err(ReadError { address })
+        match address {
+            // TODO: mirroring
+            registers::INPT4 => Ok(self.reg_inpt[Port::Input4]),
+            registers::INPT5 => Ok(self.reg_inpt[Port::Input5]),
+            _ => Err(ReadError { address }),
+        }
     }
 
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match address & 0b0001_1111 {
             registers::VSYNC => self.reg_vsync = value,
-            registers::VBLANK => self.reg_vblank = value,
+            registers::VBLANK => {
+                self.reg_vblank = value;
+                self.update_port_register(Port::Input4);
+                self.update_port_register(Port::Input5);
+            }
             registers::WSYNC => self.wait_for_sync = true,
             registers::RSYNC => self.column_counter = TOTAL_WIDTH - 3,
             registers::COLUPF => self.reg_colupf = value,
@@ -284,6 +330,8 @@ pub const TOTAL_WIDTH: u32 = FRAME_WIDTH + HBLANK_WIDTH;
 /// Constants in this module represent addresses of TIA registers. To be used
 /// with the `TIA::read()` and `TIA::write()` methods.
 pub mod registers {
+
+    // Write registers:
     pub const VSYNC: u16 = 0x00;
     pub const VBLANK: u16 = 0x01;
     pub const WSYNC: u16 = 0x02;
@@ -329,20 +377,40 @@ pub mod registers {
     // pub const HMOVE: u16 = 0x2A;
     // pub const HMCLR: u16 = 0x2B;
     // pub const CXCLR: u16 = 0x2C;
+
+    // Read registers:
+    // pub const CXM0P: u16 = 0x00;
+    // pub const CXM1P: u16 = 0x01;
+    // pub const CXP0FB: u16 = 0x02;
+    // pub const CXP1FB: u16 = 0x03;
+    // pub const CXM0FB: u16 = 0x04;
+    // pub const CXM1FB: u16 = 0x05;
+    // pub const CXBLPF: u16 = 0x06;
+    // pub const CXPPMM: u16 = 0x07;
+    // pub const INPT0: u16 = 0x08;
+    // pub const INPT1: u16 = 0x09;
+    // pub const INPT2: u16 = 0x0A;
+    // pub const INPT3: u16 = 0x0B;
+    pub const INPT4: u16 = 0x0C;
+    pub const INPT5: u16 = 0x0D;
 }
 
 /// Constants in this module are bit masks for setting and testing register
 /// values.
 pub mod flags {
-    /// Bit mask for turning on VSYNC signal using `VSYNC` registry.
+    /// Bit mask for turning on VSYNC signal using `VSYNC` register.
     pub const VSYNC_ON: u8 = 0b0000_0010;
-    /// Bit mask for turning on vertical blanking using `VBLANK` registry.
+    /// Bit mask for turning on vertical blanking using `VBLANK` register.
     pub const VBLANK_ON: u8 = 0b0000_0010;
-    /// Bit mask for turning on reflected playfield using `CTRLPF` registry.
+    /// Bit mask for turning on input latches using `VBLANK` register.
+    pub const VBLANK_INPUT_LATCH: u8 = 0b0100_0000;
+    /// Bit mask for turning on reflected playfield using `CTRLPF` register.
     pub const CTRLPF_REFLECT: u8 = 0b0000_0001;
-    /// Bit mask for turning on the playfield score mode using `CTRLPF` registry.
+    /// Bit mask for turning on the playfield score mode using `CTRLPF` register.
     #[cfg(test)]
     pub const CTRLPF_SCORE: u8 = 0b0000_0010;
+    // Indicates a HIGH status of an input port.
+    pub const INPUT_HIGH: u8 = 1 << 7;
 }
 
 #[cfg(test)]
@@ -574,5 +642,52 @@ mod tests {
         tia.write(0x6F40 + registers::COLUBK, 0x0A).unwrap();
         let output = tia.tick().video;
         assert_eq!(output.pixel.unwrap(), 0x0A);
+    }
+
+    #[test]
+    fn unlatched_input_ports() {
+        let mut tia = Tia::new();
+        tia.write(registers::VBLANK, 0).unwrap();
+
+        tia.set_port(Port::Input4, true);
+        assert_eq!(tia.read(registers::INPT4).unwrap(), flags::INPUT_HIGH);
+        tia.set_port(Port::Input4, false);
+        assert_eq!(tia.read(registers::INPT4).unwrap(), 0);
+        tia.set_port(Port::Input4, true);
+        assert_eq!(tia.read(registers::INPT4).unwrap(), flags::INPUT_HIGH);
+
+        tia.set_port(Port::Input5, true);
+        assert_eq!(tia.read(registers::INPT5).unwrap(), flags::INPUT_HIGH);
+        tia.set_port(Port::Input5, false);
+        assert_eq!(tia.read(registers::INPT5).unwrap(), 0);
+        tia.set_port(Port::Input5, true);
+        assert_eq!(tia.read(registers::INPT5).unwrap(), flags::INPUT_HIGH);
+    }
+
+    #[test]
+    fn latched_input_ports() {
+        let mut tia = Tia::new();
+        tia.set_port(Port::Input4, true);
+        tia.write(registers::VBLANK, flags::VBLANK_INPUT_LATCH)
+            .unwrap();
+        assert_eq!(tia.read(registers::INPT4).unwrap(), flags::INPUT_HIGH);
+
+        // Setting the port to low should latch the value and ignore setting it
+        // back to high.
+        tia.set_port(Port::Input4, false);
+        assert_eq!(tia.read(registers::INPT4).unwrap(), 0);
+        tia.set_port(Port::Input4, true);
+        assert_eq!(tia.read(registers::INPT4).unwrap(), 0);
+
+        // Unlatching should immediately restore the current value.
+        tia.write(registers::VBLANK, 0).unwrap();
+        assert_eq!(tia.read(registers::INPT4).unwrap(), flags::INPUT_HIGH);
+
+        // Unlatching should immediately restore the current value.
+        tia.write(registers::VBLANK, flags::VBLANK_INPUT_LATCH)
+            .unwrap();
+        tia.set_port(Port::Input4, false);
+        tia.write(registers::VBLANK, 0).unwrap();
+        assert_eq!(tia.read(registers::INPT4).unwrap(), 0);
     }
 }

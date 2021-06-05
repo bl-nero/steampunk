@@ -47,7 +47,13 @@ pub struct Riot {
     divider: u32,
     interval_length: u32,
 
+    reg_swcha: u8,
     reg_swchb: u8,
+}
+
+pub enum Port {
+    PA,
+    PB,
 }
 
 impl Riot {
@@ -57,6 +63,7 @@ impl Riot {
             timer: rng.gen(),
             divider: rng.gen(),
             interval_length: [1, 8, 64, 1024][rng.gen_range(0..4)],
+            reg_swcha: 0xFF,
             reg_swchb: 0xFF,
         }
     }
@@ -89,13 +96,21 @@ impl Riot {
             self.reg_swchb &= !switch.mask();
         };
     }
+
+    pub fn set_port(&mut self, port: Port, value: u8) {
+        match port {
+            Port::PA => self.reg_swcha = value,
+            Port::PB => self.reg_swchb = value,
+        };
+    }
 }
 
 impl Memory for Riot {
     fn read(&self, address: u16) -> ReadResult {
         match address {
-            registers::INTIM => Ok(self.timer),
+            registers::SWCHA => Ok(self.reg_swcha),
             registers::SWCHB => Ok(self.reg_swchb),
+            registers::INTIM => Ok(self.timer),
             _ => Err(ReadError { address }),
         }
     }
@@ -113,6 +128,7 @@ impl Memory for Riot {
 }
 
 mod registers {
+    pub const SWCHA: u16 = 0x280;
     pub const SWCHB: u16 = 0x282;
     pub const INTIM: u16 = 0x284;
     pub const TIM1T: u16 = 0x294;
@@ -222,4 +238,17 @@ mod tests {
 
     #[test]
     fn address_mirroring() {}
+
+    #[test]
+    fn input_ports() {
+        let mut riot = Riot::new();
+        riot.set_port(Port::PA, 0x12);
+        assert_eq!(riot.read(registers::SWCHA).unwrap(), 0x12);
+        riot.set_port(Port::PA, 0x34);
+        assert_eq!(riot.read(registers::SWCHA).unwrap(), 0x34);
+        riot.set_port(Port::PB, 0x56);
+        assert_eq!(riot.read(registers::SWCHB).unwrap(), 0x56);
+        riot.set_port(Port::PB, 0x78);
+        assert_eq!(riot.read(registers::SWCHB).unwrap(), 0x78);
+    }
 }
