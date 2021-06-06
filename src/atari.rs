@@ -4,17 +4,58 @@ use crate::cpu::Cpu;
 use crate::frame_renderer::FrameRenderer;
 use crate::frame_renderer::FrameRendererBuilder;
 use crate::memory::{AtariRam, AtariRom};
-use crate::riot::{Riot, Switch, SwitchPosition};
+use crate::riot::{Port, Riot};
 use crate::tia::Tia;
+use enum_map::{enum_map, Enum, EnumMap};
 use image;
 use image::RgbaImage;
 use std::error;
 
+#[derive(Debug, Copy, Clone, Enum)]
+pub enum Switch {
+    TvType,
+    LeftDifficulty,
+    RightDifficulty,
+    GameSelect,
+    GameReset,
+}
+
+impl Switch {
+    fn mask_when(&self, position: SwitchPosition) -> u8 {
+        match position {
+            SwitchPosition::Down => 0,
+            SwitchPosition::Up => match self {
+                Self::RightDifficulty => 1 << 7,
+                Self::LeftDifficulty => 1 << 6,
+                Self::TvType => 1 << 3,
+                Self::GameSelect => 1 << 1,
+                Self::GameReset => 1,
+            },
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum SwitchPosition {
+    Up,
+    Down,
+}
+
+impl std::ops::Not for SwitchPosition {
+    type Output = SwitchPosition;
+    fn not(self) -> Self {
+        match self {
+            Self::Up => Self::Down,
+            Self::Down => Self::Up,
+        }
+    }
+}
 pub type AtariAddressSpace = AddressSpace<Tia, AtariRam, Riot, AtariRom>;
 
 pub struct Atari {
     cpu: Cpu<AtariAddressSpace>,
     frame_renderer: FrameRenderer,
+    switch_positions: EnumMap<Switch, SwitchPosition>,
 }
 
 pub enum FrameStatus {
@@ -29,6 +70,7 @@ impl Atari {
             frame_renderer: FrameRendererBuilder::new()
                 .with_palette(colors::ntsc_palette())
                 .build(),
+            switch_positions: enum_map! { _ => SwitchPosition::Up },
         }
     }
 
@@ -36,16 +78,24 @@ impl Atari {
         &self.cpu
     }
 
+    fn mut_tia(&mut self) -> &mut Tia {
+        return &mut self.cpu.mut_memory().tia;
+    }
+
+    fn mut_riot(&mut self) -> &mut Riot {
+        return &mut self.cpu.mut_memory().riot;
+    }
+
     /// Performs a single clock tick. If it resulted in an error reported by the
     /// CPU, dump debug information on standard error stream and return
     /// `TickResult::Error`.
     pub fn tick(&mut self) -> Result<FrameStatus, Box<dyn error::Error>> {
-        let tia_result = self.cpu.mut_memory().tia.tick();
+        let tia_result = self.mut_tia().tick();
         if tia_result.cpu_tick {
             if let Err(e) = self.cpu.tick() {
                 return Err(e);
             }
-            self.cpu.mut_memory().riot.tick();
+            self.mut_riot().tick();
         }
         return if self.frame_renderer.consume(tia_result.video) {
             Ok(FrameStatus::Complete)
@@ -67,11 +117,17 @@ impl Atari {
     }
 
     pub fn switch_position(&self, switch: Switch) -> SwitchPosition {
-        self.cpu.memory().riot.switch_position(switch)
+        self.switch_positions[switch]
     }
 
     pub fn flip_switch(&mut self, switch: Switch, position: SwitchPosition) {
-        self.cpu.mut_memory().riot.flip_switch(switch, position);
+        self.switch_positions[switch] = position;
+        let port_value = self
+            .switch_positions
+            .iter()
+            .map(|(switch, pos)| switch.mask_when(*pos))
+            .fold(0b0011_0100, |acc, item| acc | item);
+        self.mut_riot().set_port(Port::PB, port_value);
     }
 }
 
@@ -231,11 +287,19 @@ mod tests {
     #[test]
     fn input() {
         let mut atari = atari_with_rom("io_monitor.bin");
+        assert_eq!(
+            atari.switch_position(Switch::RightDifficulty),
+            SwitchPosition::Up
+        );
         assert_produces_frame(&mut atari, "input_1.png", "input_1");
 
         atari.flip_switch(Switch::RightDifficulty, SwitchPosition::Down);
         atari.flip_switch(Switch::LeftDifficulty, SwitchPosition::Down);
         atari.flip_switch(Switch::TvType, SwitchPosition::Down);
+        assert_eq!(
+            atari.switch_position(Switch::RightDifficulty),
+            SwitchPosition::Down
+        );
         assert_produces_frame(&mut atari, "input_2.png", "input_2");
 
         atari.flip_switch(Switch::TvType, SwitchPosition::Up);
@@ -247,6 +311,10 @@ mod tests {
         assert_produces_frame(&mut atari, "input_4.png", "input_4");
 
         atari.flip_switch(Switch::RightDifficulty, SwitchPosition::Up);
+        assert_eq!(
+            atari.switch_position(Switch::RightDifficulty),
+            SwitchPosition::Up
+        );
         assert_produces_frame(&mut atari, "input_5.png", "input_5");
     }
 

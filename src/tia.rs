@@ -75,10 +75,7 @@ impl Tia {
             reg_pf0: 0,
             reg_pf1: 0,
             reg_pf2: 0,
-            reg_inpt: enum_map! {
-                Port::Input4 => flags::INPUT_HIGH,
-                Port::Input5 => flags::INPUT_HIGH,
-            },
+            reg_inpt: enum_map! { _ => flags::INPUT_HIGH },
 
             column_counter: 0,
             hsync_on: false,
@@ -91,10 +88,7 @@ impl Tia {
             // missile_0_pos: 0,
             // missile_1_pos: 0,
             // ball_pos: 0,
-            input_ports: enum_map! {
-                Port::Input4 => true,
-                Port::Input5 => true,
-            },
+            input_ports: enum_map! { _ => true },
             initialized_registers: [false; 0x100],
         }
     }

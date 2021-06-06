@@ -17,7 +17,7 @@ mod tia;
 
 mod test_utils;
 
-use atari::{Atari, AtariAddressSpace, FrameStatus};
+use atari::{Atari, AtariAddressSpace, FrameStatus, Switch, SwitchPosition};
 use image::RgbaImage;
 use memory::{AtariRam, AtariRom};
 use piston_window::WindowSettings;
@@ -25,7 +25,7 @@ use piston_window::{
     Button, ButtonState, Event, Filter, Input, Key, Loop, PistonWindow, Texture, TextureSettings,
     Window,
 };
-use riot::{Riot, Switch, SwitchPosition};
+use riot::{Riot};
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
