@@ -11,45 +11,6 @@ use image;
 use image::RgbaImage;
 use std::error;
 
-#[derive(Debug, Copy, Clone, Enum)]
-pub enum Switch {
-    TvType,
-    LeftDifficulty,
-    RightDifficulty,
-    GameSelect,
-    GameReset,
-}
-
-impl Switch {
-    fn mask_when(&self, position: SwitchPosition) -> u8 {
-        match position {
-            SwitchPosition::Down => 0,
-            SwitchPosition::Up => match self {
-                Self::RightDifficulty => 1 << 7,
-                Self::LeftDifficulty => 1 << 6,
-                Self::TvType => 1 << 3,
-                Self::GameSelect => 1 << 1,
-                Self::GameReset => 1,
-            },
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum SwitchPosition {
-    Up,
-    Down,
-}
-
-impl std::ops::Not for SwitchPosition {
-    type Output = SwitchPosition;
-    fn not(self) -> Self {
-        match self {
-            Self::Up => Self::Down,
-            Self::Down => Self::Up,
-        }
-    }
-}
 pub type AtariAddressSpace = AddressSpace<Tia, AtariRam, Riot, AtariRom>;
 
 pub struct Atari {
@@ -128,6 +89,46 @@ impl Atari {
             .map(|(switch, pos)| switch.mask_when(*pos))
             .fold(0b0011_0100, |acc, item| acc | item);
         self.mut_riot().set_port(Port::PB, port_value);
+    }
+}
+
+#[derive(Debug, Copy, Clone, Enum)]
+pub enum Switch {
+    TvType,
+    LeftDifficulty,
+    RightDifficulty,
+    GameSelect,
+    GameReset,
+}
+
+impl Switch {
+    fn mask_when(&self, position: SwitchPosition) -> u8 {
+        match position {
+            SwitchPosition::Down => 0,
+            SwitchPosition::Up => match self {
+                Self::RightDifficulty => 1 << 7,
+                Self::LeftDifficulty => 1 << 6,
+                Self::TvType => 1 << 3,
+                Self::GameSelect => 1 << 1,
+                Self::GameReset => 1,
+            },
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum SwitchPosition {
+    Up,
+    Down,
+}
+
+impl std::ops::Not for SwitchPosition {
+    type Output = SwitchPosition;
+    fn not(self) -> Self {
+        match self {
+            Self::Up => Self::Down,
+            Self::Down => Self::Up,
+        }
     }
 }
 
