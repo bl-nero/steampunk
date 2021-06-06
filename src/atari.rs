@@ -163,33 +163,33 @@ mod tests {
         );
     }
 
+    fn assert_produces_frame(atari: &mut Atari, test_image_name: &str, test_name: &str) {
+        let actual_image = DynamicImage::ImageRgba8(next_frame(atari).unwrap());
+        let expected_image = read_test_image(test_image_name);
+        assert_images_equal(actual_image, expected_image, test_name);
+    }
+
     #[test]
     fn shows_horizontal_stripes() {
         let mut atari = atari_with_rom("horizontal_stripes.bin");
-
-        let expected_image = read_test_image("horizontal_stripes_1.png");
-        let actual_image = DynamicImage::ImageRgba8(next_frame(&mut atari).unwrap());
-
-        assert_images_equal(actual_image, expected_image, "shows_horizontal_stripes");
+        assert_produces_frame(
+            &mut atari,
+            "horizontal_stripes_1.png",
+            "shows_horizontal_stripes",
+        );
     }
 
     #[test]
     fn animates_horizontal_stripes() {
         let mut atari = atari_with_rom("horizontal_stripes_animated.bin");
-
-        let expected_image_1 = read_test_image("horizontal_stripes_1.png");
-        let expected_image_2 = read_test_image("horizontal_stripes_2.png");
-        let actual_image_1 = DynamicImage::ImageRgba8(next_frame(&mut atari).unwrap());
-        let actual_image_2 = DynamicImage::ImageRgba8(next_frame(&mut atari).unwrap());
-
-        assert_images_equal(
-            actual_image_1,
-            expected_image_1,
+        assert_produces_frame(
+            &mut atari,
+            "horizontal_stripes_1.png",
             "animates_horizontal_stripes_1",
         );
-        assert_images_equal(
-            actual_image_2,
-            expected_image_2,
+        assert_produces_frame(
+            &mut atari,
+            "horizontal_stripes_2.png",
             "animates_horizontal_stripes_2",
         );
     }
@@ -197,11 +197,11 @@ mod tests {
     #[test]
     fn uses_riot_timer_for_waiting() {
         let mut atari = atari_with_rom("skipping_stripes.bin");
-
-        let expected_image = read_test_image("uses_riot_timer_for_waiting.png");
-        let actual_image = DynamicImage::ImageRgba8(next_frame(&mut atari).unwrap());
-
-        assert_images_equal(actual_image, expected_image, "uses_riot_timer_for_waiting");
+        assert_produces_frame(
+            &mut atari,
+            "uses_riot_timer_for_waiting.png",
+            "uses_riot_timer_for_waiting",
+        );
     }
 
     #[test]
@@ -225,11 +225,29 @@ mod tests {
     #[test]
     fn playfield_timing() {
         let mut atari = atari_with_rom("playfield_timing.bin");
+        assert_produces_frame(&mut atari, "playfield_timing.png", "playfield_timing");
+    }
 
-        let expected_image = read_test_image("playfield_timing.png");
-        let actual_image = DynamicImage::ImageRgba8(next_frame(&mut atari).unwrap());
+    #[test]
+    fn input() {
+        let mut atari = atari_with_rom("io_monitor.bin");
+        assert_produces_frame(&mut atari, "input_1.png", "input_1");
 
-        assert_images_equal(actual_image, expected_image, "playfield_timing");
+        atari.flip_switch(Switch::RightDifficulty, SwitchPosition::Down);
+        atari.flip_switch(Switch::LeftDifficulty, SwitchPosition::Down);
+        atari.flip_switch(Switch::TvType, SwitchPosition::Down);
+        assert_produces_frame(&mut atari, "input_2.png", "input_2");
+
+        atari.flip_switch(Switch::TvType, SwitchPosition::Up);
+        atari.flip_switch(Switch::GameSelect, SwitchPosition::Down);
+        assert_produces_frame(&mut atari, "input_3.png", "input_3");
+
+        atari.flip_switch(Switch::LeftDifficulty, SwitchPosition::Up);
+        atari.flip_switch(Switch::GameReset, SwitchPosition::Down);
+        assert_produces_frame(&mut atari, "input_4.png", "input_4");
+
+        atari.flip_switch(Switch::RightDifficulty, SwitchPosition::Up);
+        assert_produces_frame(&mut atari, "input_5.png", "input_5");
     }
 
     #[bench]
