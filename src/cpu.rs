@@ -207,31 +207,18 @@ impl<M: Memory + Debug> Cpu<M> {
 
             SequenceState::Opcode(opcodes::ASL_A, _) => {
                 self.tick_simple_internal_operation(&mut |me| {
-                    let carry = (me.reg_a & (1 << 7)) >> 7;
-                    me.flags = (me.flags & !flags::C) | carry;
-                    me.set_reg_a(me.reg_a << 1);
+                    let shifted = me.shift_left(me.reg_a);
+                    me.set_reg_a(shifted);
                 })?;
             }
             SequenceState::Opcode(opcodes::ASL_ZP, _) => {
-                self.tick_load_modify_store_zero_page(&mut |me, value| {
-                    let carry = (value & (1 << 7)) >> 7;
-                    me.flags = (me.flags & !flags::C) | carry;
-                    return value << 1;
-                })?;
+                self.tick_load_modify_store_zero_page(&mut |me, value| me.shift_left(value))?;
             }
             SequenceState::Opcode(opcodes::ASL_ZP_X, _) => {
-                self.tick_load_modify_store_zero_page_x(&mut |me, value| {
-                    let carry = (value & (1 << 7)) >> 7;
-                    me.flags = (me.flags & !flags::C) | carry;
-                    return value << 1;
-                })?;
+                self.tick_load_modify_store_zero_page_x(&mut |me, value| me.shift_left(value))?;
             }
             SequenceState::Opcode(opcodes::ASL_ABS, _) => {
-                self.tick_load_modify_store_absolute(&mut |me, value| {
-                    let carry = (value & (1 << 7)) >> 7;
-                    me.flags = (me.flags & !flags::C) | carry;
-                    return value << 1;
-                })?
+                self.tick_load_modify_store_absolute(&mut |me, value| me.shift_left(value))?;
             }
 
             SequenceState::Opcode(opcodes::CMP_IMM, _) => {
@@ -840,6 +827,12 @@ impl<M: Memory + Debug> Cpu<M> {
             | if unsigned_overflow { 0 } else { flags::C }
             | if signed_overflow { flags::V } else { 0 };
         return unsigned_diff;
+    }
+
+    fn shift_left(&mut self, value: u8) -> u8 {
+        let carry = (value & (1 << 7)) >> 7;
+        self.flags = (self.flags & !flags::C) | carry;
+        return value << 1;
     }
 
     #[cfg(test)]
