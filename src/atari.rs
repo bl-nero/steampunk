@@ -4,7 +4,9 @@ use crate::cpu::Cpu;
 use crate::frame_renderer::FrameRenderer;
 use crate::frame_renderer::FrameRendererBuilder;
 use crate::memory::{AtariRam, AtariRom};
-use crate::riot::{Port, Riot};
+use crate::riot;
+use crate::riot::Riot;
+use crate::tia;
 use crate::tia::Tia;
 use enum_map::{enum_map, Enum, EnumMap};
 use image;
@@ -17,6 +19,7 @@ pub struct Atari {
     cpu: Cpu<AtariAddressSpace>,
     frame_renderer: FrameRenderer,
     switch_positions: EnumMap<Switch, SwitchPosition>,
+    joysticks: EnumMap<JoystickPort, Joystick>,
 }
 
 pub enum FrameStatus {
@@ -32,6 +35,7 @@ impl Atari {
                 .with_palette(colors::ntsc_palette())
                 .build(),
             switch_positions: enum_map! { _ => SwitchPosition::Up },
+            joysticks: enum_map! { _ => Joystick::new() },
         }
     }
 
@@ -86,9 +90,24 @@ impl Atari {
         let port_value = self
             .switch_positions
             .iter()
-            .map(|(switch, pos)| switch.mask_when(*pos))
+            .map(|(switch, pos)| switch.port_value_when(*pos))
             .fold(0b0011_0100, |acc, item| acc | item);
-        self.mut_riot().set_port(Port::PB, port_value);
+        self.mut_riot().set_port(riot::Port::PB, port_value);
+    }
+
+    pub fn set_joystick_input_state(
+        &mut self,
+        port: JoystickPort,
+        input: JoystickInput,
+        state: bool,
+    ) {
+        self.joysticks[port].set_state(input, state);
+        let (left_dir_port, left_fire_port) = self.joysticks[JoystickPort::Left].port_values();
+        let (right_dir_port, right_fire_port) = self.joysticks[JoystickPort::Right].port_values();
+        self.mut_riot()
+            .set_port(riot::Port::PA, (left_dir_port << 4) | right_dir_port);
+        self.mut_tia().set_port(tia::Port::Input4, left_fire_port);
+        self.mut_tia().set_port(tia::Port::Input5, right_fire_port);
     }
 }
 
@@ -102,7 +121,7 @@ pub enum Switch {
 }
 
 impl Switch {
-    fn mask_when(&self, position: SwitchPosition) -> u8 {
+    fn port_value_when(&self, position: SwitchPosition) -> u8 {
         match position {
             SwitchPosition::Down => 0,
             SwitchPosition::Up => match self {
@@ -130,6 +149,74 @@ impl std::ops::Not for SwitchPosition {
             Self::Down => Self::Up,
         }
     }
+}
+
+#[derive(Enum)]
+pub enum JoystickInput {
+    Up,
+    Down,
+    Left,
+    Right,
+    Fire,
+}
+
+impl JoystickInput {
+    fn port_mask(&self) -> u8 {
+        match *self {
+            Self::Up => 1,
+            Self::Down => 1 << 1,
+            Self::Left => 1 << 2,
+            Self::Right => 1 << 3,
+            Self::Fire => 0,
+        }
+    }
+    fn opposite(&self) -> Self {
+        match *self {
+            Self::Up => Self::Down,
+            Self::Down => Self::Up,
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+            Self::Fire => Self::Fire,
+        }
+    }
+}
+
+struct Joystick {
+    direction_port: u8,
+    fire_port: bool,
+}
+
+impl Joystick {
+    fn new() -> Self {
+        Joystick {
+            direction_port: 0b1111,
+            fire_port: true,
+        }
+    }
+
+    fn set_state(&mut self, input: JoystickInput, state: bool) {
+        match input {
+            JoystickInput::Fire => self.fire_port = !state,
+            _ => {
+                if state {
+                    self.direction_port &= !input.port_mask();
+                    self.direction_port |= input.opposite().port_mask();
+                } else {
+                    self.direction_port |= input.port_mask();
+                }
+            }
+        };
+    }
+
+    fn port_values(&self) -> (u8, bool) {
+        (self.direction_port, self.fire_port)
+    }
+}
+
+#[derive(Enum)]
+pub enum JoystickPort {
+    Left,
+    Right,
 }
 
 #[cfg(test)]
@@ -297,6 +384,11 @@ mod tests {
         atari.flip_switch(Switch::RightDifficulty, SwitchPosition::Down);
         atari.flip_switch(Switch::LeftDifficulty, SwitchPosition::Down);
         atari.flip_switch(Switch::TvType, SwitchPosition::Down);
+        atari.set_joystick_input_state(JoystickPort::Left, JoystickInput::Up, true);
+        atari.set_joystick_input_state(JoystickPort::Left, JoystickInput::Right, true);
+        atari.set_joystick_input_state(JoystickPort::Right, JoystickInput::Down, true);
+        atari.set_joystick_input_state(JoystickPort::Right, JoystickInput::Right, true);
+        atari.set_joystick_input_state(JoystickPort::Right, JoystickInput::Fire, true);
         assert_eq!(
             atari.switch_position(Switch::RightDifficulty),
             SwitchPosition::Down
@@ -305,10 +397,25 @@ mod tests {
 
         atari.flip_switch(Switch::TvType, SwitchPosition::Up);
         atari.flip_switch(Switch::GameSelect, SwitchPosition::Down);
+        atari.set_joystick_input_state(JoystickPort::Left, JoystickInput::Up, false);
+        atari.set_joystick_input_state(JoystickPort::Left, JoystickInput::Right, false);
+        atari.set_joystick_input_state(JoystickPort::Left, JoystickInput::Down, true);
+        atari.set_joystick_input_state(JoystickPort::Left, JoystickInput::Left, true);
+        atari.set_joystick_input_state(JoystickPort::Left, JoystickInput::Fire, true);
+        atari.set_joystick_input_state(JoystickPort::Right, JoystickInput::Down, false);
+        atari.set_joystick_input_state(JoystickPort::Right, JoystickInput::Right, false);
+        atari.set_joystick_input_state(JoystickPort::Right, JoystickInput::Up, true);
+        atari.set_joystick_input_state(JoystickPort::Right, JoystickInput::Left, true);
+        atari.set_joystick_input_state(JoystickPort::Right, JoystickInput::Fire, false);
         assert_produces_frame(&mut atari, "input_3.png", "input_3");
 
         atari.flip_switch(Switch::LeftDifficulty, SwitchPosition::Up);
         atari.flip_switch(Switch::GameReset, SwitchPosition::Down);
+        atari.set_joystick_input_state(JoystickPort::Left, JoystickInput::Down, false);
+        atari.set_joystick_input_state(JoystickPort::Left, JoystickInput::Left, false);
+        atari.set_joystick_input_state(JoystickPort::Left, JoystickInput::Fire, false);
+        atari.set_joystick_input_state(JoystickPort::Right, JoystickInput::Up, false);
+        atari.set_joystick_input_state(JoystickPort::Right, JoystickInput::Left, false);
         assert_produces_frame(&mut atari, "input_4.png", "input_4");
 
         atari.flip_switch(Switch::RightDifficulty, SwitchPosition::Up);
@@ -317,6 +424,57 @@ mod tests {
             SwitchPosition::Up
         );
         assert_produces_frame(&mut atari, "input_5.png", "input_5");
+    }
+
+    #[test]
+    fn joystick_single_buttons() {
+        let mut joystick = Joystick::new();
+        assert_eq!(joystick.port_values(), (0b1111, true));
+        joystick.set_state(JoystickInput::Up, true);
+        assert_eq!(joystick.port_values(), (0b1110, true));
+        joystick.set_state(JoystickInput::Up, false);
+        joystick.set_state(JoystickInput::Down, true);
+        assert_eq!(joystick.port_values(), (0b1101, true));
+        joystick.set_state(JoystickInput::Down, false);
+        joystick.set_state(JoystickInput::Left, true);
+        assert_eq!(joystick.port_values(), (0b1011, true));
+        joystick.set_state(JoystickInput::Left, false);
+        joystick.set_state(JoystickInput::Right, true);
+        assert_eq!(joystick.port_values(), (0b0111, true));
+        joystick.set_state(JoystickInput::Right, false);
+        assert_eq!(joystick.port_values(), (0b1111, true));
+        joystick.set_state(JoystickInput::Fire, true);
+        assert_eq!(joystick.port_values(), (0b1111, false));
+        joystick.set_state(JoystickInput::Fire, false);
+        assert_eq!(joystick.port_values(), (0b1111, true));
+    }
+
+    #[test]
+    fn joystick_button_combinations() {
+        let mut joystick = Joystick::new();
+        joystick.set_state(JoystickInput::Up, true);
+        joystick.set_state(JoystickInput::Left, true);
+        assert_eq!(joystick.port_values(), (0b1010, true));
+        joystick.set_state(JoystickInput::Up, false);
+        joystick.set_state(JoystickInput::Left, false);
+        joystick.set_state(JoystickInput::Right, true);
+        joystick.set_state(JoystickInput::Down, true);
+        assert_eq!(joystick.port_values(), (0b0101, true));
+    }
+
+    #[test]
+    fn joystick_forbidden_combinations() {
+        let mut joystick = Joystick::new();
+        joystick.set_state(JoystickInput::Up, true);
+        joystick.set_state(JoystickInput::Left, true);
+        joystick.set_state(JoystickInput::Down, true);
+        assert_eq!(joystick.port_values(), (0b1001, true));
+        joystick.set_state(JoystickInput::Right, true);
+        assert_eq!(joystick.port_values(), (0b0101, true));
+        joystick.set_state(JoystickInput::Up, true);
+        assert_eq!(joystick.port_values(), (0b0110, true));
+        joystick.set_state(JoystickInput::Left, true);
+        assert_eq!(joystick.port_values(), (0b1010, true));
     }
 
     #[bench]

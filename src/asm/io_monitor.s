@@ -29,7 +29,7 @@ StartOfFrame:
             ldy #0
 
             ; Start vertical blanking.
-            lda #%01000010
+            lda #%00000010
             sta VBLANK
 
             ; Emit 3 scanlines of VSYNC.
@@ -458,7 +458,7 @@ JoysticksLoop3:
             bne :-
 
             ; Start vertical blanking.
-            lda #%01000010
+            lda #%00000010
             sta VBLANK
 
             ; Wait for 35*64 cycles, which should be just short of 30 lines of overscan.

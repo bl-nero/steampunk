@@ -17,7 +17,7 @@ mod tia;
 
 mod test_utils;
 
-use atari::{Atari, AtariAddressSpace, FrameStatus, Switch, SwitchPosition};
+use atari::{Atari, AtariAddressSpace, FrameStatus, Switch, SwitchPosition, JoystickPort, JoystickInput};
 use image::RgbaImage;
 use memory::{AtariRam, AtariRom};
 use piston_window::WindowSettings;
@@ -109,6 +109,31 @@ fn main() {
                         },
                     );
                 }
+            }
+            Event::Input(
+                Input::Button(piston_window::ButtonArgs {
+                    state,
+                    button: Button::Keyboard(key),
+                    ..
+                }),
+                _timestamp,
+            ) => {
+                if let Some((port, input)) = match key {
+                    Key::W => Some((JoystickPort::Left, JoystickInput::Up)),
+                    Key::A => Some((JoystickPort::Left, JoystickInput::Left)),
+                    Key::S => Some((JoystickPort::Left, JoystickInput::Down)),
+                    Key::D => Some((JoystickPort::Left, JoystickInput::Right)),
+                    Key::LShift | Key::Space => Some((JoystickPort::Left, JoystickInput::Fire)),
+
+                    Key::I | Key::Up => Some((JoystickPort::Right, JoystickInput::Up)),
+                    Key::J | Key::Left => Some((JoystickPort::Right, JoystickInput::Left)),
+                    Key::K | Key::Down => Some((JoystickPort::Right, JoystickInput::Down)),
+                    Key::L | Key::Right => Some((JoystickPort::Right, JoystickInput::Right)),
+                    Key::N | Key::Period => Some((JoystickPort::Right, JoystickInput::Fire)),
+                    _ => None,
+                } {
+                    atari.set_joystick_input_state(port, input, state == ButtonState::Press);
+                };
             }
             Event::Loop(Loop::Render(_)) => {
                 // TODO: This code is a total mess. I need to clean it up.
