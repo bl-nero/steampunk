@@ -459,9 +459,15 @@ fn shifting() {
 
             ldx #1
             asl 0x01,x
+        stop3:
+            bcc stop3
+
+            stx abs 0x0234
+            asl abs 0x0234
     };
-    cpu.ticks(4 + 7 + 10 + 8).unwrap();
+    cpu.ticks(4 + 7 + 10 + 10 + 10).unwrap();
     assert_eq!(cpu.memory.bytes[1..=2], [0b0100_0000, 0b0100_0000]);
+    assert_eq!(cpu.memory.bytes[0x0234], 2);
 }
 
 #[test]

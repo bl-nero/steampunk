@@ -226,6 +226,13 @@ impl<M: Memory + Debug> Cpu<M> {
                     return value << 1;
                 })?;
             }
+            SequenceState::Opcode(opcodes::ASL_ABS, _) => {
+                self.tick_load_modify_store_absolute(&mut |me, value| {
+                    let carry = (value & (1 << 7)) >> 7;
+                    me.flags = (me.flags & !flags::C) | carry;
+                    return value << 1;
+                })?
+            }
 
             SequenceState::Opcode(opcodes::CMP_IMM, _) => {
                 self.tick_compare_immediate(self.reg_a)?;
@@ -605,6 +612,31 @@ impl<M: Memory + Debug> Cpu<M> {
             _ => {
                 let result = operation(self, self.tmp_data);
                 self.memory.write(self.adl as u16, result)?;
+                self.sequence_state = SequenceState::Ready;
+            }
+        }
+        Ok(())
+    }
+
+    fn tick_load_modify_store_absolute(
+        &mut self,
+        operation: &mut dyn FnMut(&mut Self, u8) -> u8,
+    ) -> TickResult {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.adl = self.consume_byte()?,
+            SequenceState::Opcode(_, 2) => self.adh = self.consume_byte()?,
+            SequenceState::Opcode(_, 3) => {
+                self.tmp_data = self.memory.read((self.adh as u16) << 8 | self.adl as u16)?;
+            }
+            SequenceState::Opcode(_, 4) => {
+                // Phantom write.
+                self.memory
+                    .write((self.adh as u16) << 8 | self.adl as u16, self.tmp_data)?;
+            }
+            _ => {
+                let result = operation(self, self.tmp_data);
+                self.memory
+                    .write((self.adh as u16) << 8 | self.adl as u16, result)?;
                 self.sequence_state = SequenceState::Ready;
             }
         }
