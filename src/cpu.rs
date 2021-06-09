@@ -369,7 +369,7 @@ impl<M: Memory + Debug> Cpu<M> {
                 1 => self.adl = self.consume_byte()?,
                 _ => {
                     let adh = self.memory.read(self.reg_pc)?;
-                    self.reg_pc = (self.adl as u16) | ((adh as u16) << 8);
+                    self.reg_pc = u16::from_le_bytes([self.adl, adh]);
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -389,7 +389,7 @@ impl<M: Memory + Debug> Cpu<M> {
                 }
                 _ => {
                     let adh = self.memory.read(self.reg_pc)?;
-                    self.reg_pc = (self.adl as u16) | ((adh as u16) << 8);
+                    self.reg_pc = u16::from_le_bytes([self.adl, adh]);
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -482,7 +482,7 @@ impl<M: Memory + Debug> Cpu<M> {
             _ => {
                 load(
                     self,
-                    self.memory.read(self.adl as u16 | (self.adh as u16) << 8)?,
+                    self.memory.read(u16::from_le_bytes([self.adl, self.adh]))?,
                 );
                 self.sequence_state = SequenceState::Ready;
             }
@@ -534,7 +534,7 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(_, 2) => self.adh = self.consume_byte()?,
             _ => {
                 self.memory
-                    .write(((self.adh as u16) << 8) | self.adl as u16, value)?;
+                    .write(u16::from_le_bytes([self.adl, self.adh]), value)?;
                 self.sequence_state = SequenceState::Ready;
             }
         }
@@ -613,17 +613,17 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(_, 1) => self.adl = self.consume_byte()?,
             SequenceState::Opcode(_, 2) => self.adh = self.consume_byte()?,
             SequenceState::Opcode(_, 3) => {
-                self.tmp_data = self.memory.read((self.adh as u16) << 8 | self.adl as u16)?;
+                self.tmp_data = self.memory.read(u16::from_le_bytes([self.adl, self.adh]))?;
             }
             SequenceState::Opcode(_, 4) => {
                 // Phantom write.
                 self.memory
-                    .write((self.adh as u16) << 8 | self.adl as u16, self.tmp_data)?;
+                    .write(u16::from_le_bytes([self.adl, self.adh]), self.tmp_data)?;
             }
             _ => {
                 let result = operation(self, self.tmp_data);
                 self.memory
-                    .write((self.adh as u16) << 8 | self.adl as u16, result)?;
+                    .write(u16::from_le_bytes([self.adl, self.adh]), result)?;
                 self.sequence_state = SequenceState::Ready;
             }
         }
