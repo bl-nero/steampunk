@@ -368,8 +368,8 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::JMP_ABS, subcycle) => match subcycle {
                 1 => self.adl = self.consume_byte()?,
                 _ => {
-                    let adh = self.memory.read(self.reg_pc)?;
-                    self.reg_pc = u16::from_le_bytes([self.adl, adh]);
+                    self.adh = self.memory.read(self.reg_pc)?;
+                    self.reg_pc = self.address();
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -388,8 +388,8 @@ impl<M: Memory + Debug> Cpu<M> {
                     self.reg_sp = self.reg_sp.wrapping_sub(1);
                 }
                 _ => {
-                    let adh = self.memory.read(self.reg_pc)?;
-                    self.reg_pc = u16::from_le_bytes([self.adl, adh]);
+                    self.adh = self.memory.read(self.reg_pc)?;
+                    self.reg_pc = self.address();
                     self.sequence_state = SequenceState::Ready;
                 }
             },
@@ -480,10 +480,7 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(_, 1) => self.adl = self.consume_byte()?,
             SequenceState::Opcode(_, 2) => self.adh = self.consume_byte()?,
             _ => {
-                load(
-                    self,
-                    self.memory.read(u16::from_le_bytes([self.adl, self.adh]))?,
-                );
+                load(self, self.memory.read(self.address())?);
                 self.sequence_state = SequenceState::Ready;
             }
         };
@@ -533,8 +530,7 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(_, 1) => self.adl = self.consume_byte()?,
             SequenceState::Opcode(_, 2) => self.adh = self.consume_byte()?,
             _ => {
-                self.memory
-                    .write(u16::from_le_bytes([self.adl, self.adh]), value)?;
+                self.memory.write(self.address(), value)?;
                 self.sequence_state = SequenceState::Ready;
             }
         }
@@ -613,17 +609,15 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(_, 1) => self.adl = self.consume_byte()?,
             SequenceState::Opcode(_, 2) => self.adh = self.consume_byte()?,
             SequenceState::Opcode(_, 3) => {
-                self.tmp_data = self.memory.read(u16::from_le_bytes([self.adl, self.adh]))?;
+                self.tmp_data = self.memory.read(self.address())?;
             }
             SequenceState::Opcode(_, 4) => {
                 // Phantom write.
-                self.memory
-                    .write(u16::from_le_bytes([self.adl, self.adh]), self.tmp_data)?;
+                self.memory.write(self.address(), self.tmp_data)?;
             }
             _ => {
                 let result = operation(self, self.tmp_data);
-                self.memory
-                    .write(u16::from_le_bytes([self.adl, self.adh]), result)?;
+                self.memory.write(self.address(), result)?;
                 self.sequence_state = SequenceState::Ready;
             }
         }
@@ -706,35 +700,17 @@ impl<M: Memory + Debug> Cpu<M> {
 
     fn set_reg_a(&mut self, value: u8) {
         self.reg_a = value;
-        let flag_z = if value == 0 { flags::Z } else { 0 };
-        let flag_n = if value & 0b1000_0000 != 0 {
-            flags::N
-        } else {
-            0
-        };
-        self.flags = (self.flags & !(flags::Z | flags::N)) | flag_z | flag_n;
+        self.update_flags_nz(value);
     }
 
     fn set_reg_x(&mut self, value: u8) {
         self.reg_x = value;
-        let flag_z = if value == 0 { flags::Z } else { 0 };
-        let flag_n = if value & 0b1000_0000 != 0 {
-            flags::N
-        } else {
-            0
-        };
-        self.flags = (self.flags & !(flags::Z | flags::N)) | flag_z | flag_n;
+        self.update_flags_nz(value);
     }
 
     fn set_reg_y(&mut self, value: u8) {
         self.reg_y = value;
-        let flag_z = if value == 0 { flags::Z } else { 0 };
-        let flag_n = if value & 0b1000_0000 != 0 {
-            flags::N
-        } else {
-            0
-        };
-        self.flags = (self.flags & !(flags::Z | flags::N)) | flag_z | flag_n;
+        self.update_flags_nz(value);
     }
 
     /// Updates the N and Z flags to reflect the given value.
@@ -750,6 +726,11 @@ impl<M: Memory + Debug> Cpu<M> {
 
     fn stack_pointer(&self) -> u16 {
         0x100 | self.reg_sp as u16
+    }
+
+    /// Returns a 16-bit address stored in (`adh`, `adl`).
+    fn address(&self) -> u16 {
+        u16::from_le_bytes([self.adl, self.adh])
     }
 
     fn test_bits(&mut self, value: u8) {
