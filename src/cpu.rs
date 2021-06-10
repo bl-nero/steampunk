@@ -221,6 +221,54 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_load_modify_store_absolute(&mut |me, value| me.shift_left(value))?;
             }
 
+            SequenceState::Opcode(opcodes::LSR_A, _) => {
+                self.tick_simple_internal_operation(&mut |me| {
+                    let shifted = me.shift_right(me.reg_a);
+                    me.set_reg_a(shifted);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::LSR_ZP, _) => {
+                self.tick_load_modify_store_zero_page(&mut |me, value| me.shift_right(value))?;
+            }
+            SequenceState::Opcode(opcodes::LSR_ZP_X, _) => {
+                self.tick_load_modify_store_zero_page_x(&mut |me, value| me.shift_right(value))?;
+            }
+            SequenceState::Opcode(opcodes::LSR_ABS, _) => {
+                self.tick_load_modify_store_absolute(&mut |me, value| me.shift_right(value))?;
+            }
+
+            SequenceState::Opcode(opcodes::ROL_A, _) => {
+                self.tick_simple_internal_operation(&mut |me| {
+                    let shifted = me.rotate_left(me.reg_a);
+                    me.set_reg_a(shifted);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::ROL_ZP, _) => {
+                self.tick_load_modify_store_zero_page(&mut |me, value| me.rotate_left(value))?;
+            }
+            SequenceState::Opcode(opcodes::ROL_ZP_X, _) => {
+                self.tick_load_modify_store_zero_page_x(&mut |me, value| me.rotate_left(value))?;
+            }
+            SequenceState::Opcode(opcodes::ROL_ABS, _) => {
+                self.tick_load_modify_store_absolute(&mut |me, value| me.rotate_left(value))?;
+            }
+
+            SequenceState::Opcode(opcodes::ROR_A, _) => {
+                self.tick_simple_internal_operation(&mut |me| {
+                    let shifted = me.rotate_right(me.reg_a);
+                    me.set_reg_a(shifted);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::ROR_ZP, _) => {
+                self.tick_load_modify_store_zero_page(&mut |me, value| me.rotate_right(value))?;
+            }
+            SequenceState::Opcode(opcodes::ROR_ZP_X, _) => {
+                self.tick_load_modify_store_zero_page_x(&mut |me, value| me.rotate_right(value))?;
+            }
+            SequenceState::Opcode(opcodes::ROR_ABS, _) => {
+                self.tick_load_modify_store_absolute(&mut |me, value| me.rotate_right(value))?;
+            }
+
             SequenceState::Opcode(opcodes::CMP_IMM, _) => {
                 self.tick_compare_immediate(self.reg_a)?;
             }
@@ -814,6 +862,26 @@ impl<M: Memory + Debug> Cpu<M> {
         let carry = (value & (1 << 7)) >> 7;
         self.flags = (self.flags & !flags::C) | carry;
         return value << 1;
+    }
+
+    fn shift_right(&mut self, value: u8) -> u8 {
+        let carry = value & 1;
+        self.flags = (self.flags & !flags::C) | carry;
+        return value >> 1;
+    }
+
+    fn rotate_left(&mut self, value: u8) -> u8 {
+        let prev_carry = self.flags & flags::C;
+        let carry = (value & (1 << 7)) >> 7;
+        self.flags = (self.flags & !flags::C) | carry;
+        return (value << 1) | prev_carry;
+    }
+
+    fn rotate_right(&mut self, value: u8) -> u8 {
+        let prev_carry = self.flags & flags::C;
+        let carry = value & 1;
+        self.flags = (self.flags & !flags::C) | carry;
+        return (value >> 1) | (prev_carry << 7);
     }
 
     #[cfg(test)]

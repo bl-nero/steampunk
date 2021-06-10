@@ -442,7 +442,7 @@ fn logical_operations() {
 }
 
 #[test]
-fn shifting() {
+fn asl() {
     let mut cpu = cpu_with_code! {
             sec
             lda #0b0101_0000
@@ -468,6 +468,93 @@ fn shifting() {
     cpu.ticks(4 + 7 + 10 + 10 + 10).unwrap();
     assert_eq!(cpu.memory.bytes[1..=2], [0b0100_0000, 0b0100_0000]);
     assert_eq!(cpu.memory.bytes[0x0234], 2);
+}
+
+#[test]
+fn lsr() {
+    let mut cpu = cpu_with_code! {
+            sec
+            lda #0b0000_1010
+
+            lsr a
+        stop1:
+            bcs stop1
+            sta 0x05
+
+            lsr 0x05
+        stop2:
+            bcc stop2
+            sta 0x06
+
+            ldx #2
+            lsr 0x04,x
+        stop3:
+            bcc stop3
+
+            stx abs 0x0234
+            lsr abs 0x0234
+    };
+    cpu.ticks(4 + 7 + 10 + 10 + 10).unwrap();
+    assert_eq!(cpu.memory.bytes[5..=6], [0b0000_0010, 0b0000_0010]);
+    assert_eq!(cpu.memory.bytes[0x0234], 1);
+}
+
+#[test]
+fn rol() {
+    let mut cpu = cpu_with_code! {
+            clc
+            lda #0b1010_0000
+
+            rol a
+        stop1:
+            bcc stop1
+            sta 0x01
+
+            rol 0x01
+        stop2:
+            bcs stop2
+            sta 0x02
+
+            ldx #1
+            rol 0x01,x
+        stop3:
+            bcs stop3
+
+            stx abs 0x0234
+            rol abs 0x0234
+    };
+    cpu.ticks(4 + 7 + 10 + 10 + 10).unwrap();
+    assert_eq!(cpu.memory.bytes[1..=2], [0b1000_0001, 0b1000_0000]);
+    assert_eq!(cpu.memory.bytes[0x0234], 2);
+}
+
+#[test]
+fn ror() {
+    let mut cpu = cpu_with_code! {
+            clc
+            lda #0b0000_0101
+
+            ror a
+        stop1:
+            bcc stop1
+            sta 0x05
+
+            ror 0x05
+        stop2:
+            bcs stop2
+            sta 0x06
+
+            ldx #2
+            ror 0x04,x
+        stop3:
+            bcs stop3
+
+            stx abs 0x0234
+            ror abs 0x0234
+    };
+    cpu.ticks(4 + 7 + 10 + 10 + 10).unwrap();
+    assert_eq!(cpu.memory.bytes[5..=6], [0b1000_0001, 0b0000_0001]);
+    assert_eq!(cpu.memory.bytes[0x0234], 1);
 }
 
 #[test]
@@ -780,6 +867,8 @@ fn benchmark(b: &mut Bencher) {
         loop:
             sta 0,x
             adc #64
+            asl 1
+            lsr 2
             inx
             jmp loop
     };
