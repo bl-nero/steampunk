@@ -29,14 +29,17 @@ pub enum FrameStatus {
 
 impl Atari {
     pub fn new(address_space: Box<AtariAddressSpace>) -> Self {
-        Atari {
+        let mut atari = Atari {
             cpu: Cpu::new(address_space),
             frame_renderer: FrameRendererBuilder::new()
                 .with_palette(colors::ntsc_palette())
                 .build(),
             switch_positions: enum_map! { _ => SwitchPosition::Up },
             joysticks: enum_map! { _ => Joystick::new() },
-        }
+        };
+        atari.update_switches_riot_port();
+        atari.update_joystick_riot_port();
+        return atari;
     }
 
     pub fn cpu(&self) -> &Cpu<AtariAddressSpace> {
@@ -87,6 +90,10 @@ impl Atari {
 
     pub fn flip_switch(&mut self, switch: Switch, position: SwitchPosition) {
         self.switch_positions[switch] = position;
+        self.update_switches_riot_port();
+    }
+
+    fn update_switches_riot_port(&mut self) {
         let port_value = self
             .switch_positions
             .iter()
@@ -102,6 +109,10 @@ impl Atari {
         state: bool,
     ) {
         self.joysticks[port].set_state(input, state);
+        self.update_joystick_riot_port();
+    }
+
+    fn update_joystick_riot_port(&mut self) {
         let (left_dir_port, left_fire_port) = self.joysticks[JoystickPort::Left].port_values();
         let (right_dir_port, right_fire_port) = self.joysticks[JoystickPort::Right].port_values();
         self.mut_riot()

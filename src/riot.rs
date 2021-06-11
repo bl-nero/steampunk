@@ -1,17 +1,44 @@
 use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 use rand::Rng;
 
-// A MOS Technology 6532 RIOT chip. Note that originally, this chip also
-// included 128 bytes of RAM, but for the sake of single-responsibility
-// principle, it's been split out to a separate struct: `memory::AtariRam`.
+/// A MOS Technology 6532 RIOT chip. Note that originally, this chip also
+/// included 128 bytes of RAM, but for the sake of single-responsibility
+/// principle, it's been split out to a separate struct: `memory::AtariRam`.
 #[derive(Debug)]
 pub struct Riot {
-    timer: u8,
-    divider: u32,
+    /// A divider that counts from 0 to `interval_length` and then wraps around.
+    /// Each time it reaches 0, `reg_intim` is decreased.
+    timer_divider: u32,
+    /// A timer interval length, in CPU cycles.
     interval_length: u32,
+    /// Direct input from port A. Note: According to MOS 6532 datasheet, "for
+    /// any [PA] output pin, the data transferred into the processor will be the
+    /// same as that contained in the Output Register if the voltage on the pin
+    /// is allowed to go to 2.4v for a logic one." This means that if a standard
+    /// joystick is connected to PA, whenever the switches are closed
+    /// (grounded), the voltage is not allowed to remain high enough. Because of
+    /// this, a low pin value on port always overrides the port register.
+    port_a: u8,
+    /// Direct input from port B. Note from the datasheet: "The primary
+    /// difference between the PA and the PB ports is in the operation of the
+    /// output buffers which drive these pins. The buffers are push-pull devices
+    /// which are capable of sourcing 3 ma at 1.5v. This allows these pins to
+    /// directly drive transistor switches. To assure that the microprocessor
+    /// will read proper data on a “Read PB” operation, sufficient logic is
+    /// provided in the chip to allow the microprocessor to read the Output
+    /// Register instead of reading the peripheral pin as on the PA port."
+    port_b: u8,
 
+    /// Port A output register.
     reg_swcha: u8,
+    /// Port A pin direction (0=read, 1=write)
+    reg_swacnt: u8,
+    /// Port B output register.
     reg_swchb: u8,
+    /// Port B pin direction (0=read, 1=write)
+    reg_swbcnt: u8,
+    /// Current timer value.
+    reg_intim: u8,
 }
 
 pub enum Port {
@@ -23,31 +50,36 @@ impl Riot {
     pub fn new() -> Riot {
         let mut rng = rand::thread_rng();
         Riot {
-            timer: rng.gen(),
-            divider: rng.gen(),
+            timer_divider: rng.gen(),
             interval_length: [1, 8, 64, 1024][rng.gen_range(0..4)],
+            port_a: 0,
+            port_b: 0,
+
             reg_swcha: 0xFF,
+            reg_swacnt: 0x00,
             reg_swchb: 0xFF,
+            reg_swbcnt: 0x00,
+            reg_intim: rng.gen(),
         }
     }
 
     pub fn tick(&mut self) {
-        if self.divider == 0 {
-            self.timer = self.timer.wrapping_sub(1);
+        if self.timer_divider == 0 {
+            self.reg_intim = self.reg_intim.wrapping_sub(1);
         }
-        self.divider = (self.divider + 1) % self.interval_length;
+        self.timer_divider = (self.timer_divider + 1) % self.interval_length;
     }
 
     fn reset_timer(&mut self, timer_value: u8, interval_length: u32) {
-        self.timer = timer_value;
+        self.reg_intim = timer_value;
         self.interval_length = interval_length;
-        self.divider = 0;
+        self.timer_divider = 0;
     }
 
     pub fn set_port(&mut self, port: Port, value: u8) {
         match port {
-            Port::PA => self.reg_swcha = value,
-            Port::PB => self.reg_swchb = value,
+            Port::PA => self.port_a = value,
+            Port::PB => self.port_b = value,
         };
     }
 }
@@ -55,15 +87,26 @@ impl Riot {
 impl Memory for Riot {
     fn read(&self, address: u16) -> ReadResult {
         match address {
-            registers::SWCHA => Ok(self.reg_swcha),
-            registers::SWCHB => Ok(self.reg_swchb),
-            registers::INTIM => Ok(self.timer),
+            registers::SWCHA => {
+                Ok((self.reg_swacnt & self.reg_swcha & self.port_a)
+                    | (!self.reg_swacnt & self.port_a))
+            }
+            registers::SWACNT => Ok(self.reg_swacnt),
+            registers::SWCHB => {
+                Ok((self.reg_swbcnt & self.reg_swchb) | (!self.reg_swbcnt & self.port_b))
+            }
+            registers::SWBCNT => Ok(self.reg_swbcnt),
+            registers::INTIM => Ok(self.reg_intim),
             _ => Err(ReadError { address }),
         }
     }
 
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match address {
+            registers::SWCHA => self.reg_swcha = value,
+            registers::SWACNT => self.reg_swacnt = value,
+            registers::SWCHB => self.reg_swchb = value,
+            registers::SWBCNT => self.reg_swbcnt = value,
             registers::TIM1T => self.reset_timer(value, 1),
             registers::TIM8T => self.reset_timer(value, 8),
             registers::TIM64T => self.reset_timer(value, 64),
@@ -158,7 +201,39 @@ mod tests {
         assert_eq!(riot.read(registers::SWCHB).unwrap(), 0x78);
     }
 
-    fn input_port_direction() {
-        // riot.set_port_direction(Port::PA, 0x12);
+    #[test]
+    fn input_port_b_direction() {
+        let mut riot = Riot::new();
+
+        // Reading from the bits set as output should return the register value
+        // instead of port input.
+        riot.set_port(Port::PB, 0b1100_1100);
+        riot.write(registers::SWBCNT, 0b1111_0000).unwrap();
+        riot.write(registers::SWCHB, 0b0101_0101).unwrap();
+        assert_eq!(riot.read(registers::SWCHB).unwrap(), 0b0101_1100);
+
+        // Data in the output register should be cached and return what we wrote
+        // to bits previously set to act as inputs.
+        riot.write(registers::SWBCNT, 0b0000_1111).unwrap();
+        assert_eq!(riot.read(registers::SWCHB).unwrap(), 0b1100_0101);
+    }
+
+    #[test]
+    fn input_port_a_direction() {
+        let mut riot = Riot::new();
+
+        // Reading from the bits set as output should return the register value
+        // instead of port input, but only where the PA register pin is not
+        // grounded. Grounded pins always return 0.
+        riot.set_port(Port::PA, 0b1100_1100);
+        riot.write(registers::SWACNT, 0b1111_0000).unwrap();
+        riot.write(registers::SWCHA, 0b0101_0101).unwrap();
+        assert_eq!(riot.read(registers::SWCHA).unwrap(), 0b0100_1100);
+
+        // Data in the output register should be cached and return what we wrote
+        // to bits previously set to act as inputs; however, the above grounding
+        // rule still applies.
+        riot.write(registers::SWACNT, 0b0000_1111).unwrap();
+        assert_eq!(riot.read(registers::SWCHA).unwrap(), 0b1100_0100);
     }
 }
