@@ -52,33 +52,33 @@ StartOfFrame:
             sta RegTemp
             lda #%01010101
             asl RegTemp
-            bcc :+
+            bcc Swchb6
             ora #%10000000
-:           asl RegTemp
-            bcc :+
+Swchb6:     asl RegTemp
+            bcc Swchb5
             ora #%00100000
-:           asl RegTemp
-            bcc :+
+Swchb5:     asl RegTemp
+            bcc Swchb4
             ora #%00001000
-:           asl RegTemp
-            bcc :+
+Swchb4:     asl RegTemp
+            bcc Swchb3
             ora #%00000010
-            sta SwitchesPF1
+Swchb3:     sta SwitchesPF1
 
             lda #%10101010
             asl RegTemp
-            bcc :+
+            bcc Swchb2
             ora #%00000001
-:           asl RegTemp
-            bcc :+
+Swchb2:     asl RegTemp
+            bcc Swchb1
             ora #%00000100
-:           asl RegTemp
-            bcc :+
+Swchb1:     asl RegTemp
+            bcc Swchb0
             ora #%00010000
-:           asl RegTemp
-            bcc :+
+Swchb0:     asl RegTemp
+            bcc SwchbDone
             ora #%01000000
-:           sta SwitchesPF2
+SwchbDone:  sta SwitchesPF2
 
             ; 00111000 00111000
             ; 00101000 00101000

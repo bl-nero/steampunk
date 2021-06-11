@@ -76,7 +76,9 @@ impl Memory for Riot {
 
 mod registers {
     pub const SWCHA: u16 = 0x280;
+    pub const SWACNT: u16 = 0x281;
     pub const SWCHB: u16 = 0x282;
+    pub const SWBCNT: u16 = 0x283;
     pub const INTIM: u16 = 0x284;
     pub const TIM1T: u16 = 0x294;
     pub const TIM8T: u16 = 0x295;
@@ -154,5 +156,9 @@ mod tests {
         assert_eq!(riot.read(registers::SWCHB).unwrap(), 0x56);
         riot.set_port(Port::PB, 0x78);
         assert_eq!(riot.read(registers::SWCHB).unwrap(), 0x78);
+    }
+
+    fn input_port_direction() {
+        // riot.set_port_direction(Port::PA, 0x12);
     }
 }
