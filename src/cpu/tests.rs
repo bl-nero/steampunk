@@ -94,20 +94,88 @@ fn lda_sta() {
             sta 4
             lda #12
             sta 5
+            // (15 cycles)
+
             lda 4
+            clc
+            cld
+            adc #1
             sta 6
-            lda abs 0xF002  // should load the STA opcode
-            sta abs 0xABCD
+            // (12 cycles)
+
+            ldx #2
+        loop1:
+            lda 4,x
+            sta 7,x
+            dex
+            bpl loop1
+            // (2 + 10 * 3 + 3 * 2 + 2 cycles)
+
+            // Copy arguments of first three instructions from this program.
+            lda abs 0xF001
+            sta abs 0xABC0
+            lda abs 0xF003
+            sta abs 0xABC1
+            lda abs 0xF005
+            sta abs 0xABC2
+            // (8 * 3 cycles)
+
+            ldx #2
+        loop2:
+            lda abs 0xABC0,x
+            sta abs 0xABC3,x
+            dex
+            bpl loop2
+            // (2 + 11 * 3 + 3 * 2 + 2 cycles)
+
+            ldy #2
+        loop3:
+            lda abs 0xABC0,y
+            sta abs 0xABC6,y
+            dey
+            bpl loop3
+            // (2 + 11 * 3 + 3 * 2 + 2 cycles)
+
+            ldx #4
+        loop4:
+            lda (10,x)
+            sta (20,x)
+            dex
+            dex
+            bpl loop4
+            // (2 + 16 * 3 + 3 * 2 + 2 cycles)
+
+            ldy #2
+        loop5:
+            lda (12),y
+            sta (26),y
+            dey
+            bpl loop5
+            // (2 + 13 * 3 + 3 * 2 + 2 cycles)
     };
+    // Prepare address vectors for the (X, indirect) addressing.
+    cpu.mut_memory().bytes[10..=15].copy_from_slice(&[0xC1, 0xAB, 0xC2, 0xAB, 0xC3, 0xAB]);
+    cpu.mut_memory().bytes[20..=27]
+        .copy_from_slice(&[0xCB, 0xAB, 0xCA, 0xAB, 0xC9, 0xAB, 0xCC, 0xAB]);
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [73, 0]);
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
-    cpu.ticks(14).unwrap();
-    assert_eq!(cpu.memory.bytes[4..7], [73, 12, 73]);
-    assert_eq!(cpu.memory.bytes[0xABCD], opcodes::STA_ZP);
+    cpu.ticks(
+        12 + (2 + 10 * 3 + 3 * 2 + 2)
+            + (8 * 3)
+            + 2 * (2 + 11 * 3 + 3 * 2 + 2)
+            + (2 + 16 * 3 + 3 * 2 + 2)
+            + (2 + 13 * 3 + 3 * 2 + 2),
+    )
+    .unwrap();
+    assert_eq!(cpu.memory.bytes[4..=9], [73, 12, 74, 73, 12, 74]);
+    assert_eq!(
+        cpu.memory.bytes[0xABC0..=0xABCE],
+        [65, 4, 73, 65, 4, 73, 65, 4, 73, 65, 73, 4, 73, 65, 4]
+    );
 }
 
 #[test]
@@ -173,19 +241,7 @@ fn multiple_registers() {
 }
 
 #[test]
-fn loading_addressing_modes() {
-    let mut cpu = cpu_with_code! {
-            ldx #0xFF
-            txs
-            lda abs 0xF002
-            pha
-    };
-    cpu.ticks(11).unwrap();
-    assert_eq!(reversed_stack(&cpu), [opcodes::TXS]);
-}
-
-#[test]
-fn storing_addressing_modes() {
+fn storing_addressing_mode_quirks() {
     let mut cpu = cpu_with_code! {
             ldx #5
             lda #42
@@ -195,15 +251,39 @@ fn storing_addressing_modes() {
             sty 0x02,x
             dex
             bne loop
-            sta abs 0xABCD
     };
-    cpu.ticks(6 + 5 * 13 + 4).unwrap();
+    cpu.ticks(6 + 5 * 13).unwrap();
     assert_eq!(cpu.memory.bytes[0xFC..0x100], [0, 42, 42, 42]);
     assert_eq!(
         cpu.memory.bytes[0x00..0x09],
         [42, 42, 0, 100, 100, 100, 100, 100, 0]
     );
-    assert_eq!(cpu.memory.bytes[0xABCD], 42);
+}
+
+#[test]
+fn loading_across_pages_timing() {
+    let mut cpu = cpu_with_code! {
+        lda #56
+        sta abs 0x5714
+        lda #0
+
+        ldx #0x74
+        lda abs 0x56A0,x
+        sta 0x05
+
+        ldy #0x73
+        lda (10),y
+        sta 0x06
+    };
+    cpu.mut_memory().bytes[10..=11].copy_from_slice(&[0xA1, 0x56]);
+    cpu.ticks(8 + 9).unwrap();
+    assert_eq!(cpu.memory.bytes[5..=6], [0, 0]);
+    cpu.ticks(1).unwrap();
+    assert_eq!(cpu.memory.bytes[5..=6], [56, 0]);
+    cpu.ticks(10).unwrap();
+    assert_eq!(cpu.memory.bytes[5..=6], [56, 0]);
+    cpu.ticks(1).unwrap();
+    assert_eq!(cpu.memory.bytes[5..=6], [56, 56]);
 }
 
 #[test]
@@ -447,7 +527,10 @@ fn logical_operations() {
             pha
     };
     cpu.ticks(16 + 22).unwrap();
-    assert_eq!(reversed_stack(&cpu), [0b0000_1100, 0b1010_1110, 0b1010_0000, 0b1111_0101]);
+    assert_eq!(
+        reversed_stack(&cpu),
+        [0b0000_1100, 0b1010_1110, 0b1010_0000, 0b1111_0101]
+    );
 }
 
 #[test]

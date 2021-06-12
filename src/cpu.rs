@@ -37,6 +37,9 @@ pub struct Cpu<M: Memory> {
     adh: u8,
     // Base address
     bal: u8,
+    bah: u8,
+    // Indirect address
+    ial: u8,
     tmp_data: u8,
 }
 
@@ -110,6 +113,8 @@ impl<M: Memory + Debug> Cpu<M> {
             adl: rng.gen(),
             adh: rng.gen(),
             bal: rng.gen(),
+            bah: rng.gen(),
+            ial: rng.gen(),
             tmp_data: rng.gen(),
         }
     }
@@ -145,6 +150,7 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::NOP, _) => {
                 self.tick_simple_internal_operation(&mut |_| {})?;
             }
+
             SequenceState::Opcode(opcodes::LDA_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| me.set_reg_a(value))?;
             }
@@ -154,6 +160,7 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::LDY_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| me.set_reg_y(value))?;
             }
+
             SequenceState::Opcode(opcodes::LDA_ZP, _) => {
                 self.tick_load_zero_page(&mut |me, value| me.set_reg_a(value))?;
             }
@@ -162,6 +169,10 @@ impl<M: Memory + Debug> Cpu<M> {
             }
             SequenceState::Opcode(opcodes::LDY_ZP, _) => {
                 self.tick_load_zero_page(&mut |me, value| me.set_reg_y(value))?;
+            }
+
+            SequenceState::Opcode(opcodes::LDA_ZP_X, _) => {
+                self.tick_load_zero_page_x(&mut |me, value| me.set_reg_a(value))?;
             }
             SequenceState::Opcode(opcodes::LDA_ABS, _) => {
                 self.tick_load_absolute(&mut |me, value| me.set_reg_a(value))?;
@@ -173,6 +184,20 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_load_absolute(&mut |me, value| me.set_reg_y(value))?;
             }
 
+            SequenceState::Opcode(opcodes::LDA_ABS_X, _) => {
+                self.tick_load_absolute_indexed(self.reg_x, &mut |me, value| me.set_reg_a(value))?;
+            }
+            SequenceState::Opcode(opcodes::LDA_ABS_Y, _) => {
+                self.tick_load_absolute_indexed(self.reg_y, &mut |me, value| me.set_reg_a(value))?;
+            }
+
+            SequenceState::Opcode(opcodes::LDA_X_INDIR, _) => {
+                self.tick_load_x_indirect(&mut |me, value| me.set_reg_a(value))?;
+            }
+            SequenceState::Opcode(opcodes::LDA_INDIR_Y, _) => {
+                self.tick_load_indirect_y(&mut |me, value| me.set_reg_a(value))?;
+            }
+
             SequenceState::Opcode(opcodes::STA_ZP, _) => {
                 self.tick_store_zero_page(self.reg_a)?;
             }
@@ -182,12 +207,14 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::STY_ZP, _) => {
                 self.tick_store_zero_page(self.reg_y)?;
             }
+
             SequenceState::Opcode(opcodes::STA_ZP_X, _) => {
                 self.tick_store_zero_page_x(self.reg_a)?;
             }
             SequenceState::Opcode(opcodes::STY_ZP_X, _) => {
                 self.tick_store_zero_page_x(self.reg_y)?;
             }
+
             SequenceState::Opcode(opcodes::STA_ABS, _) => {
                 self.tick_store_abs(self.reg_a)?;
             }
@@ -196,6 +223,20 @@ impl<M: Memory + Debug> Cpu<M> {
             }
             SequenceState::Opcode(opcodes::STY_ABS, _) => {
                 self.tick_store_abs(self.reg_y)?;
+            }
+
+            SequenceState::Opcode(opcodes::STA_ABS_X, _) => {
+                self.tick_store_abs_indexed(self.reg_x, self.reg_a)?;
+            }
+            SequenceState::Opcode(opcodes::STA_ABS_Y, _) => {
+                self.tick_store_abs_indexed(self.reg_y, self.reg_a)?;
+            }
+
+            SequenceState::Opcode(opcodes::STA_X_INDIR, _) => {
+                self.tick_store_x_indirect(self.reg_a)?;
+            }
+            SequenceState::Opcode(opcodes::STA_INDIR_Y, _) => {
+                self.tick_store_indirect_y(self.reg_a)?;
             }
 
             SequenceState::Opcode(opcodes::AND_IMM, _) => {
@@ -541,6 +582,133 @@ impl<M: Memory + Debug> Cpu<M> {
         Ok(())
     }
 
+    fn tick_load_absolute_indexed(
+        &mut self,
+        index: u8,
+        load: &mut dyn FnMut(&mut Self, u8),
+    ) -> Result<(), ReadError> {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.bal = self.consume_byte()?,
+            SequenceState::Opcode(_, 2) => self.bah = self.consume_byte()?,
+            SequenceState::Opcode(_, 3) => {
+                let (adl, carry) = self.bal.overflowing_add(index);
+                let address = u16::from_le_bytes([adl, self.bah]);
+                if carry {
+                    self.phantom_read(address);
+                } else {
+                    load(self, self.memory.read(address)?);
+                    self.sequence_state = SequenceState::Ready;
+                }
+            }
+            _ => {
+                load(
+                    self,
+                    self.memory
+                        .read(self.base_address().wrapping_add(index as u16))?,
+                );
+                self.sequence_state = SequenceState::Ready;
+            }
+        };
+        Ok(())
+    }
+
+    fn tick_load_x_indirect(
+        &mut self,
+        load: &mut dyn FnMut(&mut Self, u8),
+    ) -> Result<(), ReadError> {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.bal = self.consume_byte()?,
+            SequenceState::Opcode(_, 2) => self.phantom_read(self.bal as u16),
+            SequenceState::Opcode(_, 3) => {
+                self.adl = self.memory.read(self.bal.wrapping_add(self.reg_x) as u16)?;
+            }
+            SequenceState::Opcode(_, 4) => {
+                self.adh = self
+                    .memory
+                    .read(self.bal.wrapping_add(self.reg_x).wrapping_add(1) as u16)?;
+            }
+            _ => {
+                load(self, self.memory.read(self.address())?);
+                self.sequence_state = SequenceState::Ready;
+            }
+        }
+        Ok(())
+    }
+
+    fn tick_load_indirect_y(
+        &mut self,
+        load: &mut dyn FnMut(&mut Self, u8),
+    ) -> Result<(), ReadError> {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.ial = self.consume_byte()?,
+            SequenceState::Opcode(_, 2) => self.bal = self.memory.read(self.ial as u16)?,
+            SequenceState::Opcode(_, 3) => {
+                self.bah = self.memory.read(self.ial.wrapping_add(1) as u16)?
+            }
+            SequenceState::Opcode(_, 4) => {
+                let (adl, carry) = self.bal.overflowing_add(self.reg_y);
+                let address = u16::from_le_bytes([adl, self.bah]);
+                if carry {
+                    self.phantom_read(address);
+                } else {
+                    load(self, self.memory.read(address)?);
+                    self.sequence_state = SequenceState::Ready;
+                }
+            }
+            _ => {
+                load(
+                    self,
+                    self.memory
+                        .read(self.base_address().wrapping_add(self.reg_y as u16))?,
+                );
+                self.sequence_state = SequenceState::Ready;
+            }
+        }
+        Ok(())
+    }
+
+    fn tick_store_indirect_y(&mut self, value: u8) -> TickResult {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.ial = self.consume_byte()?,
+            SequenceState::Opcode(_, 2) => self.bal = self.memory.read(self.ial as u16)?,
+            SequenceState::Opcode(_, 3) => {
+                self.bah = self.memory.read(self.ial.wrapping_add(1) as u16)?
+            }
+            SequenceState::Opcode(_, 4) => {
+                self.phantom_read(u16::from_le_bytes([
+                    self.bal.wrapping_add(self.reg_y),
+                    self.bah,
+                ]));
+            }
+            _ => {
+                self.memory
+                    .write(self.base_address().wrapping_add(self.reg_y as u16), value)?;
+                self.sequence_state = SequenceState::Ready;
+            }
+        }
+        Ok(())
+    }
+
+    fn tick_store_x_indirect(&mut self, value: u8) -> TickResult {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.bal = self.consume_byte()?,
+            SequenceState::Opcode(_, 2) => self.phantom_read(self.bal as u16),
+            SequenceState::Opcode(_, 3) => {
+                self.adl = self.memory.read(self.bal.wrapping_add(self.reg_x) as u16)?;
+            }
+            SequenceState::Opcode(_, 4) => {
+                self.adh = self
+                    .memory
+                    .read(self.bal.wrapping_add(self.reg_x).wrapping_add(1) as u16)?;
+            }
+            _ => {
+                self.memory.write(self.address(), value)?;
+                self.sequence_state = SequenceState::Ready;
+            }
+        }
+        Ok(())
+    }
+
     fn tick_load_zero_page(
         &mut self,
         load: &mut dyn FnMut(&mut Self, u8),
@@ -549,6 +717,24 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(_, 1) => self.adl = self.consume_byte()?,
             _ => {
                 load(self, self.memory.read(self.adl as u16)?);
+                self.sequence_state = SequenceState::Ready;
+            }
+        };
+        Ok(())
+    }
+
+    fn tick_load_zero_page_x(
+        &mut self,
+        load: &mut dyn FnMut(&mut Self, u8),
+    ) -> Result<(), ReadError> {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.bal = self.consume_byte()?,
+            SequenceState::Opcode(_, 2) => self.phantom_read(self.bal as u16),
+            _ => {
+                load(
+                    self,
+                    self.memory.read(self.bal.wrapping_add(self.reg_x) as u16)?,
+                );
                 self.sequence_state = SequenceState::Ready;
             }
         };
@@ -585,6 +771,22 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(_, 2) => self.adh = self.consume_byte()?,
             _ => {
                 self.memory.write(self.address(), value)?;
+                self.sequence_state = SequenceState::Ready;
+            }
+        }
+        Ok(())
+    }
+
+    fn tick_store_abs_indexed(&mut self, index: u8, value: u8) -> TickResult {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.bal = self.consume_byte()?,
+            SequenceState::Opcode(_, 2) => self.bah = self.consume_byte()?,
+            SequenceState::Opcode(_, 3) => {
+                self.phantom_read(u16::from_le_bytes([self.bal.wrapping_add(index), self.bah]));
+            }
+            _ => {
+                self.memory
+                    .write(self.base_address().wrapping_add(index as u16), value)?;
                 self.sequence_state = SequenceState::Ready;
             }
         }
@@ -785,6 +987,11 @@ impl<M: Memory + Debug> Cpu<M> {
     /// Returns a 16-bit address stored in (`adh`, `adl`).
     fn address(&self) -> u16 {
         u16::from_le_bytes([self.adl, self.adh])
+    }
+
+    /// Returns a 16-bit address stored in (`bah`, `bal`).
+    fn base_address(&self) -> u16 {
+        u16::from_le_bytes([self.bal, self.bah])
     }
 
     fn test_bits(&mut self, value: u8) {
