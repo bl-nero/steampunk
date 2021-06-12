@@ -19,7 +19,9 @@ pub const STX_ABS: u8 = 0x8E;
 pub const STY_ABS: u8 = 0x8C;
 
 pub const AND_IMM: u8 = 0x29;
+pub const AND_ZP: u8 = 0x25;
 pub const ORA_IMM: u8 = 0x09;
+pub const ORA_ZP: u8 = 0x05;
 
 pub const ASL_A: u8 = 0x0A;
 pub const ASL_ZP: u8 = 0x06;

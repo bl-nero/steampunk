@@ -201,8 +201,14 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::AND_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| me.set_reg_a(me.reg_a & value))?;
             }
+            SequenceState::Opcode(opcodes::AND_ZP, _) => {
+                self.tick_load_zero_page(&mut |me, value| me.set_reg_a(me.reg_a & value))?;
+            }
             SequenceState::Opcode(opcodes::ORA_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| me.set_reg_a(me.reg_a | value))?;
+            }
+            SequenceState::Opcode(opcodes::ORA_ZP, _) => {
+                self.tick_load_zero_page(&mut |me, value| me.set_reg_a(me.reg_a | value))?;
             }
 
             SequenceState::Opcode(opcodes::ASL_A, _) => {

@@ -436,9 +436,18 @@ fn logical_operations() {
             pha
             ora #0b1010_1010
             pha
+
+            ldx #0b1111_0000
+            stx 44
+            ldy #0b0101_0101
+            sty 45
+            and 44
+            pha
+            ora 45
+            pha
     };
-    cpu.ticks(16).unwrap();
-    assert_eq!(reversed_stack(&cpu), [0b0000_1100, 0b1010_1110])
+    cpu.ticks(16 + 22).unwrap();
+    assert_eq!(reversed_stack(&cpu), [0b0000_1100, 0b1010_1110, 0b1010_0000, 0b1111_0101]);
 }
 
 #[test]
