@@ -1,5 +1,6 @@
 use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 use rand::Rng;
+use std::cell::Cell;
 
 /// A MOS Technology 6532 RIOT chip. Note that originally, this chip also
 /// included 128 bytes of RAM, but for the sake of single-responsibility
@@ -39,6 +40,11 @@ pub struct Riot {
     reg_swbcnt: u8,
     /// Current timer value.
     reg_intim: u8,
+    /// Timer interrupt flag. It's a `Cell`, since it is also modified while
+    /// reading, which is normally an operation that can be performed on an
+    /// immutable object. Perhaps we should refacor the whole concept of reading
+    /// instead?
+    reg_timint: Cell<u8>,
 }
 
 pub enum Port {
@@ -60,12 +66,16 @@ impl Riot {
             reg_swchb: 0xFF,
             reg_swbcnt: 0x00,
             reg_intim: rng.gen(),
+            reg_timint: Cell::new(0),
         }
     }
 
     pub fn tick(&mut self) {
-        if self.timer_divider == 0 {
+        if self.timer_divider == 0 || self.reg_timint.get() & flags::TIMINT_TIMER != 0 {
             self.reg_intim = self.reg_intim.wrapping_sub(1);
+            if self.reg_intim == 0xFF {
+                *self.reg_timint.get_mut() |= flags::TIMINT_TIMER;
+            }
         }
         self.timer_divider = (self.timer_divider + 1) % self.interval_length;
     }
@@ -74,6 +84,7 @@ impl Riot {
         self.reg_intim = timer_value;
         self.interval_length = interval_length;
         self.timer_divider = 0;
+        *self.reg_timint.get_mut() &= !flags::TIMINT_TIMER;
     }
 
     pub fn set_port(&mut self, port: Port, value: u8) {
@@ -96,7 +107,12 @@ impl Memory for Riot {
                 Ok((self.reg_swbcnt & self.reg_swchb) | (!self.reg_swbcnt & self.port_b))
             }
             registers::SWBCNT => Ok(self.reg_swbcnt),
-            registers::INTIM => Ok(self.reg_intim),
+            registers::INTIM => {
+                self.reg_timint
+                    .set(self.reg_timint.get() & !flags::TIMINT_TIMER);
+                return Ok(self.reg_intim);
+            }
+            registers::TIMINT => Ok(self.reg_timint.get()),
             _ => Err(ReadError { address }),
         }
     }
@@ -123,10 +139,15 @@ mod registers {
     pub const SWCHB: u16 = 0x282;
     pub const SWBCNT: u16 = 0x283;
     pub const INTIM: u16 = 0x284;
+    pub const TIMINT: u16 = 0x285;
     pub const TIM1T: u16 = 0x294;
     pub const TIM8T: u16 = 0x295;
     pub const TIM64T: u16 = 0x296;
     pub const T1024T: u16 = 0x297;
+}
+
+mod flags {
+    pub const TIMINT_TIMER: u8 = 1 << 7;
 }
 
 #[cfg(test)]
@@ -183,6 +204,57 @@ mod tests {
                 .chain(itertools::repeat_n(0, 1024))
                 .chain(std::iter::once(0xFF)),
         );
+    }
+
+    #[test]
+    fn timer_underflow() {
+        let mut riot = Riot::new();
+        riot.write(registers::TIM64T, 0x01).unwrap();
+        for _ in 0..64 {
+            riot.tick();
+        }
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), 0);
+        riot.tick();
+
+        // After the underflow, we expect the timer interrupt flag to be set,
+        // but we don't yet read INTIM, as it would immediately stop the fast
+        // countdown.
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), flags::TIMINT_TIMER);
+        riot.tick();
+        riot.tick();
+        riot.tick();
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), flags::TIMINT_TIMER);
+        riot.tick();
+        assert_eq!(riot.read(registers::INTIM).unwrap(), 0xFB);
+
+        // After reading INTIM, the timer should go back to the regular mode of
+        // operation.
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), 0);
+        riot.tick();
+        riot.tick();
+        riot.tick();
+        assert_eq!(riot.read(registers::INTIM).unwrap(), 0xFB);
+
+        // Underflow after underflow
+        riot.write(registers::TIM64T, 0x01).unwrap();
+        for _ in 0..(64 + 256 + 6) {
+            riot.tick();
+        }
+        assert_eq!(riot.read(registers::INTIM).unwrap(), 0xFA);
+    }
+
+    #[test]
+    fn timer_reset() {
+        let mut riot = Riot::new();
+        riot.write(registers::TIM64T, 0x01).unwrap();
+        for _ in 0..(64 + 2) {
+            riot.tick();
+        }
+        riot.write(registers::TIM64T, 0x04).unwrap();
+        riot.tick();
+        riot.tick();
+        riot.tick();
+        assert_eq!(riot.read(registers::INTIM).unwrap(), 0x03);
     }
 
     #[test]
