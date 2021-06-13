@@ -566,7 +566,7 @@ fn overflow_flag() {
 }
 
 #[test]
-fn logical_operations() {
+fn and_ora() {
     let mut cpu = cpu_with_code! {
             ldx #0xFF
             txs
@@ -675,6 +675,28 @@ fn logical_operations() {
             0b1011_1011,
         ]
     );
+}
+
+#[test]
+fn eor() {
+    let mut cpu = cpu_with_code! {
+            ldx #0xFF
+            txs
+            lda #0b0000_1111
+            eor #0b1100_1100
+            pha
+            // 11 cycles
+
+            eor 20
+            pha
+            // 6 cycles
+    };
+    cpu.mut_memory().bytes[20..=20].copy_from_slice(&[0b1111_0000]);
+    // cpu.mut_memory().bytes[0x1234..=0x123D].copy_from_slice(&[
+    // ]);
+
+    cpu.ticks(11 + 6).unwrap();
+    assert_eq!(reversed_stack(&cpu), [0b1100_0011, 0b0011_0011,]);
 }
 
 #[test]

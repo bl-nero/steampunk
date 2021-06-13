@@ -45,6 +45,9 @@ pub const ORA_ABS_Y: u8 = 0x19;
 pub const ORA_X_INDIR: u8 = 0x01;
 pub const ORA_INDIR_Y: u8 = 0x11;
 
+pub const EOR_IMM: u8 = 0x49;
+pub const EOR_ZP: u8 = 0x45;
+
 pub const ASL_A: u8 = 0x0A;
 pub const ASL_ZP: u8 = 0x06;
 pub const ASL_ZP_X: u8 = 0x16;

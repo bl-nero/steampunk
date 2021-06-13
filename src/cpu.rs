@@ -297,6 +297,13 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_load_indirect_y(&mut |me, value| me.set_reg_a(me.reg_a | value))?;
             }
 
+            SequenceState::Opcode(opcodes::EOR_IMM, _) => {
+                self.tick_load_immediate(&mut |me, value| me.set_reg_a(me.reg_a ^ value))?;
+            }
+            SequenceState::Opcode(opcodes::EOR_ZP, _) => {
+                self.tick_load_zero_page(&mut |me, value| me.set_reg_a(me.reg_a ^ value))?;
+            }
+
             SequenceState::Opcode(opcodes::ASL_A, _) => {
                 self.tick_simple_internal_operation(&mut |me| {
                     let shifted = me.shift_left(me.reg_a);
