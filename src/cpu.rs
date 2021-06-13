@@ -498,6 +498,9 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::CLC, _) => {
                 self.tick_simple_internal_operation(&mut |me| me.flags &= !flags::C)?;
             }
+            SequenceState::Opcode(opcodes::CLV, _) => {
+                self.tick_simple_internal_operation(&mut |me| me.flags &= !flags::V)?;
+            }
 
             SequenceState::Opcode(opcodes::BEQ, _) => {
                 self.tick_branch_if_flag(flags::Z, flags::Z)?;
@@ -516,6 +519,12 @@ impl<M: Memory + Debug> Cpu<M> {
             }
             SequenceState::Opcode(opcodes::BMI, _) => {
                 self.tick_branch_if_flag(flags::N, flags::N)?;
+            }
+            SequenceState::Opcode(opcodes::BVS, _) => {
+                self.tick_branch_if_flag(flags::V, flags::C)?;
+            }
+            SequenceState::Opcode(opcodes::BVC, _) => {
+                self.tick_branch_if_flag(flags::V, 0)?;
             }
 
             SequenceState::Opcode(opcodes::JMP_ABS, subcycle) => match subcycle {

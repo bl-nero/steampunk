@@ -532,6 +532,40 @@ fn adc_sbc_addressing_modes() {
 }
 
 #[test]
+fn overflow_flag() {
+    let mut cpu = cpu_with_code! {
+            ldx #0xFE
+            txs
+            plp
+            // 8 cycles
+
+            lda #0x40
+            adc #0x40
+            bvc fail
+            adc #1
+            bvs fail
+            sbc #2
+            bvc fail
+            // 14 cycles
+
+            php
+            clv
+            php
+            // 8 cycles
+        fail:
+            jmp fail
+    };
+    cpu.ticks(8 + 14 + 8).unwrap();
+    assert_eq!(
+        reversed_stack(&cpu),
+        [
+            flags::UNUSED | flags::V | flags::C,
+            flags::UNUSED | flags::C
+        ]
+    );
+}
+
+#[test]
 fn logical_operations() {
     let mut cpu = cpu_with_code! {
             ldx #0xFF

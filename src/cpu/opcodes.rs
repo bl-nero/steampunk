@@ -102,6 +102,7 @@ pub const SED: u8 = 0xF8;
 pub const CLD: u8 = 0xD8;
 pub const SEC: u8 = 0x38;
 pub const CLC: u8 = 0x18;
+pub const CLV: u8 = 0xB8;
 
 pub const BEQ: u8 = 0xF0;
 pub const BNE: u8 = 0xD0;
@@ -109,6 +110,8 @@ pub const BCC: u8 = 0x90;
 pub const BCS: u8 = 0xB0;
 pub const BPL: u8 = 0x10;
 pub const BMI: u8 = 0x30;
+pub const BVS: u8 = 0x70;
+pub const BVC: u8 = 0x50;
 
 pub const JMP_ABS: u8 = 0x4C;
 pub const JSR: u8 = 0x20;
