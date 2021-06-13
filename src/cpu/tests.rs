@@ -541,20 +541,105 @@ fn logical_operations() {
             pha
             ora #0b1010_1010
             pha
+            // 16 cycles
 
-            ldx #0b1111_0000
-            stx 44
-            ldy #0b0101_0101
-            sty 45
             and 44
             pha
             ora 45
             pha
+            // 12 cycles
+
+            ldx #2
+            and 44,x
+            pha
+            inx
+            ora 44,x
+            pha
+            // 18 cycles
+
+            and abs 0x1234
+            pha
+            ora abs 0x1235
+            pha
+            // 14 cycles
+
+            ldx #2
+            and abs 0x1234,x
+            inx
+            pha
+            ora abs 0x1234,x
+            pha
+            // 18 cycles
+
+            ldy #3
+            and abs 0x1235,y
+            iny
+            pha
+            ora abs 0x1235,y
+            pha
+            // 18 cycles
+
+            ldx #4
+            and (44,x)
+            pha
+            ora (46,x)
+            pha
+            // 20 cycles
+
+            ldy #8
+            and (52),y
+            pha
+            iny
+            ora (52),y
+            pha
+            // 20 cycles
     };
-    cpu.ticks(16 + 22).unwrap();
+    cpu.mut_memory().bytes[44..=53].copy_from_slice(&[
+        0b1111_0000,
+        0b0101_0101,
+        0b0100_0111,
+        0b1100_0011,
+        0x3A,
+        0x12,
+        0x3B,
+        0x12,
+        0x34,
+        0x12,
+    ]);
+    cpu.mut_memory().bytes[0x1234..=0x123D].copy_from_slice(&[
+        0b1010_1010,
+        0b0011_1100,
+        0b1111_0000,
+        0b0101_0101,
+        0b1100_1100,
+        0b0000_1111,
+        0b0110_0110,
+        0b1001_1001,
+        0b1010_1010,
+        0b0011_0011,
+    ]);
+
+    cpu.ticks(16 + 12 + 18 + 14 + 18 + 18 + 20 + 20).unwrap();
     assert_eq!(
         reversed_stack(&cpu),
-        [0b0000_1100, 0b1010_1110, 0b1010_0000, 0b1111_0101]
+        [
+            0b0000_1100,
+            0b1010_1110,
+            0b1010_0000,
+            0b1111_0101,
+            0b0100_0101,
+            0b1100_0111,
+            0b1000_0010,
+            0b1011_1110,
+            0b1011_0000,
+            0b1111_0101,
+            0b1100_0100,
+            0b1100_1111,
+            0b0100_0110,
+            0b1101_1111,
+            0b1000_1010,
+            0b1011_1011,
+        ]
     );
 }
 

@@ -245,11 +245,56 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::AND_ZP, _) => {
                 self.tick_load_zero_page(&mut |me, value| me.set_reg_a(me.reg_a & value))?;
             }
+            SequenceState::Opcode(opcodes::AND_ZP_X, _) => {
+                self.tick_load_zero_page_x(&mut |me, value| me.set_reg_a(me.reg_a & value))?;
+            }
+            SequenceState::Opcode(opcodes::AND_ABS, _) => {
+                self.tick_load_absolute(&mut |me, value| me.set_reg_a(me.reg_a & value))?;
+            }
+            SequenceState::Opcode(opcodes::AND_ABS_X, _) => {
+                self.tick_load_absolute_indexed(self.reg_x, &mut |me, value| {
+                    me.set_reg_a(me.reg_a & value)
+                })?;
+            }
+            SequenceState::Opcode(opcodes::AND_ABS_Y, _) => {
+                self.tick_load_absolute_indexed(self.reg_y, &mut |me, value| {
+                    me.set_reg_a(me.reg_a & value)
+                })?;
+            }
+            SequenceState::Opcode(opcodes::AND_X_INDIR, _) => {
+                self.tick_load_x_indirect(&mut |me, value| me.set_reg_a(me.reg_a & value))?;
+            }
+            SequenceState::Opcode(opcodes::AND_INDIR_Y, _) => {
+                self.tick_load_indirect_y(&mut |me, value| me.set_reg_a(me.reg_a & value))?;
+            }
+
             SequenceState::Opcode(opcodes::ORA_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| me.set_reg_a(me.reg_a | value))?;
             }
             SequenceState::Opcode(opcodes::ORA_ZP, _) => {
                 self.tick_load_zero_page(&mut |me, value| me.set_reg_a(me.reg_a | value))?;
+            }
+            SequenceState::Opcode(opcodes::ORA_ZP_X, _) => {
+                self.tick_load_zero_page_x(&mut |me, value| me.set_reg_a(me.reg_a | value))?;
+            }
+            SequenceState::Opcode(opcodes::ORA_ABS, _) => {
+                self.tick_load_absolute(&mut |me, value| me.set_reg_a(me.reg_a | value))?;
+            }
+            SequenceState::Opcode(opcodes::ORA_ABS_X, _) => {
+                self.tick_load_absolute_indexed(self.reg_x, &mut |me, value| {
+                    me.set_reg_a(me.reg_a | value)
+                })?;
+            }
+            SequenceState::Opcode(opcodes::ORA_ABS_Y, _) => {
+                self.tick_load_absolute_indexed(self.reg_y, &mut |me, value| {
+                    me.set_reg_a(me.reg_a | value)
+                })?;
+            }
+            SequenceState::Opcode(opcodes::ORA_X_INDIR, _) => {
+                self.tick_load_x_indirect(&mut |me, value| me.set_reg_a(me.reg_a | value))?;
+            }
+            SequenceState::Opcode(opcodes::ORA_INDIR_Y, _) => {
+                self.tick_load_indirect_y(&mut |me, value| me.set_reg_a(me.reg_a | value))?;
             }
 
             SequenceState::Opcode(opcodes::ASL_A, _) => {

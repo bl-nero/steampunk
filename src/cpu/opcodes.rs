@@ -29,8 +29,21 @@ pub const STA_INDIR_Y: u8 = 0x91;
 
 pub const AND_IMM: u8 = 0x29;
 pub const AND_ZP: u8 = 0x25;
+pub const AND_ZP_X: u8 = 0x35;
+pub const AND_ABS: u8 = 0x2D;
+pub const AND_ABS_X: u8 = 0x3D;
+pub const AND_ABS_Y: u8 = 0x39;
+pub const AND_X_INDIR: u8 = 0x21;
+pub const AND_INDIR_Y: u8 = 0x31;
+
 pub const ORA_IMM: u8 = 0x09;
 pub const ORA_ZP: u8 = 0x05;
+pub const ORA_ZP_X: u8 = 0x15;
+pub const ORA_ABS: u8 = 0x0D;
+pub const ORA_ABS_X: u8 = 0x1D;
+pub const ORA_ABS_Y: u8 = 0x19;
+pub const ORA_X_INDIR: u8 = 0x01;
+pub const ORA_INDIR_Y: u8 = 0x11;
 
 pub const ASL_A: u8 = 0x0A;
 pub const ASL_ZP: u8 = 0x06;
