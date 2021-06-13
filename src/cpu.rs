@@ -421,19 +421,19 @@ impl<M: Memory + Debug> Cpu<M> {
             }
 
             SequenceState::Opcode(opcodes::INC_ZP, _) => {
-                self.tick_load_modify_store_zero_page(&mut |me, val| {
-                    let result = val.wrapping_add(1);
-                    me.update_flags_nz(result);
-                    result
-                })?;
+                self.tick_load_modify_store_zero_page(&mut |me, val| me.inc(val))?;
             }
+            SequenceState::Opcode(opcodes::INC_ZP_X, _) => {
+                self.tick_load_modify_store_zero_page_x(&mut |me, val| me.inc(val))?;
+            }
+
             SequenceState::Opcode(opcodes::DEC_ZP, _) => {
-                self.tick_load_modify_store_zero_page(&mut |me, val| {
-                    let result = val.wrapping_sub(1);
-                    me.update_flags_nz(result);
-                    result
-                })?;
+                self.tick_load_modify_store_zero_page(&mut |me, val| me.dec(val))?;
             }
+            SequenceState::Opcode(opcodes::DEC_ZP_X, _) => {
+                self.tick_load_modify_store_zero_page_x(&mut |me, val| me.dec(val))?;
+            }
+
             SequenceState::Opcode(opcodes::INX, _) => {
                 self.tick_simple_internal_operation(&mut |me| {
                     me.set_reg_x(me.reg_x.wrapping_add(1))
@@ -1162,6 +1162,18 @@ impl<M: Memory + Debug> Cpu<M> {
         let (difference, borrow) = register.overflowing_sub(value);
         self.update_flags_nz(difference);
         self.flags = self.flags & !flags::C | if borrow { 0 } else { flags::C };
+    }
+
+    fn inc(&mut self, value: u8) -> u8 {
+        let result = value.wrapping_add(1);
+        self.update_flags_nz(result);
+        result
+    }
+
+    fn dec(&mut self, value: u8) -> u8 {
+        let result = value.wrapping_sub(1);
+        self.update_flags_nz(result);
+        result
     }
 
     fn stack_pointer(&self) -> u16 {

@@ -81,7 +81,10 @@ pub const SBC_IMM: u8 = 0xE9;
 pub const SBC_ZP: u8 = 0xE5;
 
 pub const INC_ZP: u8 = 0xE6;
+pub const INC_ZP_X: u8 = 0xF6;
 pub const DEC_ZP: u8 = 0xC6;
+pub const DEC_ZP_X: u8 = 0xD6;
+
 pub const INX: u8 = 0xE8;
 pub const INY: u8 = 0xC8;
 pub const DEX: u8 = 0xCA;

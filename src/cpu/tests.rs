@@ -822,9 +822,19 @@ fn inc_dec() {
             inc 10
             dec 11
             dec 11
+            // 20 cycles
+
+            ldx #1
+            inc 11,x
+            inx
+            dec 11,x
+            // 16 cycles
     };
-    cpu.ticks(20).unwrap();
-    assert_eq!(cpu.memory.bytes[10..=11], [2, -2 as i8 as u8]);
+    cpu.ticks(20 + 16).unwrap();
+    assert_eq!(
+        cpu.memory.bytes[10..=13],
+        [2, -2 as i8 as u8, 1, -1 as i8 as u8]
+    );
 }
 
 #[test]
