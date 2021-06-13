@@ -295,33 +295,44 @@ fn cmp() {
                 txs
                 plp
                 lda #7
+                // 10 cycles
 
                 cmp #6
                 beq fail
                 bcc fail
                 bmi fail
                 sta 30
+                // 11 cycles
 
                 cmp #7
                 bne fail
                 bcc fail
                 bmi fail
                 sta 31
+                // 11 cycles
 
                 cmp #8
                 beq fail
                 bcs fail
                 bpl fail
                 sta 32
+                // 11 cycles
 
                 cmp #(-7i8 as u8)
                 beq fail
                 bcs fail
                 bmi fail
                 sta 33
+                // 11 cycles
 
                 cmp 30
                 php
+                // 6 cycles
+
+                ldx #5
+                cmp 35,x
+                php
+                // 9 cycles
 
                 nop  // to be replaced
             fail:
@@ -332,9 +343,17 @@ fn cmp() {
     // place and test timing.
     program[program.len() - 4] = opcodes::HLT1;
     let mut cpu = cpu_with_program(&program);
-    cpu.ticks(10 + 4 * 11 + 6).unwrap();
+    // Some test data.
+    cpu.mut_memory().bytes[40..=40].copy_from_slice(&[8]);
+    cpu.ticks(10 + 4 * 11 + 6 + 9).unwrap();
     assert_eq!(cpu.memory.bytes[30..=33], [7, 7, 7, 7]);
-    assert_eq!(reversed_stack(&cpu), [flags::Z | flags::C | flags::UNUSED]);
+    assert_eq!(
+        reversed_stack(&cpu),
+        [
+            flags::UNUSED | flags::Z | flags::C,
+            flags::UNUSED | flags::N,
+        ]
+    );
 }
 
 #[test]

@@ -66,10 +66,12 @@ pub const ROR_ZP_X: u8 = 0x76;
 pub const ROR_ABS: u8 = 0x6E;
 
 pub const CMP_IMM: u8 = 0xC9;
-pub const CPX_IMM: u8 = 0xE0;
-pub const CPY_IMM: u8 = 0xC0;
 pub const CMP_ZP: u8 = 0xC5;
+pub const CMP_ZP_X: u8 = 0xD5;
+
+pub const CPX_IMM: u8 = 0xE0;
 pub const CPX_ZP: u8 = 0xE4;
+pub const CPY_IMM: u8 = 0xC0;
 pub const CPY_ZP: u8 = 0xC4;
 
 pub const BIT_ZP: u8 = 0x24;

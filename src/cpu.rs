@@ -371,18 +371,22 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::CMP_IMM, _) => {
                 self.tick_compare_immediate(self.reg_a)?;
             }
-            SequenceState::Opcode(opcodes::CPX_IMM, _) => {
-                self.tick_compare_immediate(self.reg_x)?;
-            }
-            SequenceState::Opcode(opcodes::CPY_IMM, _) => {
-                self.tick_compare_immediate(self.reg_y)?;
-            }
-
             SequenceState::Opcode(opcodes::CMP_ZP, _) => {
                 self.tick_compare_zero_page(self.reg_a)?;
             }
+            SequenceState::Opcode(opcodes::CMP_ZP_X, _) => {
+                self.tick_compare_zero_page_x(self.reg_a)?;
+            }
+
+            SequenceState::Opcode(opcodes::CPX_IMM, _) => {
+                self.tick_compare_immediate(self.reg_x)?;
+            }
             SequenceState::Opcode(opcodes::CPX_ZP, _) => {
                 self.tick_compare_zero_page(self.reg_x)?;
+            }
+
+            SequenceState::Opcode(opcodes::CPY_IMM, _) => {
+                self.tick_compare_immediate(self.reg_y)?;
             }
             SequenceState::Opcode(opcodes::CPY_ZP, _) => {
                 self.tick_compare_zero_page(self.reg_y)?;
@@ -952,6 +956,10 @@ impl<M: Memory + Debug> Cpu<M> {
 
     fn tick_compare_zero_page(&mut self, register: u8) -> Result<(), ReadError> {
         self.tick_load_zero_page(&mut |me, value| me.compare(register, value))
+    }
+
+    fn tick_compare_zero_page_x(&mut self, register: u8) -> Result<(), ReadError> {
+        self.tick_load_zero_page_x(&mut |me, value| me.compare(register, value))
     }
 
     fn tick_push(&mut self, value: u8) -> TickResult {
