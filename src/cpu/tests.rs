@@ -291,6 +291,9 @@ fn cmp() {
     let mut program = assemble6502! ({
         start: 0xF000,
         code: {
+                ldx #0xFE
+                txs
+                plp
                 lda #7
 
                 cmp #6
@@ -315,8 +318,11 @@ fn cmp() {
                 beq fail
                 bcs fail
                 bmi fail
-
                 sta 33
+
+                cmp 30
+                php
+
                 nop  // to be replaced
             fail:
                 jmp fail
@@ -326,25 +332,45 @@ fn cmp() {
     // place and test timing.
     program[program.len() - 4] = opcodes::HLT1;
     let mut cpu = cpu_with_program(&program);
-    cpu.ticks(2 + 4 * 11).unwrap();
+    cpu.ticks(10 + 4 * 11 + 6).unwrap();
     assert_eq!(cpu.memory.bytes[30..=33], [7, 7, 7, 7]);
+    assert_eq!(reversed_stack(&cpu), [flags::Z | flags::C | flags::UNUSED]);
 }
 
 #[test]
 fn cpx_cpy() {
     let mut cpu = cpu_with_code! {
-            ldx #0xFF
+            ldx #0xFE
             txs
-            ldy #10
+            plp
+
             cpx #6
             php
+
+            ldy #10
             cpy #25
             php
+
+            lda #10
+            ldx #20
+            sta 4
+            cpx 4
+            php
+
+            cpy 4
+            php
     };
-    cpu.ticks(16).unwrap();
+    cpu.ticks(8 + 5 + 7 + 13 + 6).unwrap();
     let mask = flags::C | flags::Z | flags::N;
-    assert_eq!(cpu.memory.bytes[0x1FF] & mask, flags::N | flags::C);
-    assert_eq!(cpu.memory.bytes[0x1FE] & mask, flags::N);
+    assert_eq!(
+        reversed_stack(&cpu),
+        [
+            flags::UNUSED | flags::N | flags::C,
+            flags::UNUSED | flags::N,
+            flags::UNUSED | flags::C,
+            flags::UNUSED | flags::Z | flags::C,
+        ]
+    );
 }
 
 #[test]

@@ -326,6 +326,16 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_compare_immediate(self.reg_y)?;
             }
 
+            SequenceState::Opcode(opcodes::CMP_ZP, _) => {
+                self.tick_compare_zero_page(self.reg_a)?;
+            }
+            SequenceState::Opcode(opcodes::CPX_ZP, _) => {
+                self.tick_compare_zero_page(self.reg_x)?;
+            }
+            SequenceState::Opcode(opcodes::CPY_ZP, _) => {
+                self.tick_compare_zero_page(self.reg_y)?;
+            }
+
             SequenceState::Opcode(opcodes::BIT_ZP, _) => {
                 self.tick_load_zero_page(&mut |me, value| me.test_bits(value))?;
             }
@@ -805,6 +815,14 @@ impl<M: Memory + Debug> Cpu<M> {
 
     fn tick_compare_immediate(&mut self, register: u8) -> Result<(), ReadError> {
         self.tick_load_immediate(&mut |me, value| {
+            let (difference, borrow) = register.overflowing_sub(value);
+            me.update_flags_nz(difference);
+            me.flags = me.flags & !flags::C | if borrow { 0 } else { flags::C };
+        })
+    }
+
+    fn tick_compare_zero_page(&mut self, register: u8) -> Result<(), ReadError> {
+        self.tick_load_zero_page(&mut |me, value| {
             let (difference, borrow) = register.overflowing_sub(value);
             me.update_flags_nz(difference);
             me.flags = me.flags & !flags::C | if borrow { 0 } else { flags::C };
