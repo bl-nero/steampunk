@@ -403,14 +403,17 @@ impl<M: Memory + Debug> Cpu<M> {
                 })?;
             }
 
-            SequenceState::Opcode(opcodes::TYA, _) => {
-                self.tick_simple_internal_operation(&mut |me| me.set_reg_a(me.reg_y))?;
-            }
             SequenceState::Opcode(opcodes::TAX, _) => {
                 self.tick_simple_internal_operation(&mut |me| me.set_reg_x(me.reg_a))?;
             }
+            SequenceState::Opcode(opcodes::TAY, _) => {
+                self.tick_simple_internal_operation(&mut |me| me.set_reg_y(me.reg_a))?;
+            }
             SequenceState::Opcode(opcodes::TXA, _) => {
                 self.tick_simple_internal_operation(&mut |me| me.set_reg_a(me.reg_x))?;
+            }
+            SequenceState::Opcode(opcodes::TYA, _) => {
+                self.tick_simple_internal_operation(&mut |me| me.set_reg_a(me.reg_y))?;
             }
             SequenceState::Opcode(opcodes::TXS, _) => {
                 self.tick_simple_internal_operation(&mut |me| me.reg_sp = me.reg_x)?;

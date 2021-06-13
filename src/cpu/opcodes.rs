@@ -71,9 +71,10 @@ pub const INY: u8 = 0xC8;
 pub const DEX: u8 = 0xCA;
 pub const DEY: u8 = 0x88;
 
-pub const TYA: u8 = 0x98;
 pub const TAX: u8 = 0xAA;
+pub const TAY: u8 = 0xA8;
 pub const TXA: u8 = 0x8A;
+pub const TYA: u8 = 0x98;
 pub const TXS: u8 = 0x9A;
 pub const TSX: u8 = 0xBA;
 

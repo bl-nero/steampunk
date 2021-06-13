@@ -361,7 +361,6 @@ fn cpx_cpy() {
             php
     };
     cpu.ticks(8 + 5 + 7 + 13 + 6).unwrap();
-    let mask = flags::C | flags::Z | flags::N;
     assert_eq!(
         reversed_stack(&cpu),
         [
@@ -745,6 +744,17 @@ fn tax() {
     };
     cpu.ticks(7).unwrap();
     assert_eq!(cpu.memory.bytes[0x01], 13);
+}
+
+#[test]
+fn tay() {
+    let mut cpu = cpu_with_code! {
+            lda #76
+            tay
+            sty 0x01
+    };
+    cpu.ticks(7).unwrap();
+    assert_eq!(cpu.memory.bytes[0x01], 76);
 }
 
 #[test]
