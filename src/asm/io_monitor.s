@@ -452,7 +452,7 @@ JoysticksLoop3:
             sta PF2        ; 50
 
             ; Wait for the remaining scanlines
-            ldx #(192-58)
+            ldx #(192-57)
 :           sta WSYNC
             dex
             bne :-
