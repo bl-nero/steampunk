@@ -34,4 +34,4 @@ Where `<rom-file-path>` is a path of the Atari 2600 ROM to be executed.
 
 # Compatibility
 
-In its current state, the emulator only supports a handful of opcodes and a couple of TIA registers. It's not yet capable of executing even a single full game, but it's still capable of generating a couple of cool effects! Having built your emulator (either through `cargo run`, `cargo test` or `cargo build`), poke around the `target/debug/build/atari-emulator-<hash>/out/roms` directory. The `<hash>` component is unstable, so I can't give it here. Inside, you should find a couple of working ROMs. These are built from sources in the `src/asm` directory.
+In its current state, the emulator is just enough to support at least one officially supported Atari 2600 cartridge — I'm avoiding the word “game” purposefully here — _Basic Math_, a.k.a. _Fun with Numbers_. TIA supports playfield graphics, joystick readouts and nothing more, which is exactly what _Basic Math_ requires. No player graphics yet, and no sound. The 6502 module also supports just enough to support that single cartridge as a starting point, so it only supports only 111 out of 151 official 65xx opcodes.
