@@ -17,6 +17,12 @@ pub struct Tia {
     /// If bit 1 (`flags::VBLANK_ON`) is set, TIA doesn't emit pixels. Bit 6
     /// (`flags::VBLANK_INPUT_LATCH`) enables latches on input ports 4 and 5.
     reg_vblank: u8,
+    /// Color and luminance of player 0. See
+    /// [`VideoOutput::pixel`](struct.VideoOutput.html#structfield.pixel) for details.
+    reg_colup0: u8,
+    /// Color and luminance of player 1. See
+    /// [`VideoOutput::pixel`](struct.VideoOutput.html#structfield.pixel) for details.
+    reg_colup1: u8,
     /// Color and luminance of playfield. See
     /// [`VideoOutput::pixel`](struct.VideoOutput.html#structfield.pixel) for details.
     reg_colupf: u8,
@@ -32,6 +38,10 @@ pub struct Tia {
     reg_pf1: u8,
     /// Playfield register 2 (rightmost 8 bits, mirrored).
     reg_pf2: u8,
+    /// Player 0 sprite bitmap.
+    reg_grp0: u8,
+    /// Player 1 sprite bitmap.
+    reg_grp1: u8,
     /// Input port registers.
     reg_inpt: EnumMap<Port, u8>,
 
@@ -49,8 +59,8 @@ pub struct Tia {
     /// Temporarily stores a playfield register bit.
     playfield_bit_latch_2: bool,
 
-    // player_0_pos: u32,
-    // player_1_pos: u32,
+    player_0_pos: u32,
+    player_1_pos: u32,
     // missile_0_pos: u32,
     // missile_1_pos: u32,
     // ball_pos: u32,
@@ -69,12 +79,16 @@ impl Tia {
         Tia {
             reg_vsync: 0,
             reg_vblank: 0,
+            reg_colup0: 0,
+            reg_colup1: 0,
             reg_colupf: 0,
             reg_colubk: 0,
             reg_ctrlpf: 0,
             reg_pf0: 0,
             reg_pf1: 0,
             reg_pf2: 0,
+            reg_grp0: 0,
+            reg_grp1: 0,
             reg_inpt: enum_map! { _ => flags::INPUT_HIGH },
 
             column_counter: 0,
@@ -83,8 +97,8 @@ impl Tia {
             wait_for_sync: false,
             playfield_bit_latch_1: false,
             playfield_bit_latch_2: false,
-            // player_0_pos: 0,
-            // player_1_pos: 0,
+            player_0_pos: 0,
+            player_1_pos: 0,
             // missile_0_pos: 0,
             // missile_1_pos: 0,
             // ball_pos: 0,
@@ -110,6 +124,8 @@ impl Tia {
         let vsync_on = self.reg_vsync & flags::VSYNC_ON != 0;
         let vblank_on = self.reg_vblank & flags::VBLANK_ON != 0;
         let playfield_color = self.playfield_tick();
+        let p0_bit = self.p0_tick();
+        let p1_bit = self.p1_tick();
         let output = TiaOutput {
             video: VideoOutput {
                 hsync: self.hsync_on,
@@ -117,7 +133,13 @@ impl Tia {
                 pixel: if self.hblank_on || vblank_on {
                     None
                 } else {
-                    Some(playfield_color)
+                    Some(if p0_bit {
+                        self.reg_colup0
+                    } else if p1_bit {
+                        self.reg_colup1
+                    } else {
+                        playfield_color
+                    })
                 },
             },
             riot_tick: self.column_counter % 3 == 0,
@@ -138,6 +160,32 @@ impl Tia {
         } else {
             self.reg_colubk
         };
+    }
+
+    fn p0_tick(&mut self) -> bool {
+        if (self.player_0_pos..self.player_0_pos + 8).contains(&self.column_counter) {
+            let bit = self.reg_grp0 & (0b1000_0000 >> self.column_counter - self.player_0_pos);
+            if bit != 0 {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
+    fn p1_tick(&mut self) -> bool {
+        if (self.player_1_pos..self.player_1_pos + 8).contains(&self.column_counter) {
+            let bit = self.reg_grp1 & (0b1000_0000 >> self.column_counter - self.player_1_pos);
+            if bit != 0 {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
     }
 
     fn playfield_bit_at(&self, playfield_bit_index: i32) -> bool {
@@ -191,7 +239,7 @@ impl Tia {
         let latch = self.reg_vblank & flags::VBLANK_INPUT_LATCH != 0;
 
         let reg_next = port_value && (!latch || reg_previous);
-        self.reg_inpt[port] = if reg_next {flags::INPUT_HIGH} else {0};
+        self.reg_inpt[port] = if reg_next { flags::INPUT_HIGH } else { 0 };
     }
 }
 
@@ -215,12 +263,16 @@ impl Memory for Tia {
             }
             registers::WSYNC => self.wait_for_sync = true,
             registers::RSYNC => self.column_counter = TOTAL_WIDTH - 3,
+            registers::COLUP0 => self.reg_colup0 = value,
+            registers::COLUP1 => self.reg_colup1 = value,
             registers::COLUPF => self.reg_colupf = value,
             registers::COLUBK => self.reg_colubk = value,
             registers::CTRLPF => self.reg_ctrlpf = value,
             registers::PF0 => self.reg_pf0 = value,
             registers::PF1 => self.reg_pf1 = value,
             registers::PF2 => self.reg_pf2 = value,
+            registers::RESP0 => self.player_0_pos = self.column_counter + 7,
+            registers::RESP1 => self.player_1_pos = self.column_counter + 7,
 
             // Audio. Skip that thing for now, since it's complex and not
             // essential.
@@ -230,6 +282,9 @@ impl Memory for Tia {
             | registers::AUDV1
             | registers::AUDF0
             | registers::AUDF1 => {}
+
+            registers::GRP0 => self.reg_grp0 = value,
+            registers::GRP1 => self.reg_grp1 = value,
 
             // Not (yet) supported. Allow one initialization pass, but that's it.
             _ => {
@@ -332,8 +387,8 @@ pub mod registers {
     pub const RSYNC: u16 = 0x03;
     // pub const NUSIZ0: u16 = 0x04;
     // pub const NUSIZ1: u16 = 0x05;
-    // pub const COLUP0: u16 = 0x06;
-    // pub const COLUP1: u16 = 0x07;
+    pub const COLUP0: u16 = 0x06;
+    pub const COLUP1: u16 = 0x07;
     pub const COLUPF: u16 = 0x08;
     pub const COLUBK: u16 = 0x09;
     pub const CTRLPF: u16 = 0x0A;
@@ -342,8 +397,8 @@ pub mod registers {
     pub const PF0: u16 = 0x0D;
     pub const PF1: u16 = 0x0E;
     pub const PF2: u16 = 0x0F;
-    // pub const RESP0: u16 = 0x10;
-    // pub const RESP1: u16 = 0x11;
+    pub const RESP0: u16 = 0x10;
+    pub const RESP1: u16 = 0x11;
     // pub const RESM0: u16 = 0x12;
     // pub const RESM1: u16 = 0x13;
     // pub const RESBL: u16 = 0x14;
@@ -353,8 +408,8 @@ pub mod registers {
     pub const AUDF1: u16 = 0x18;
     pub const AUDV0: u16 = 0x19;
     pub const AUDV1: u16 = 0x1A;
-    // pub const GRP0: u16 = 0x1B;
-    // pub const GRP1: u16 = 0x1C;
+    pub const GRP0: u16 = 0x1B;
+    pub const GRP1: u16 = 0x1C;
     // pub const ENAM0: u16 = 0x1D;
     // pub const ENAM1: u16 = 0x1E;
     // pub const ENABL: u16 = 0x1F;
@@ -426,12 +481,20 @@ mod tests {
         }
     }
 
+    fn wait_ticks(tia: &mut Tia, n: u32) {
+        for _ in 0..n {
+            tia.tick();
+        }
+    }
+
+    fn scan_video(tia: &mut Tia, n_pixels: u32) -> Vec<VideoOutput> {
+        (0..n_pixels).map(|_| tia.tick().video).collect()
+    }
+
     #[test]
     fn draws_background_pixels() {
         let mut tia = Tia::new();
-        for _ in 0..HBLANK_WIDTH {
-            tia.tick();
-        }
+        wait_ticks(&mut tia, HBLANK_WIDTH);
 
         tia.write(registers::COLUBK, 0x02).unwrap();
         assert_eq!(tia.tick().video, VideoOutput::pixel(0x02));
@@ -494,9 +557,7 @@ mod tests {
 
         // Make sure that only bit 1 of VBLANK counts.
         tia.write(registers::VBLANK, !flags::VBLANK_ON).unwrap();
-        for _ in 0..HBLANK_WIDTH {
-            tia.tick();
-        }
+        wait_ticks(&mut tia, HBLANK_WIDTH);
         assert_eq!(tia.tick().video, VideoOutput::pixel(0x32));
     }
 
@@ -623,11 +684,58 @@ mod tests {
     }
 
     #[test]
+    fn draws_players() {
+        let mut tia = Tia::new();
+        tia.write(registers::COLUBK, 0x02).unwrap();
+        tia.write(registers::COLUP0, 0x04).unwrap();
+        tia.write(registers::COLUP1, 0x06).unwrap();
+        tia.write(registers::GRP0, 0b1010_0101).unwrap();
+        tia.write(registers::GRP1, 0b1100_0011).unwrap();
+
+        let p0_delay = 30 * 3;
+        let p1_delay = 3 * 3;
+        wait_ticks(&mut tia, p0_delay);
+        tia.write(registers::RESP0, 0).unwrap();
+        wait_ticks(&mut tia, p1_delay);
+        tia.write(registers::RESP1, 0).unwrap();
+        wait_ticks(&mut tia, TOTAL_WIDTH - p0_delay - p1_delay);
+
+        itertools::assert_equal(
+            scan_video(&mut tia, TOTAL_WIDTH),
+            decode_video_outputs(
+                "................||||||||||||||||....................................\
+                 22222222222222222222222222222424224242662222662222222222222222222222222222222222\
+                 22222222222222222222222222222222222222222222222222222222222222222222222222222222",
+            ),
+        );
+
+        tia.write(registers::COLUP0, 0x08).unwrap();
+        tia.write(registers::COLUP1, 0x0A).unwrap();
+        tia.write(registers::GRP0, 0b1111_0101).unwrap();
+        tia.write(registers::GRP1, 0b1010_1111).unwrap();
+
+        let p0_delay = 36 * 3;
+        let p1_delay = 6 * 3;
+        wait_ticks(&mut tia, p0_delay);
+        tia.write(registers::RESP0, 0).unwrap();
+        wait_ticks(&mut tia, p1_delay);
+        tia.write(registers::RESP1, 0).unwrap();
+        wait_ticks(&mut tia, TOTAL_WIDTH - p0_delay - p1_delay);
+
+        itertools::assert_equal(
+            scan_video(&mut tia, TOTAL_WIDTH),
+            decode_video_outputs(
+                "................||||||||||||||||....................................\
+                 22222222222222222222222222222222222222222222222888828282222222222A2A2AAAA2222222\
+                 22222222222222222222222222222222222222222222222222222222222222222222222222222222",
+            ),
+        );
+    }
+
+    #[test]
     fn address_mirroring() {
         let mut tia = Tia::new();
-        for _ in 0..HBLANK_WIDTH {
-            tia.tick();
-        }
+        wait_ticks(&mut tia, HBLANK_WIDTH);
 
         tia.write(registers::COLUBK, 0x08).unwrap();
         let output = tia.tick().video;

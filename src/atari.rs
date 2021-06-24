@@ -488,6 +488,12 @@ mod tests {
         assert_eq!(joystick.port_values(), (0b1010, true));
     }
 
+    #[test]
+    fn sprites() {
+        let mut atari = atari_with_rom("sprites.bin");
+        assert_produces_frame(&mut atari, "sprites.png", "sprites");
+    }
+
     #[bench]
     fn benchmark(b: &mut Bencher) {
         let rom = read_test_rom("horizontal_stripes.bin");
