@@ -38,10 +38,6 @@ pub struct Tia {
     reg_pf1: u8,
     /// Playfield register 2 (rightmost 8 bits, mirrored).
     reg_pf2: u8,
-    /// Player 0 sprite bitmap.
-    reg_grp0: u8,
-    /// Player 1 sprite bitmap.
-    reg_grp1: u8,
     /// Input port registers.
     reg_inpt: EnumMap<Port, u8>,
 
@@ -59,8 +55,8 @@ pub struct Tia {
     /// Temporarily stores a playfield register bit.
     playfield_bit_latch_2: bool,
 
-    player_0_pos: u32,
-    player_1_pos: u32,
+    player0: PlayerGraphics,
+    player1: PlayerGraphics,
     // missile_0_pos: u32,
     // missile_1_pos: u32,
     // ball_pos: u32,
@@ -87,8 +83,6 @@ impl Tia {
             reg_pf0: 0,
             reg_pf1: 0,
             reg_pf2: 0,
-            reg_grp0: 0,
-            reg_grp1: 0,
             reg_inpt: enum_map! { _ => flags::INPUT_HIGH },
 
             column_counter: 0,
@@ -97,8 +91,8 @@ impl Tia {
             wait_for_sync: false,
             playfield_bit_latch_1: false,
             playfield_bit_latch_2: false,
-            player_0_pos: 0,
-            player_1_pos: 0,
+            player0: PlayerGraphics::new(),
+            player1: PlayerGraphics::new(),
             // missile_0_pos: 0,
             // missile_1_pos: 0,
             // ball_pos: 0,
@@ -124,23 +118,32 @@ impl Tia {
         let vsync_on = self.reg_vsync & flags::VSYNC_ON != 0;
         let vblank_on = self.reg_vblank & flags::VBLANK_ON != 0;
         let playfield_color = self.playfield_tick();
-        let p0_bit = self.p0_tick();
-        let p1_bit = self.p1_tick();
+
+        let pixel = if self.hblank_on {
+            None
+        } else {
+            // Even if these bits can ultimately remain unused, we still need to
+            // perform a tick if we are outside the horizontal blank.
+            let p0_bit = self.player0.tick();
+            let p1_bit = self.player1.tick();
+            if vblank_on {
+                None
+            } else {
+                Some(if p0_bit {
+                    self.reg_colup0
+                } else if p1_bit {
+                    self.reg_colup1
+                } else {
+                    playfield_color
+                })
+            }
+        };
+
         let output = TiaOutput {
             video: VideoOutput {
                 hsync: self.hsync_on,
                 vsync: vsync_on,
-                pixel: if self.hblank_on || vblank_on {
-                    None
-                } else {
-                    Some(if p0_bit {
-                        self.reg_colup0
-                    } else if p1_bit {
-                        self.reg_colup1
-                    } else {
-                        playfield_color
-                    })
-                },
+                pixel,
             },
             riot_tick: self.column_counter % 3 == 0,
             cpu_tick: !self.wait_for_sync && self.column_counter % 3 == 0,
@@ -160,32 +163,6 @@ impl Tia {
         } else {
             self.reg_colubk
         };
-    }
-
-    fn p0_tick(&mut self) -> bool {
-        if (self.player_0_pos..self.player_0_pos + 8).contains(&self.column_counter) {
-            let bit = self.reg_grp0 & (0b1000_0000 >> self.column_counter - self.player_0_pos);
-            if bit != 0 {
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    }
-
-    fn p1_tick(&mut self) -> bool {
-        if (self.player_1_pos..self.player_1_pos + 8).contains(&self.column_counter) {
-            let bit = self.reg_grp1 & (0b1000_0000 >> self.column_counter - self.player_1_pos);
-            if bit != 0 {
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        }
     }
 
     fn playfield_bit_at(&self, playfield_bit_index: i32) -> bool {
@@ -271,8 +248,8 @@ impl Memory for Tia {
             registers::PF0 => self.reg_pf0 = value,
             registers::PF1 => self.reg_pf1 = value,
             registers::PF2 => self.reg_pf2 = value,
-            registers::RESP0 => self.player_0_pos = self.column_counter + 7,
-            registers::RESP1 => self.player_1_pos = self.column_counter + 7,
+            registers::RESP0 => self.player0.reset_player_position(),
+            registers::RESP1 => self.player1.reset_player_position(),
 
             // Audio. Skip that thing for now, since it's complex and not
             // essential.
@@ -283,8 +260,8 @@ impl Memory for Tia {
             | registers::AUDF0
             | registers::AUDF1 => {}
 
-            registers::GRP0 => self.reg_grp0 = value,
-            registers::GRP1 => self.reg_grp1 = value,
+            registers::GRP0 => self.player0.bitmap = value,
+            registers::GRP1 => self.player1.bitmap = value,
 
             // Not (yet) supported. Allow one initialization pass, but that's it.
             _ => {
@@ -295,6 +272,54 @@ impl Memory for Tia {
             }
         }
         Ok(())
+    }
+}
+
+/// Represents player graphics state: the pixel counter and bitmap. Also handles
+/// RESPx register strobing.
+#[derive(Debug)]
+struct PlayerGraphics {
+    counter: u32,
+    bitmap: u8,
+    /// Current bitmap pixel mask.
+    mask: u8,
+    /// Counts down until position reset happens to emulate TIA latching delays.
+    reset_countdown: i32,
+}
+
+impl PlayerGraphics {
+    fn new() -> Self {
+        PlayerGraphics {
+            counter: 0,
+            bitmap: 0b0000_0000,
+            mask: 0b0000_0000,
+            reset_countdown: 0,
+        }
+    }
+
+    /// Performs a clock tick and returns `true` if a player pixel should be
+    /// drawn, or `false` otherwise.
+    fn tick(&mut self) -> bool {
+        let result = self.bitmap & self.mask != 0;
+        self.mask >>= 1;
+
+        self.counter = (self.counter + 1) % 160;
+        if self.reset_countdown > 0 {
+            self.reset_countdown -= 1;
+            if self.reset_countdown == 0 {
+                self.counter = 0;
+            }
+        }
+        if self.counter == 1 {
+            self.mask = 0b1000_0000;
+        }
+
+        return result;
+    }
+
+    /// Resets player position. Called when RESPx register gets strobed.
+    fn reset_player_position(&mut self) {
+        self.reset_countdown = 6;
     }
 }
 
