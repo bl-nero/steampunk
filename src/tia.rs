@@ -339,7 +339,7 @@ pub struct TiaOutput {
 /// emulation process.
 ///
 /// Note: We need to derive `PartialEq` to easily perform assertions in tests.
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Copy, Clone, Debug)]
 pub struct VideoOutput {
     /// If set to `true`, the vertical synchronization signal is being emitted.
     pub vsync: bool,
@@ -491,6 +491,7 @@ pub mod flags {
 mod tests {
     use super::*;
     use crate::test_utils::decode_video_outputs;
+    use crate::test_utils::encode_video_outputs;
 
     /// A utility that produces a sequence of TIA video outputs. Useful for
     /// comparing with expected sequences in tests.
@@ -725,13 +726,11 @@ mod tests {
         tia.write(registers::RESP1, 0).unwrap();
         wait_ticks(&mut tia, TOTAL_WIDTH - p0_delay - p1_delay);
 
-        itertools::assert_equal(
-            scan_video(&mut tia, TOTAL_WIDTH),
-            decode_video_outputs(
-                "................||||||||||||||||....................................\
-                 22222222222222222222222222222424224242662222662222222222222222222222222222222222\
-                 22222222222222222222222222222222222222222222222222222222222222222222222222222222",
-            ),
+        assert_eq!(
+            encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+            "................||||||||||||||||....................................\
+             22222222222222222222222222222424224242662222662222222222222222222222222222222222\
+             22222222222222222222222222222222222222222222222222222222222222222222222222222222",
         );
 
         tia.write(registers::COLUP0, 0x08).unwrap();
@@ -747,13 +746,11 @@ mod tests {
         tia.write(registers::RESP1, 0).unwrap();
         wait_ticks(&mut tia, TOTAL_WIDTH - p0_delay - p1_delay);
 
-        itertools::assert_equal(
-            scan_video(&mut tia, TOTAL_WIDTH),
-            decode_video_outputs(
-                "................||||||||||||||||....................................\
-                 22222222222222222222222222222222222222222222222888828282222222222A2A2AAAA2222222\
-                 22222222222222222222222222222222222222222222222222222222222222222222222222222222",
-            ),
+        assert_eq!(
+            encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+            "................||||||||||||||||....................................\
+             22222222222222222222222222222222222222222222222888828282222222222A2A2AAAA2222222\
+             22222222222222222222222222222222222222222222222222222222222222222222222222222222",
         );
     }
 

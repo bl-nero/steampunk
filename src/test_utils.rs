@@ -45,6 +45,56 @@ pub fn decode_video_outputs<'a>(encoded_signal: &'a str) -> impl Iterator<Item =
     })
 }
 
+/// Encodes a sequence of video outputs. See `decode_video_outputs` for
+/// description of the format. Non-conforming outputs are encoded as '?'.
+pub fn encode_video_outputs<I: IntoIterator<Item = VideoOutput>>(outputs: I) -> String {
+    outputs
+        .into_iter()
+        .map(|video_output| match video_output {
+            VideoOutput {
+                vsync: false,
+                hsync: false,
+                pixel: None,
+            } => '.',
+            VideoOutput {
+                vsync: false,
+                hsync: true,
+                pixel: None,
+            } => '|',
+            VideoOutput {
+                vsync: true,
+                hsync: false,
+                pixel: None,
+            } => '-',
+            VideoOutput {
+                vsync: true,
+                hsync: true,
+                pixel: None,
+            } => '+',
+            VideoOutput {
+                vsync: true,
+                hsync: false,
+                pixel: Some(0x00),
+            } => '=',
+            VideoOutput {
+                vsync: false,
+                hsync: false,
+                pixel: Some(pixel),
+            } => {
+                if pixel <= 0x0f {
+                    format!("{:X}", pixel)
+                        .chars()
+                        .last()
+                        .expect("Hex formatting error")
+                } else {
+                    '?'
+                }
+            }
+            _ => '?',
+        })
+        .collect()
+}
+
 mod tests {
     use super::*;
 
@@ -69,7 +119,30 @@ mod tests {
                 VideoOutput::pixel(0x00).with_vsync(),
             ]
             .iter()
-            .cloned(),
+            .copied(),
+        );
+    }
+
+    #[test]
+    fn encodes_video_outputs() {
+        assert_eq!(encode_video_outputs(iter::empty()), "");
+        assert_eq!(
+            encode_video_outputs(vec![
+                VideoOutput::blank(),
+                VideoOutput::blank().with_hsync(),
+                VideoOutput::blank().with_vsync(),
+                VideoOutput::blank().with_hsync().with_vsync(),
+                VideoOutput::pixel(0x00),
+                VideoOutput::pixel(0x02),
+                VideoOutput::pixel(0x04),
+                VideoOutput::pixel(0x06),
+                VideoOutput::pixel(0x08),
+                VideoOutput::pixel(0x0A),
+                VideoOutput::pixel(0x0C),
+                VideoOutput::pixel(0x0E),
+                VideoOutput::pixel(0x00).with_vsync(),
+            ]),
+            ".|-+02468ACE=",
         );
     }
 }
