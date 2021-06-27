@@ -54,6 +54,11 @@ pub struct Tia {
     playfield_bit_latch_1: bool,
     /// Temporarily stores a playfield register bit.
     playfield_bit_latch_2: bool,
+    /// Latches the HMOVE signal until end of the scanline.
+    hmove_latch: bool,
+    /// Counts from 7 down to -8 while additional clock ticks are sent to the
+    /// player graphics objects.
+    hmove_counter: i8,
 
     player0: PlayerGraphics,
     player1: PlayerGraphics,
@@ -91,6 +96,8 @@ impl Tia {
             wait_for_sync: false,
             playfield_bit_latch_1: false,
             playfield_bit_latch_2: false,
+            hmove_latch: false,
+            hmove_counter: 0,
             player0: PlayerGraphics::new(),
             player1: PlayerGraphics::new(),
             // missile_0_pos: 0,
@@ -111,13 +118,28 @@ impl Tia {
             }
             HSYNC_START => self.hsync_on = true,
             HSYNC_END => self.hsync_on = false,
-            HBLANK_WIDTH => self.hblank_on = false,
+            HBLANK_WIDTH => {
+                if !self.hmove_latch {
+                    self.hblank_on = false
+                }
+            }
+            HBLANK_EXTENDED_WIDTH => {
+                if self.hmove_latch {
+                    self.hblank_on = false
+                }
+            }
+            LAST_COLUMN => self.hmove_latch = false,
             _ => {}
         }
 
         let vsync_on = self.reg_vsync & flags::VSYNC_ON != 0;
         let vblank_on = self.reg_vblank & flags::VBLANK_ON != 0;
         let playfield_color = self.playfield_tick();
+        if self.hmove_latch && self.hmove_counter > -8 && self.column_counter % 4 == 0 {
+            self.player0.hmove_tick(self.hmove_counter);
+            self.player1.hmove_tick(self.hmove_counter);
+            self.hmove_counter -= 1;
+        }
 
         let pixel = if self.hblank_on {
             None
@@ -231,7 +253,7 @@ impl Memory for Tia {
     }
 
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
-        match address & 0b0001_1111 {
+        match address & 0b0011_1111 {
             registers::VSYNC => self.reg_vsync = value,
             registers::VBLANK => {
                 self.reg_vblank = value;
@@ -262,6 +284,13 @@ impl Memory for Tia {
 
             registers::GRP0 => self.player0.bitmap = value,
             registers::GRP1 => self.player1.bitmap = value,
+            registers::HMP0 => self.player0.hmove_offset = (value as i8) >> 4,
+            registers::HMP1 => self.player1.hmove_offset = (value as i8) >> 4,
+            // Note: there is an additional delay here, but it requires emulating the Hφ1 signal.
+            registers::HMOVE => {
+                self.hmove_latch = true;
+                self.hmove_counter = 7;
+            }
 
             // Not (yet) supported. Allow one initialization pass, but that's it.
             _ => {
@@ -285,6 +314,7 @@ struct PlayerGraphics {
     mask: u8,
     /// Counts down until position reset happens to emulate TIA latching delays.
     reset_countdown: i32,
+    hmove_offset: i8,
 }
 
 impl PlayerGraphics {
@@ -294,6 +324,7 @@ impl PlayerGraphics {
             bitmap: 0b0000_0000,
             mask: 0b0000_0000,
             reset_countdown: 0,
+            hmove_offset: 0,
         }
     }
 
@@ -315,6 +346,12 @@ impl PlayerGraphics {
         }
 
         return result;
+    }
+
+    fn hmove_tick(&mut self, hmove_counter: i8) {
+        if self.hmove_offset >= hmove_counter {
+            self.tick();
+        }
     }
 
     /// Resets player position. Called when RESPx register gets strobed.
@@ -390,7 +427,9 @@ impl VideoOutput {
 pub const HSYNC_START: u32 = 16;
 pub const HSYNC_END: u32 = 32; // 1 cycle after, to make it easy to construct a range.
 pub const HBLANK_WIDTH: u32 = 68;
+pub const HBLANK_EXTENDED_WIDTH: u32 = 68 + 8;
 pub const FRAME_WIDTH: u32 = 160;
+pub const LAST_COLUMN: u32 = TOTAL_WIDTH - 1;
 pub const TOTAL_WIDTH: u32 = FRAME_WIDTH + HBLANK_WIDTH;
 
 // On the second thought, these constants will probably be more needed
@@ -438,8 +477,8 @@ pub mod registers {
     // pub const ENAM0: u16 = 0x1D;
     // pub const ENAM1: u16 = 0x1E;
     // pub const ENABL: u16 = 0x1F;
-    // pub const HMP0: u16 = 0x20;
-    // pub const HMP1: u16 = 0x21;
+    pub const HMP0: u16 = 0x20;
+    pub const HMP1: u16 = 0x21;
     // pub const HMM0: u16 = 0x22;
     // pub const HMM1: u16 = 0x23;
     // pub const HMBL: u16 = 0x24;
@@ -448,7 +487,7 @@ pub mod registers {
     // pub const VDELBL: u16 = 0x27;
     // pub const RESMP0: u16 = 0x28;
     // pub const RESMP1: u16 = 0x29;
-    // pub const HMOVE: u16 = 0x2A;
+    pub const HMOVE: u16 = 0x2A;
     // pub const HMCLR: u16 = 0x2B;
     // pub const CXCLR: u16 = 0x2C;
 
@@ -751,6 +790,39 @@ mod tests {
             "................||||||||||||||||....................................\
              22222222222222222222222222222222222222222222222888828282222222222A2A2AAAA2222222\
              22222222222222222222222222222222222222222222222222222222222222222222222222222222",
+        );
+    }
+
+    #[test]
+    fn moves_players() {
+        let mut tia = Tia::new();
+        tia.write(registers::COLUBK, 0x00).unwrap();
+        tia.write(registers::COLUP0, 0x02).unwrap();
+        tia.write(registers::COLUP1, 0x04).unwrap();
+        tia.write(registers::GRP0, 0b1110_0111).unwrap();
+        tia.write(registers::GRP1, 0b1101_1011).unwrap();
+        tia.write(registers::HMP0, 3 << 4).unwrap();
+        tia.write(registers::HMP1, (-5i8 << 4) as u8).unwrap();
+
+        let p0_delay = 32 * 3;
+        let p1_delay = 6 * 3;
+        wait_ticks(&mut tia, p0_delay);
+        tia.write(registers::RESP0, 0).unwrap();
+        wait_ticks(&mut tia, p1_delay);
+        tia.write(registers::RESP1, 0).unwrap();
+        wait_ticks(&mut tia, TOTAL_WIDTH - p0_delay - p1_delay);
+
+        // Pretend we're doing an STA: wait for 2 CPU cycles, write to register
+        // on the 3rd one.
+        let mut scanline = scan_video(&mut tia, 2 * 3 + 1);
+        tia.write(registers::HMOVE, 0).unwrap();
+        scanline.append(&mut scan_video(&mut tia, TOTAL_WIDTH - (2 * 3 + 1)));
+
+        assert_eq!(
+            encode_video_outputs(scanline),
+            "................||||||||||||||||....................................\
+             ........000000000000000000000000222002220000000000000000004404404400000000000000\
+             00000000000000000000000000000000000000000000000000000000000000000000000000000000",
         );
     }
 
