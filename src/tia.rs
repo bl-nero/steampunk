@@ -291,6 +291,11 @@ impl Memory for Tia {
                 self.hmove_latch = true;
                 self.hmove_counter = 7;
             }
+            registers::HMCLR => {
+                self.player0.hmove_offset = 0;
+                self.player1.hmove_offset = 0;
+                // TODO: Clear the remaining offsets!
+            }
 
             // Not (yet) supported. Allow one initialization pass, but that's it.
             _ => {
@@ -488,7 +493,7 @@ pub mod registers {
     // pub const RESMP0: u16 = 0x28;
     // pub const RESMP1: u16 = 0x29;
     pub const HMOVE: u16 = 0x2A;
-    // pub const HMCLR: u16 = 0x2B;
+    pub const HMCLR: u16 = 0x2B;
     // pub const CXCLR: u16 = 0x2C;
 
     // Read registers:
@@ -822,6 +827,27 @@ mod tests {
             encode_video_outputs(scanline),
             "................||||||||||||||||....................................\
              ........000000000000000000000000222002220000000000000000004404404400000000000000\
+             00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        );
+
+        // Do the same once again, and then clear the movement registers before
+        // HMOVE on the 3rd line. The 3rd line should look exactly as the 2nd
+        // one.
+        let mut scanline = scan_video(&mut tia, 2 * 3 + 1);
+        tia.write(registers::HMOVE, 0).unwrap();
+        scanline.append(&mut scan_video(&mut tia, TOTAL_WIDTH - (2 * 3 + 1)));
+        tia.write(registers::HMCLR, 0).unwrap();
+        scanline.append(&mut scan_video(&mut tia, 2 * 3 + 1));
+        tia.write(registers::HMOVE, 0).unwrap();
+        scanline.append(&mut scan_video(&mut tia, TOTAL_WIDTH - (2 * 3 + 1)));
+
+        assert_eq!(
+            encode_video_outputs(scanline),
+            "................||||||||||||||||....................................\
+             ........000000000000000000000222002220000000000000000000000000044044044000000000\
+             00000000000000000000000000000000000000000000000000000000000000000000000000000000\
+             ................||||||||||||||||....................................\
+             ........000000000000000000000222002220000000000000000000000000044044044000000000\
              00000000000000000000000000000000000000000000000000000000000000000000000000000000",
         );
     }
