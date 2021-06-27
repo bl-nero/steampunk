@@ -491,7 +491,8 @@ mod tests {
     #[test]
     fn sprites() {
         let mut atari = atari_with_rom("sprites.bin");
-        assert_produces_frame(&mut atari, "sprites.png", "sprites");
+        assert_produces_frame(&mut atari, "sprites_1.png", "sprites_1");
+        assert_produces_frame(&mut atari, "sprites_2.png", "sprites_2");
     }
 
     #[bench]

@@ -25,7 +25,7 @@ Reset:
             ; Set up sprite speeds.
             lda #$F0
             sta HMP0
-            lda #$10
+            lda #$20
             sta HMP1
 
             ; Reset the sprite horizontal position.
