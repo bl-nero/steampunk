@@ -262,6 +262,11 @@ impl Memory for Tia {
             }
             registers::WSYNC => self.wait_for_sync = true,
             registers::RSYNC => self.column_counter = TOTAL_WIDTH - 3,
+            registers::NUSIZ0 | registers::NUSIZ1 => {
+                if value != 0 {
+                    return Err(WriteError { address, value });
+                }
+            }
             registers::COLUP0 => self.reg_colup0 = value,
             registers::COLUP1 => self.reg_colup1 = value,
             registers::COLUPF => self.reg_colupf = value,
@@ -454,8 +459,8 @@ pub mod registers {
     pub const VBLANK: u16 = 0x01;
     pub const WSYNC: u16 = 0x02;
     pub const RSYNC: u16 = 0x03;
-    // pub const NUSIZ0: u16 = 0x04;
-    // pub const NUSIZ1: u16 = 0x05;
+    pub const NUSIZ0: u16 = 0x04;
+    pub const NUSIZ1: u16 = 0x05;
     pub const COLUP0: u16 = 0x06;
     pub const COLUP1: u16 = 0x07;
     pub const COLUPF: u16 = 0x08;
