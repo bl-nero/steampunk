@@ -405,20 +405,69 @@ impl<M: Memory + Debug> Cpu<M> {
                     me.set_reg_a(sum);
                 })?;
             }
-            SequenceState::Opcode(opcodes::SBC_IMM, _) => {
-                self.tick_load_immediate(&mut |me, value| {
-                    let diff = me.sub_with_carry(me.reg_a, value);
-                    me.set_reg_a(diff);
-                })?;
-            }
             SequenceState::Opcode(opcodes::ADC_ZP, _) => {
                 self.tick_load_zero_page(&mut |me, value| {
                     let sum = me.add_with_carry(me.reg_a, value);
                     me.set_reg_a(sum);
                 })?;
             }
+            SequenceState::Opcode(opcodes::ADC_ZP_X, _) => {
+                self.tick_load_zero_page_x(&mut |me, value| {
+                    let sum = me.add_with_carry(me.reg_a, value);
+                    me.set_reg_a(sum);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::ADC_ABS, _) => {
+                self.tick_load_absolute(&mut |me, value| {
+                    let sum = me.add_with_carry(me.reg_a, value);
+                    me.set_reg_a(sum);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::ADC_ABS_X, _) => {
+                self.tick_load_absolute_indexed(self.reg_x, &mut |me, value| {
+                    let sum = me.add_with_carry(me.reg_a, value);
+                    me.set_reg_a(sum);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::ADC_ABS_Y, _) => {
+                self.tick_load_absolute_indexed(self.reg_y, &mut |me, value| {
+                    let sum = me.add_with_carry(me.reg_a, value);
+                    me.set_reg_a(sum);
+                })?;
+            }
+
+            SequenceState::Opcode(opcodes::SBC_IMM, _) => {
+                self.tick_load_immediate(&mut |me, value| {
+                    let diff = me.sub_with_carry(me.reg_a, value);
+                    me.set_reg_a(diff);
+                })?;
+            }
             SequenceState::Opcode(opcodes::SBC_ZP, _) => {
                 self.tick_load_zero_page(&mut |me, value| {
+                    let diff = me.sub_with_carry(me.reg_a, value);
+                    me.set_reg_a(diff);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::SBC_ZP_X, _) => {
+                self.tick_load_zero_page_x(&mut |me, value| {
+                    let diff = me.sub_with_carry(me.reg_a, value);
+                    me.set_reg_a(diff);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::SBC_ABS, _) => {
+                self.tick_load_absolute(&mut |me, value| {
+                    let diff = me.sub_with_carry(me.reg_a, value);
+                    me.set_reg_a(diff);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::SBC_ABS_X, _) => {
+                self.tick_load_absolute_indexed(self.reg_x, &mut |me, value| {
+                    let diff = me.sub_with_carry(me.reg_a, value);
+                    me.set_reg_a(diff);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::SBC_ABS_Y, _) => {
+                self.tick_load_absolute_indexed(self.reg_y, &mut |me, value| {
                     let diff = me.sub_with_carry(me.reg_a, value);
                     me.set_reg_a(diff);
                 })?;

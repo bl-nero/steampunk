@@ -79,8 +79,17 @@ pub const BIT_ABS: u8 = 0x2C;
 
 pub const ADC_IMM: u8 = 0x69;
 pub const ADC_ZP: u8 = 0x65;
+pub const ADC_ZP_X: u8 = 0x75;
+pub const ADC_ABS: u8 = 0x6D;
+pub const ADC_ABS_X: u8 = 0x7D;
+pub const ADC_ABS_Y: u8 = 0x79;
+
 pub const SBC_IMM: u8 = 0xE9;
 pub const SBC_ZP: u8 = 0xE5;
+pub const SBC_ZP_X: u8 = 0xF5;
+pub const SBC_ABS: u8 = 0xED;
+pub const SBC_ABS_X: u8 = 0xFD;
+pub const SBC_ABS_Y: u8 = 0xF9;
 
 pub const INC_ZP: u8 = 0xE6;
 pub const INC_ZP_X: u8 = 0xF6;

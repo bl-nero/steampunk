@@ -540,14 +540,49 @@ fn adc_sbc_addressing_modes() {
             stx 6
 
             lda #20
+            clc
             adc 5
             pha
             sec
             sbc 6
             pha
+            ldx #2
+            clc
+            adc 3,x
+            pha
+            sec
+            sbc 4,x
+            pha
+
+            clc
+            adc abs 0x72C4
+            pha
+            sec
+            sbc abs 0x72C5
+            pha
+
+            ldx #4
+            clc
+            adc abs 0x72C0,x
+            pha
+            sec
+            sbc abs 0x72C1,x
+            pha
+
+            ldy #3
+            clc
+            adc abs 0x72C1,y
+            pha
+            sec
+            sbc abs 0x72C2,y
+            pha
     };
-    cpu.ticks(18 + 16).unwrap();
-    assert_eq!(reversed_stack(&cpu), [35, 19]);
+    cpu.mut_memory().bytes[0x72C4..=0x72C5].copy_from_slice(&[7, 6]);
+    cpu.ticks(18 + 18 + 20 + 18 + 20 + 20).unwrap();
+    assert_eq!(
+        reversed_stack(&cpu),
+        [35, 19, 34, 18, 25, 19, 26, 20, 27, 21]
+    );
 }
 
 #[test]
