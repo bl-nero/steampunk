@@ -38,6 +38,10 @@ pub struct Tia {
     reg_pf1: u8,
     /// Playfield register 2 (rightmost 8 bits, mirrored).
     reg_pf2: u8,
+    /// Register that resets missile 0 position to player 0.
+    reg_resmp0: u8,
+    /// Register that resets missile 1 position to player 1.
+    reg_resmp1: u8,
     /// Input port registers.
     reg_inpt: EnumMap<Port, u8>,
 
@@ -60,8 +64,10 @@ pub struct Tia {
     /// player graphics objects.
     hmove_counter: i8,
 
-    player0: PlayerGraphics,
-    player1: PlayerGraphics,
+    player0: Sprite,
+    player1: Sprite,
+    missile0: Sprite,
+    missile1: Sprite,
     // missile_0_pos: u32,
     // missile_1_pos: u32,
     // ball_pos: u32,
@@ -88,6 +94,8 @@ impl Tia {
             reg_pf0: 0,
             reg_pf1: 0,
             reg_pf2: 0,
+            reg_resmp0: 0,
+            reg_resmp1: 0,
             reg_inpt: enum_map! { _ => flags::INPUT_HIGH },
 
             column_counter: 0,
@@ -98,8 +106,10 @@ impl Tia {
             playfield_bit_latch_2: false,
             hmove_latch: false,
             hmove_counter: 0,
-            player0: PlayerGraphics::new(),
-            player1: PlayerGraphics::new(),
+            player0: Sprite::new(5),
+            player1: Sprite::new(5),
+            missile0: Sprite::new(4),
+            missile1: Sprite::new(4),
             // missile_0_pos: 0,
             // missile_1_pos: 0,
             // ball_pos: 0,
@@ -138,22 +148,34 @@ impl Tia {
         if self.hmove_latch && self.hmove_counter > -8 && self.column_counter % 4 == 0 {
             self.player0.hmove_tick(self.hmove_counter);
             self.player1.hmove_tick(self.hmove_counter);
+            self.missile0.hmove_tick(self.hmove_counter);
+            self.missile1.hmove_tick(self.hmove_counter);
             self.hmove_counter -= 1;
         }
 
         let pixel = if self.hblank_on {
             None
         } else {
+            let resmp0 = self.reg_resmp0 & 0b0000_0010 != 0;
+            let resmp1 = self.reg_resmp1 & 0b0000_0010 != 0;
+            if resmp0 && self.player0.counter == 0 {
+                self.missile0.reset_position();
+            }
+            if resmp1 && self.player1.counter == 0 {
+                self.missile1.reset_position();
+            }
             // Even if these bits can ultimately remain unused, we still need to
             // perform a tick if we are outside the horizontal blank.
             let p0_bit = self.player0.tick();
             let p1_bit = self.player1.tick();
+            let m0_bit = self.missile0.tick() && !resmp0;
+            let m1_bit = self.missile1.tick() && !resmp1;
             if vblank_on {
                 None
             } else {
-                Some(if p0_bit {
+                Some(if p0_bit || m0_bit {
                     self.reg_colup0
-                } else if p1_bit {
+                } else if p1_bit || m1_bit {
                     self.reg_colup1
                 } else {
                     playfield_color
@@ -275,8 +297,10 @@ impl Memory for Tia {
             registers::PF0 => self.reg_pf0 = value,
             registers::PF1 => self.reg_pf1 = value,
             registers::PF2 => self.reg_pf2 = value,
-            registers::RESP0 => self.player0.reset_player_position(),
-            registers::RESP1 => self.player1.reset_player_position(),
+            registers::RESP0 => self.player0.reset_position(),
+            registers::RESP1 => self.player1.reset_position(),
+            registers::RESM0 => self.missile0.reset_position(),
+            registers::RESM1 => self.missile1.reset_position(),
 
             // Audio. Skip that thing for now, since it's complex and not
             // essential.
@@ -289,8 +313,18 @@ impl Memory for Tia {
 
             registers::GRP0 => self.player0.bitmap = value,
             registers::GRP1 => self.player1.bitmap = value,
+            registers::ENAM0 => {
+                self.missile0.bitmap = if value & 0b0000_0010 != 0 { 1 << 7 } else { 0 }
+            }
+            registers::ENAM1 => {
+                self.missile1.bitmap = if value & 0b0000_0010 != 0 { 1 << 7 } else { 0 }
+            }
             registers::HMP0 => self.player0.hmove_offset = (value as i8) >> 4,
             registers::HMP1 => self.player1.hmove_offset = (value as i8) >> 4,
+            registers::HMM0 => self.missile0.hmove_offset = (value as i8) >> 4,
+            registers::HMM1 => self.missile1.hmove_offset = (value as i8) >> 4,
+            registers::RESMP0 => self.reg_resmp0 = value,
+            registers::RESMP1 => self.reg_resmp1 = value,
             // Note: there is an additional delay here, but it requires emulating the Hφ1 signal.
             registers::HMOVE => {
                 self.hmove_latch = true;
@@ -299,7 +333,8 @@ impl Memory for Tia {
             registers::HMCLR => {
                 self.player0.hmove_offset = 0;
                 self.player1.hmove_offset = 0;
-                // TODO: Clear the remaining offsets!
+                self.missile0.hmove_offset = 0;
+                self.missile1.hmove_offset = 0;
             }
 
             // Not (yet) supported. Allow one initialization pass, but that's it.
@@ -317,31 +352,40 @@ impl Memory for Tia {
 /// Represents player graphics state: the pixel counter and bitmap. Also handles
 /// RESPx register strobing.
 #[derive(Debug)]
-struct PlayerGraphics {
+struct Sprite {
     counter: u32,
     bitmap: u8,
     /// Current bitmap pixel mask.
     mask: u8,
     /// Counts down until position reset happens to emulate TIA latching delays.
     reset_countdown: i32,
+    /// Initial value of `reset_countdown` when sprite's position is being
+    /// reset.
+    reset_delay: i32,
     hmove_offset: i8,
+    /// A buffer that holds a pixel once its value is settled, but before it's
+    /// emitted.
+    output_latch: bool,
 }
 
-impl PlayerGraphics {
-    fn new() -> Self {
-        PlayerGraphics {
+impl Sprite {
+    fn new(reset_delay: i32) -> Self {
+        Sprite {
             counter: 0,
             bitmap: 0b0000_0000,
             mask: 0b0000_0000,
             reset_countdown: 0,
+            reset_delay,
             hmove_offset: 0,
+            output_latch: false,
         }
     }
 
     /// Performs a clock tick and returns `true` if a player pixel should be
     /// drawn, or `false` otherwise.
     fn tick(&mut self) -> bool {
-        let result = self.bitmap & self.mask != 0;
+        let output = self.output_latch;
+        self.output_latch = self.bitmap & self.mask != 0;
         self.mask >>= 1;
 
         self.counter = (self.counter + 1) % 160;
@@ -354,8 +398,7 @@ impl PlayerGraphics {
         if self.counter == 1 {
             self.mask = 0b1000_0000;
         }
-
-        return result;
+        return output;
     }
 
     fn hmove_tick(&mut self, hmove_counter: i8) {
@@ -365,8 +408,8 @@ impl PlayerGraphics {
     }
 
     /// Resets player position. Called when RESPx register gets strobed.
-    fn reset_player_position(&mut self) {
-        self.reset_countdown = 6;
+    fn reset_position(&mut self) {
+        self.reset_countdown = self.reset_delay;
     }
 }
 
@@ -473,8 +516,8 @@ pub mod registers {
     pub const PF2: u16 = 0x0F;
     pub const RESP0: u16 = 0x10;
     pub const RESP1: u16 = 0x11;
-    // pub const RESM0: u16 = 0x12;
-    // pub const RESM1: u16 = 0x13;
+    pub const RESM0: u16 = 0x12;
+    pub const RESM1: u16 = 0x13;
     // pub const RESBL: u16 = 0x14;
     pub const AUDC0: u16 = 0x15;
     pub const AUDC1: u16 = 0x16;
@@ -484,19 +527,19 @@ pub mod registers {
     pub const AUDV1: u16 = 0x1A;
     pub const GRP0: u16 = 0x1B;
     pub const GRP1: u16 = 0x1C;
-    // pub const ENAM0: u16 = 0x1D;
-    // pub const ENAM1: u16 = 0x1E;
+    pub const ENAM0: u16 = 0x1D;
+    pub const ENAM1: u16 = 0x1E;
     // pub const ENABL: u16 = 0x1F;
     pub const HMP0: u16 = 0x20;
     pub const HMP1: u16 = 0x21;
-    // pub const HMM0: u16 = 0x22;
-    // pub const HMM1: u16 = 0x23;
+    pub const HMM0: u16 = 0x22;
+    pub const HMM1: u16 = 0x23;
     // pub const HMBL: u16 = 0x24;
     // pub const VDELP0: u16 = 0x25;
     // pub const VDELP1: u16 = 0x26;
     // pub const VDELBL: u16 = 0x27;
-    // pub const RESMP0: u16 = 0x28;
-    // pub const RESMP1: u16 = 0x29;
+    pub const RESMP0: u16 = 0x28;
+    pub const RESMP1: u16 = 0x29;
     pub const HMOVE: u16 = 0x2A;
     pub const HMCLR: u16 = 0x2B;
     // pub const CXCLR: u16 = 0x2C;
@@ -759,26 +802,37 @@ mod tests {
     }
 
     #[test]
-    fn draws_players() {
+    fn draws_sprites() {
         let mut tia = Tia::new();
         tia.write(registers::COLUBK, 0x02).unwrap();
         tia.write(registers::COLUP0, 0x04).unwrap();
         tia.write(registers::COLUP1, 0x06).unwrap();
         tia.write(registers::GRP0, 0b1010_0101).unwrap();
         tia.write(registers::GRP1, 0b1100_0011).unwrap();
+        tia.write(registers::ENAM0, 0b0000_0010).unwrap();
+        tia.write(registers::ENAM1, 0b0000_0010).unwrap();
 
         let p0_delay = 30 * 3;
         let p1_delay = 3 * 3;
+        let m0_delay = 4 * 3;
+        let m1_delay = 2 * 3;
         wait_ticks(&mut tia, p0_delay);
         tia.write(registers::RESP0, 0).unwrap();
         wait_ticks(&mut tia, p1_delay);
         tia.write(registers::RESP1, 0).unwrap();
-        wait_ticks(&mut tia, TOTAL_WIDTH - p0_delay - p1_delay);
+        wait_ticks(&mut tia, m0_delay);
+        tia.write(registers::RESM0, 0).unwrap();
+        wait_ticks(&mut tia, m1_delay);
+        tia.write(registers::RESM1, 0).unwrap();
+        wait_ticks(
+            &mut tia,
+            TOTAL_WIDTH - p0_delay - p1_delay - m0_delay - m1_delay,
+        );
 
         assert_eq!(
             encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
             "................||||||||||||||||....................................\
-             22222222222222222222222222222424224242662222662222222222222222222222222222222222\
+             22222222222222222222222222222424224242662222662224222226222222222222222222222222\
              22222222222222222222222222222222222222222222222222222222222222222222222222222222",
         );
 
@@ -789,38 +843,60 @@ mod tests {
 
         let p0_delay = 36 * 3;
         let p1_delay = 6 * 3;
+        let m0_delay = 8 * 3;
+        let m1_delay = 1 * 3;
         wait_ticks(&mut tia, p0_delay);
         tia.write(registers::RESP0, 0).unwrap();
         wait_ticks(&mut tia, p1_delay);
         tia.write(registers::RESP1, 0).unwrap();
-        wait_ticks(&mut tia, TOTAL_WIDTH - p0_delay - p1_delay);
+        wait_ticks(&mut tia, m0_delay);
+        tia.write(registers::RESM0, 0).unwrap();
+        wait_ticks(&mut tia, m1_delay);
+        tia.write(registers::RESM1, 0).unwrap();
+        wait_ticks(
+            &mut tia,
+            TOTAL_WIDTH - p0_delay - p1_delay - m0_delay - m1_delay,
+        );
 
         assert_eq!(
             encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
             "................||||||||||||||||....................................\
              22222222222222222222222222222222222222222222222888828282222222222A2A2AAAA2222222\
-             22222222222222222222222222222222222222222222222222222222222222222222222222222222",
+             22222222822A22222222222222222222222222222222222222222222222222222222222222222222",
         );
     }
 
     #[test]
-    fn moves_players() {
+    fn moves_sprites() {
         let mut tia = Tia::new();
         tia.write(registers::COLUBK, 0x00).unwrap();
         tia.write(registers::COLUP0, 0x02).unwrap();
         tia.write(registers::COLUP1, 0x04).unwrap();
-        tia.write(registers::GRP0, 0b1110_0111).unwrap();
-        tia.write(registers::GRP1, 0b1101_1011).unwrap();
+        tia.write(registers::GRP0, 0b1100_0011).unwrap();
+        tia.write(registers::GRP1, 0b1100_0011).unwrap();
+        tia.write(registers::ENAM0, 0b0000_0010).unwrap();
+        tia.write(registers::ENAM1, 0b0000_0010).unwrap();
         tia.write(registers::HMP0, 3 << 4).unwrap();
         tia.write(registers::HMP1, (-5i8 << 4) as u8).unwrap();
+        tia.write(registers::HMM0, (-6i8 << 4) as u8).unwrap();
+        tia.write(registers::HMM1, 4 << 4 as u8).unwrap();
 
         let p0_delay = 32 * 3;
         let p1_delay = 6 * 3;
+        let m0_delay = 9 * 3;
+        let m1_delay = 2 * 3;
         wait_ticks(&mut tia, p0_delay);
         tia.write(registers::RESP0, 0).unwrap();
         wait_ticks(&mut tia, p1_delay);
         tia.write(registers::RESP1, 0).unwrap();
-        wait_ticks(&mut tia, TOTAL_WIDTH - p0_delay - p1_delay);
+        wait_ticks(&mut tia, m0_delay);
+        tia.write(registers::RESM0, 0).unwrap();
+        wait_ticks(&mut tia, m1_delay);
+        tia.write(registers::RESM1, 0).unwrap();
+        wait_ticks(
+            &mut tia,
+            TOTAL_WIDTH - p0_delay - p1_delay - m0_delay - m1_delay,
+        );
 
         // Pretend we're doing an STA: wait for 2 CPU cycles, write to register
         // on the 3rd one.
@@ -831,8 +907,8 @@ mod tests {
         assert_eq!(
             encode_video_outputs(scanline),
             "................||||||||||||||||....................................\
-             ........000000000000000000000000222002220000000000000000004404404400000000000000\
-             00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+             ........000000000000000000000000220000220000000000000000004400004400000000000000\
+             04000200000000000000000000000000000000000000000000000000000000000000000000000000",
         );
 
         // Do the same once again, and then clear the movement registers before
@@ -849,10 +925,30 @@ mod tests {
         assert_eq!(
             encode_video_outputs(scanline),
             "................||||||||||||||||....................................\
-             ........000000000000000000000222002220000000000000000000000000044044044000000000\
+             ........000000000000000000000220000220000000000000000000000000044000044000000400\
+             00000000000200000000000000000000000000000000000000000000000000000000000000000000\
+             ................||||||||||||||||....................................\
+             ........000000000000000000000220000220000000000000000000000000044000044000000400\
+             00000000000200000000000000000000000000000000000000000000000000000000000000000000",
+        );
+
+        // Test RESMPx: make sure the missiles move along with players and stop
+        // following them once they are freed.
+        tia.write(registers::RESMP0, 0b0000_0010).unwrap();
+        tia.write(registers::RESMP1, 0b0000_0010).unwrap();
+
+        let mut scanline = scan_video(&mut tia, TOTAL_WIDTH);
+        tia.write(registers::RESMP0, 0).unwrap();
+        tia.write(registers::RESMP1, 0).unwrap();
+        scanline.append(&mut scan_video(&mut tia, TOTAL_WIDTH));
+
+        assert_eq!(
+            encode_video_outputs(scanline),
+            "................||||||||||||||||....................................\
+             00000000000000000000000000000220000220000000000000000000000000044000044000000000\
              00000000000000000000000000000000000000000000000000000000000000000000000000000000\
              ................||||||||||||||||....................................\
-             ........000000000000000000000222002220000000000000000000000000044044044000000000\
+             00000000000000000000000000000220020220000000000000000000000000044004044000000000\
              00000000000000000000000000000000000000000000000000000000000000000000000000000000",
         );
     }

@@ -32,11 +32,13 @@ StartOfFrame:
             sta WSYNC
             lda #0
             sta VBLANK
-            ; 32 * 6 = 192, so the stripe loop should emit 192 lines of picture.
-            ; ldx 32
-            ldx #32
 
-@stripeLoop:sty COLUBK
+            ; Emit two sections of 16 stripes.
+            ; 16 * 6 * 2 = 192, so the stripe loop should emit 192 lines of
+            ; picture.
+            ldx #16
+@stripeLoop1:
+            sty COLUBK
             iny
             iny
             lda #0
@@ -48,7 +50,31 @@ StartOfFrame:
             bpl :-
             dex
             sta WSYNC
-            bne @stripeLoop
+            bne @stripeLoop1
+
+            ; In the second section, we do the waiting in a different way: we
+            ; use WSYNC and INTIM at the same time. This is a regression test
+            ; for a bug that caused RIOT clock to be only triggered when CPU is
+            ; active.
+
+            ldx #16
+@stripeLoop2:
+            sty COLUBK
+            iny
+            iny
+            lda #0
+            sta WSYNC
+            sta COLUBK
+            lda #5
+            sta TIM64T
+            sta WSYNC
+            sta WSYNC
+            sta WSYNC
+:           lda INTIM
+            bpl :-
+            dex
+            sta WSYNC
+            bne @stripeLoop2
 
             ; Start vertical blanking.
             lda #%01000010

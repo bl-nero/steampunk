@@ -63,6 +63,8 @@ impl Atari {
             if let Err(e) = self.cpu.tick() {
                 return Err(e);
             }
+        }
+        if tia_result.riot_tick {
             self.mut_riot().tick();
         }
         return if self.frame_renderer.consume(tia_result.video) {
@@ -303,7 +305,6 @@ mod tests {
         actual.save(&new_golden_path).unwrap();
 
         let diff = image_diff::diff(&expected, &actual).unwrap();
-        // let diff = lcs_image_diff::compare(&mut actual, &mut expected, 0.8).unwrap();
 
         actual.save(&actual_path).unwrap();
         expected.save(&expected_path).unwrap();
