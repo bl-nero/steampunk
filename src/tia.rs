@@ -355,6 +355,8 @@ impl Memory for Tia {
             registers::COLUPF => self.reg_colupf = value,
             registers::COLUBK => self.reg_colubk = value,
             registers::CTRLPF => self.reg_ctrlpf = value,
+            registers::REFP0 => self.player0.reflect = value & flags::REFPX_REFLECT != 0,
+            registers::REFP1 => self.player1.reflect = value & flags::REFPX_REFLECT != 0,
             registers::PF0 => self.reg_pf0 = value,
             registers::PF1 => self.reg_pf1 = value,
             registers::PF2 => self.reg_pf2 = value,
@@ -416,8 +418,9 @@ impl Memory for Tia {
 struct Sprite {
     counter: u32,
     bitmap: u8,
-    /// Current bitmap pixel mask.
-    mask: u8,
+    /// Index of the current bit being rendered (if any).
+    current_bit: Option<u8>,
+    reflect: bool,
     /// Counts down until position reset happens to emulate TIA latching delays.
     reset_countdown: i32,
     /// Initial value of `reset_countdown` when sprite's position is being
@@ -434,7 +437,8 @@ impl Sprite {
         Sprite {
             counter: 0,
             bitmap: 0b0000_0000,
-            mask: 0b0000_0000,
+            current_bit: None,
+            reflect: false,
             reset_countdown: 0,
             reset_delay,
             hmove_offset: 0,
@@ -446,8 +450,15 @@ impl Sprite {
     /// drawn, or `false` otherwise.
     fn tick(&mut self) -> bool {
         let output = self.output_latch;
-        self.output_latch = self.bitmap & self.mask != 0;
-        self.mask >>= 1;
+        let mask = match self.current_bit {
+            None => 0,
+            Some(bit) => 1 << if self.reflect { 7 - bit } else { bit },
+        };
+        self.output_latch = self.bitmap & mask != 0;
+        self.current_bit = match self.current_bit {
+            None | Some(0) => None,
+            Some(bit) => Some(bit - 1),
+        };
 
         self.counter = (self.counter + 1) % 160;
         if self.reset_countdown > 0 {
@@ -457,7 +468,7 @@ impl Sprite {
             }
         }
         if self.counter == 1 {
-            self.mask = 0b1000_0000;
+            self.current_bit = Some(7);
         }
         return output;
     }

@@ -373,6 +373,46 @@ fn moves_sprites() {
 }
 
 #[test]
+fn player_reflection() {
+    let mut tia = Tia::new();
+    tia.write(registers::COLUP0, 0x0A).unwrap();
+    tia.write(registers::COLUP1, 0x0E).unwrap();
+    tia.write(registers::GRP0, 0b1011_0001).unwrap();
+    tia.write(registers::GRP1, 0b1101_0001).unwrap();
+
+    let p0_delay = 30 * 3;
+    let p1_delay = 4 * 3;
+    wait_ticks(&mut tia, p0_delay);
+    tia.write(registers::RESP0, 0).unwrap();
+    wait_ticks(&mut tia, p1_delay);
+    tia.write(registers::RESP1, 0).unwrap();
+    wait_ticks(&mut tia, TOTAL_WIDTH - p0_delay - p1_delay);
+
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000000000000000000000000000A0AA000A0000EE0E000E0000000000000000000000000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    tia.write(registers::REFP0, flags::REFPX_REFLECT).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000000000000000000000000000A000AA0A0000EE0E000E0000000000000000000000000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    tia.write(registers::REFP1, flags::REFPX_REFLECT).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000000000000000000000000000A000AA0A0000E000E0EE0000000000000000000000000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+}
+
+#[test]
 fn sprite_collisions() {
     let mut tia = Tia::new();
     tia.write(registers::COLUBK, 0x00).unwrap();
