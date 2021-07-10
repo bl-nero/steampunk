@@ -399,6 +399,16 @@ impl Memory for Tia {
                 self.missile0.hmove_offset = 0;
                 self.missile1.hmove_offset = 0;
             }
+            registers::CXCLR => {
+                self.reg_cxm0p = 0;
+                self.reg_cxm1p = 0;
+                self.reg_cxp0fb = 0;
+                self.reg_cxp1fb = 0;
+                self.reg_cxm0fb = 0;
+                self.reg_cxm1fb = 0;
+                self.reg_cxblpf = 0;
+                self.reg_cxppmm = 0;
+            }
 
             // Not (yet) supported. Allow one initialization pass, but that's it.
             _ => {

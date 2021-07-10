@@ -415,10 +415,6 @@ fn player_reflection() {
 #[test]
 fn sprite_collisions() {
     let mut tia = Tia::new();
-    tia.write(registers::COLUBK, 0x00).unwrap();
-    tia.write(registers::COLUPF, 0x02).unwrap();
-    tia.write(registers::COLUP0, 0x04).unwrap();
-    tia.write(registers::COLUP1, 0x06).unwrap();
     tia.write(registers::PF1, 0b0000_0100).unwrap();
     tia.write(registers::ENAM0, 0b0000_0010).unwrap();
     tia.write(registers::ENAM1, 0b0000_0010).unwrap();
@@ -467,13 +463,8 @@ fn sprite_collisions() {
     wait_ticks(&mut tia, TOTAL_WIDTH);
     assert_collision_latches(&tia, [0b11, 0b11, 0b10, 0b10, 0b10, 0b10, 0b00, 0b11]);
 
-    // let scanline = scan_video(&mut tia, TOTAL_WIDTH);
-    // assert_eq!(
-    //     encode_video_outputs(scanline),
-    //     "................||||||||||||||||....................................\
-    //      00000000000000000000000000000000446622220000000000000000000000000000000000000000\
-    //      00000000000000000000000000000000000022220000000000000000000000000000000000000000",
-    // );
+    tia.write(registers::CXCLR, 0).unwrap();
+    assert_collision_latches(&tia, [0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00]);
 }
 
 /// Performs an assertion on the collision registers (0x00-0x07), comparing

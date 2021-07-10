@@ -46,7 +46,7 @@ pub const RESMP0: u16 = 0x28;
 pub const RESMP1: u16 = 0x29;
 pub const HMOVE: u16 = 0x2A;
 pub const HMCLR: u16 = 0x2B;
-// pub const CXCLR: u16 = 0x2C;
+pub const CXCLR: u16 = 0x2C;
 
 // Read registers:
 pub const CXM0P: u16 = 0x00;
