@@ -42,6 +42,17 @@ pub struct Tia {
     reg_resmp0: u8,
     /// Register that resets missile 1 position to player 1.
     reg_resmp1: u8,
+
+    // Collision registers.
+    reg_cxm0p: u8,
+    reg_cxm1p: u8,
+    reg_cxp0fb: u8,
+    reg_cxp1fb: u8,
+    reg_cxm0fb: u8,
+    reg_cxm1fb: u8,
+    reg_cxblpf: u8,
+    reg_cxppmm: u8,
+
     /// Input port registers.
     reg_inpt: EnumMap<Port, u8>,
 
@@ -96,6 +107,16 @@ impl Tia {
             reg_pf2: 0,
             reg_resmp0: 0,
             reg_resmp1: 0,
+
+            reg_cxm0p: 0,
+            reg_cxm1p: 0,
+            reg_cxp0fb: 0,
+            reg_cxp1fb: 0,
+            reg_cxm0fb: 0,
+            reg_cxm1fb: 0,
+            reg_cxblpf: 0,
+            reg_cxppmm: 0,
+
             reg_inpt: enum_map! { _ => flags::INPUT_HIGH },
 
             column_counter: 0,
@@ -144,7 +165,7 @@ impl Tia {
 
         let vsync_on = self.reg_vsync & flags::VSYNC_ON != 0;
         let vblank_on = self.reg_vblank & flags::VBLANK_ON != 0;
-        let playfield_color = self.playfield_tick();
+        let playfield_bit = self.playfield_tick();
         if self.hmove_latch && self.hmove_counter > -8 && self.column_counter % 4 == 0 {
             self.player0.hmove_tick(self.hmove_counter);
             self.player1.hmove_tick(self.hmove_counter);
@@ -173,12 +194,44 @@ impl Tia {
             if vblank_on {
                 None
             } else {
+                if m0_bit && p1_bit {
+                    self.reg_cxm0p |= 1 << 7;
+                }
+                if m0_bit && p0_bit {
+                    self.reg_cxm0p |= 1 << 6;
+                }
+                if m1_bit && p0_bit {
+                    self.reg_cxm1p |= 1 << 7;
+                }
+                if m1_bit && p1_bit {
+                    self.reg_cxm1p |= 1 << 6;
+                }
+                if p0_bit && playfield_bit {
+                    self.reg_cxp0fb |= 1 << 7;
+                }
+                if p1_bit && playfield_bit {
+                    self.reg_cxp1fb |= 1 << 7;
+                }
+                if m0_bit && playfield_bit {
+                    self.reg_cxm0fb |= 1 << 7;
+                }
+                if m1_bit && playfield_bit {
+                    self.reg_cxm1fb |= 1 << 7;
+                }
+                if p0_bit && p1_bit {
+                    self.reg_cxppmm |= 1 << 7;
+                }
+                if m0_bit && m1_bit {
+                    self.reg_cxppmm |= 1 << 6;
+                }
                 Some(if p0_bit || m0_bit {
                     self.reg_colup0
                 } else if p1_bit || m1_bit {
                     self.reg_colup1
+                } else if playfield_bit {
+                    self.reg_colupf
                 } else {
-                    playfield_color
+                    self.reg_colubk
                 })
             }
         };
@@ -197,16 +250,12 @@ impl Tia {
         return output;
     }
 
-    fn playfield_tick(&mut self) -> u8 {
+    fn playfield_tick(&mut self) -> bool {
         if self.column_counter % 4 == 0 {
             self.playfield_bit_latch_2 = self.playfield_bit_latch_1;
             self.playfield_bit_latch_1 = self.playfield_bit_at(self.playfiled_bit_index_to_latch());
         }
-        return if self.playfield_bit_latch_2 {
-            self.reg_colupf
-        } else {
-            self.reg_colubk
-        };
+        return self.playfield_bit_latch_2;
     }
 
     fn playfield_bit_at(&self, playfield_bit_index: i32) -> bool {
@@ -266,8 +315,16 @@ impl Tia {
 
 impl Memory for Tia {
     fn read(&self, address: u16) -> ReadResult {
-        match address {
+        match address & 0b0000_1111 {
             // TODO: mirroring
+            registers::CXM0P => Ok(self.reg_cxm0p),
+            registers::CXM1P => Ok(self.reg_cxm1p),
+            registers::CXP0FB => Ok(self.reg_cxp0fb),
+            registers::CXP1FB => Ok(self.reg_cxp1fb),
+            registers::CXM0FB => Ok(self.reg_cxm0fb),
+            registers::CXM1FB => Ok(self.reg_cxm1fb),
+            registers::CXBLPF => Ok(self.reg_cxblpf),
+            registers::CXPPMM => Ok(self.reg_cxppmm),
             registers::INPT4 => Ok(self.reg_inpt[Port::Input4]),
             registers::INPT5 => Ok(self.reg_inpt[Port::Input5]),
             _ => Err(ReadError { address }),
@@ -545,14 +602,14 @@ pub mod registers {
     // pub const CXCLR: u16 = 0x2C;
 
     // Read registers:
-    // pub const CXM0P: u16 = 0x00;
-    // pub const CXM1P: u16 = 0x01;
-    // pub const CXP0FB: u16 = 0x02;
-    // pub const CXP1FB: u16 = 0x03;
-    // pub const CXM0FB: u16 = 0x04;
-    // pub const CXM1FB: u16 = 0x05;
-    // pub const CXBLPF: u16 = 0x06;
-    // pub const CXPPMM: u16 = 0x07;
+    pub const CXM0P: u16 = 0x00;
+    pub const CXM1P: u16 = 0x01;
+    pub const CXP0FB: u16 = 0x02;
+    pub const CXP1FB: u16 = 0x03;
+    pub const CXM0FB: u16 = 0x04;
+    pub const CXM1FB: u16 = 0x05;
+    pub const CXBLPF: u16 = 0x06;
+    pub const CXPPMM: u16 = 0x07;
     // pub const INPT0: u16 = 0x08;
     // pub const INPT1: u16 = 0x09;
     // pub const INPT2: u16 = 0x0A;
@@ -954,7 +1011,81 @@ mod tests {
     }
 
     #[test]
-    fn address_mirroring() {
+    fn sprite_collisions() {
+        let mut tia = Tia::new();
+        tia.write(registers::COLUBK, 0x00).unwrap();
+        tia.write(registers::COLUPF, 0x02).unwrap();
+        tia.write(registers::COLUP0, 0x04).unwrap();
+        tia.write(registers::COLUP1, 0x06).unwrap();
+        tia.write(registers::PF1, 0b0000_0100).unwrap();
+        tia.write(registers::ENAM0, 0b0000_0010).unwrap();
+        tia.write(registers::ENAM1, 0b0000_0010).unwrap();
+        tia.write(registers::GRP0, 0b1000_0000).unwrap();
+        tia.write(registers::GRP1, 0b1000_0000).unwrap();
+        tia.write(registers::VBLANK, flags::VBLANK_ON).unwrap();
+
+        // Position all graphics objects in a way where everything is separated,
+        // in order: M0, P0, M1, P1, PF.
+        let sprite_delay = 32 * 3;
+        wait_ticks(&mut tia, sprite_delay);
+        tia.write(registers::RESP0, 0).unwrap();
+        tia.write(registers::RESP1, 0).unwrap();
+        tia.write(registers::RESM0, 0).unwrap();
+        tia.write(registers::RESM1, 0).unwrap();
+        wait_ticks(&mut tia, TOTAL_WIDTH - sprite_delay);
+        tia.write(registers::HMP0, 2 << 4).unwrap();
+        tia.write(registers::HMM0, 2 << 4).unwrap();
+        tia.write(registers::HMOVE, 0).unwrap();
+        wait_ticks(&mut tia, TOTAL_WIDTH);
+        tia.write(registers::VBLANK, 0).unwrap();
+        assert_collision_latches(&tia, [0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00]);
+
+        // M0 goes right, colliding with P0.
+        tia.write(registers::HMCLR, 0).unwrap();
+        tia.write(registers::HMM0, (-1i8 << 4) as u8).unwrap();
+        tia.write(registers::HMOVE, 0).unwrap();
+        wait_ticks(&mut tia, TOTAL_WIDTH);
+        assert_collision_latches(&tia, [0b01, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00]);
+
+        // M0 and P0 go right, colliding with M1.
+        tia.write(registers::HMP0, (-1i8 << 4) as u8).unwrap();
+        tia.write(registers::HMOVE, 0).unwrap();
+        wait_ticks(&mut tia, TOTAL_WIDTH);
+        assert_collision_latches(&tia, [0b01, 0b10, 0b00, 0b00, 0b00, 0b00, 0b00, 0b01]);
+
+        // M0+P0+M1+P1.
+        tia.write(registers::HMM1, (-1i8 << 4) as u8).unwrap();
+        tia.write(registers::HMOVE, 0).unwrap();
+        wait_ticks(&mut tia, TOTAL_WIDTH);
+        assert_collision_latches(&tia, [0b11, 0b11, 0b00, 0b00, 0b00, 0b00, 0b00, 0b11]);
+
+        // M0+P0+M1+P1+PF.
+        tia.write(registers::HMP1, (-1i8 << 4) as u8).unwrap();
+        tia.write(registers::HMOVE, 0).unwrap();
+        wait_ticks(&mut tia, TOTAL_WIDTH);
+        assert_collision_latches(&tia, [0b11, 0b11, 0b10, 0b10, 0b10, 0b10, 0b00, 0b11]);
+
+        // let scanline = scan_video(&mut tia, TOTAL_WIDTH);
+        // assert_eq!(
+        //     encode_video_outputs(scanline),
+        //     "................||||||||||||||||....................................\
+        //      00000000000000000000000000000000446622220000000000000000000000000000000000000000\
+        //      00000000000000000000000000000000000022220000000000000000000000000000000000000000",
+        // );
+    }
+
+    /// Performs an assertion on the collision registers (0x00-0x07), comparing
+    /// them to the expected values. For better call site readability, the
+    /// values are shifted 6 bits left, so the collision bit values are given in
+    /// lowest 2 bits, and not the highest ones.
+    fn assert_collision_latches(tia: &Tia, expected: [u8; 8]) {
+        let expected = expected.iter().copied().map(|x| x << 6);
+        let actual = (0..8).map(|i| tia.read(i).unwrap());
+        itertools::assert_equal(actual, expected);
+    }
+
+    #[test]
+    fn write_address_mirroring() {
         let mut tia = Tia::new();
         wait_ticks(&mut tia, HBLANK_WIDTH);
 
@@ -968,9 +1099,26 @@ mod tests {
     }
 
     #[test]
+    fn read_address_mirroring() {
+        let mut tia = Tia::new();
+        tia.write(registers::VBLANK, 0).unwrap(); // Disable latching.
+
+        tia.set_port(Port::Input4, true);
+        assert_eq!(tia.read(registers::INPT4).unwrap(), flags::INPUT_HIGH);
+        assert_eq!(
+            tia.read(0x2640 + registers::INPT4).unwrap(),
+            flags::INPUT_HIGH
+        );
+        assert_eq!(
+            tia.read(0x2650 + registers::INPT4).unwrap(),
+            flags::INPUT_HIGH
+        );
+    }
+
+    #[test]
     fn unlatched_input_ports() {
         let mut tia = Tia::new();
-        tia.write(registers::VBLANK, 0).unwrap();
+        tia.write(registers::VBLANK, 0).unwrap(); // Disable latching.
 
         tia.set_port(Port::Input4, true);
         assert_eq!(tia.read(registers::INPT4).unwrap(), flags::INPUT_HIGH);
