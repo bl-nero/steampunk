@@ -228,8 +228,8 @@ fn draws_sprites() {
     tia.write(registers::COLUP1, 0x06).unwrap();
     tia.write(registers::GRP0, 0b1010_0101).unwrap();
     tia.write(registers::GRP1, 0b1100_0011).unwrap();
-    tia.write(registers::ENAM0, 0b0000_0010).unwrap();
-    tia.write(registers::ENAM1, 0b0000_0010).unwrap();
+    tia.write(registers::ENAM0, flags::ENAXX_ENABLE).unwrap();
+    tia.write(registers::ENAM1, flags::ENAXX_ENABLE).unwrap();
 
     let p0_delay = 30 * 3;
     let p1_delay = 3 * 3;
@@ -293,8 +293,8 @@ fn moves_sprites() {
     tia.write(registers::COLUP1, 0x04).unwrap();
     tia.write(registers::GRP0, 0b1100_0011).unwrap();
     tia.write(registers::GRP1, 0b1100_0011).unwrap();
-    tia.write(registers::ENAM0, 0b0000_0010).unwrap();
-    tia.write(registers::ENAM1, 0b0000_0010).unwrap();
+    tia.write(registers::ENAM0, flags::ENAXX_ENABLE).unwrap();
+    tia.write(registers::ENAM1, flags::ENAXX_ENABLE).unwrap();
     tia.write(registers::HMP0, 3 << 4).unwrap();
     tia.write(registers::HMP1, (-5i8 << 4) as u8).unwrap();
     tia.write(registers::HMM0, (-6i8 << 4) as u8).unwrap();
@@ -353,8 +353,8 @@ fn moves_sprites() {
 
     // Test RESMPx: make sure the missiles move along with players and stop
     // following them once they are freed.
-    tia.write(registers::RESMP0, 0b0000_0010).unwrap();
-    tia.write(registers::RESMP1, 0b0000_0010).unwrap();
+    tia.write(registers::RESMP0, flags::RESMPX_RESET).unwrap();
+    tia.write(registers::RESMP1, flags::RESMPX_RESET).unwrap();
 
     let mut scanline = scan_video(&mut tia, TOTAL_WIDTH);
     tia.write(registers::RESMP0, 0).unwrap();
@@ -469,11 +469,50 @@ fn player_reflection() {
 }
 
 #[test]
+fn graphics_priorities() {
+    let mut tia = Tia::new();
+    tia.write(registers::COLUBK, 0x00).unwrap();
+    tia.write(registers::COLUPF, 0x02).unwrap();
+    tia.write(registers::COLUP0, 0x04).unwrap();
+    tia.write(registers::COLUP1, 0x06).unwrap();
+    tia.write(registers::PF1, 0b1111_0011).unwrap();
+    tia.write(registers::GRP0, 0b1010_1010).unwrap();
+    tia.write(registers::GRP1, 0b1111_1111).unwrap();
+    tia.write(registers::ENAM0, flags::ENAXX_ENABLE).unwrap();
+    tia.write(registers::ENAM1, flags::ENAXX_ENABLE).unwrap();
+
+    let player_delay = 30 * 3;
+    let missile_delay = 4 * 3;
+    wait_ticks(&mut tia, player_delay);
+    tia.write(registers::RESP0, 0).unwrap();
+    tia.write(registers::RESP1, 0).unwrap();
+    wait_ticks(&mut tia, missile_delay);
+    tia.write(registers::RESM0, 0).unwrap();
+    tia.write(registers::RESM1, 0).unwrap();
+    wait_ticks(&mut tia, TOTAL_WIDTH - player_delay - missile_delay);
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000000000000002222222222222464646460004222222200000000000000000000000000000000\
+         00000000000000002222222222222222000000002222222200000000000000000000000000000000",
+    );
+
+    tia.write(registers::CTRLPF, flags::CTRLPF_PRIORITY)
+        .unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000000000000002222222222222222646460002222222200000000000000000000000000000000\
+         00000000000000002222222222222222000000002222222200000000000000000000000000000000",
+    );
+}
+
+#[test]
 fn sprite_collisions() {
     let mut tia = Tia::new();
     tia.write(registers::PF1, 0b0000_0100).unwrap();
-    tia.write(registers::ENAM0, 0b0000_0010).unwrap();
-    tia.write(registers::ENAM1, 0b0000_0010).unwrap();
+    tia.write(registers::ENAM0, flags::ENAXX_ENABLE).unwrap();
+    tia.write(registers::ENAM1, flags::ENAXX_ENABLE).unwrap();
     tia.write(registers::GRP0, 0b1000_0000).unwrap();
     tia.write(registers::GRP1, 0b1000_0000).unwrap();
     tia.write(registers::VBLANK, flags::VBLANK_ON).unwrap();

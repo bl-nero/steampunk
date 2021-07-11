@@ -181,8 +181,8 @@ impl Tia {
         let pixel = if self.hblank_on {
             None
         } else {
-            let resmp0 = self.reg_resmp0 & 0b0000_0010 != 0;
-            let resmp1 = self.reg_resmp1 & 0b0000_0010 != 0;
+            let resmp0 = self.reg_resmp0 & flags::RESMPX_RESET != 0;
+            let resmp1 = self.reg_resmp1 & flags::RESMPX_RESET != 0;
             if resmp0 && self.player0.counter == 0 {
                 self.missile0.reset_position();
             }
@@ -228,15 +228,19 @@ impl Tia {
                 if m0_bit && m1_bit {
                     self.reg_cxppmm |= 1 << 6;
                 }
-                Some(if p0_bit || m0_bit {
-                    self.reg_colup0
-                } else if p1_bit || m1_bit {
-                    self.reg_colup1
-                } else if playfield_bit {
-                    self.reg_colupf
-                } else {
-                    self.reg_colubk
-                })
+                Some(
+                    if self.reg_ctrlpf & flags::CTRLPF_PRIORITY != 0 && playfield_bit {
+                        self.reg_colupf
+                    } else if p0_bit || m0_bit {
+                        self.reg_colup0
+                    } else if p1_bit || m1_bit {
+                        self.reg_colup1
+                    } else if self.reg_ctrlpf & flags::CTRLPF_PRIORITY == 0 && playfield_bit {
+                        self.reg_colupf
+                    } else {
+                        self.reg_colubk
+                    },
+                )
             }
         };
 
@@ -382,12 +386,8 @@ impl Memory for Tia {
                 self.player0.bitmaps[1] = self.player0.bitmaps[0];
                 self.player1.bitmaps[0] = value;
             }
-            registers::ENAM0 => {
-                self.missile0.bitmaps[0] = if value & 0b0000_0010 != 0 { 1 << 7 } else { 0 }
-            }
-            registers::ENAM1 => {
-                self.missile1.bitmaps[0] = if value & 0b0000_0010 != 0 { 1 << 7 } else { 0 }
-            }
+            registers::ENAM0 => self.missile0.bitmaps[0] = (value & flags::ENAXX_ENABLE) << 6,
+            registers::ENAM1 => self.missile1.bitmaps[0] = (value & flags::ENAXX_ENABLE) << 6,
             registers::HMP0 => self.player0.hmove_offset = (value as i8) >> 4,
             registers::HMP1 => self.player1.hmove_offset = (value as i8) >> 4,
             registers::HMM0 => self.missile0.hmove_offset = (value as i8) >> 4,
