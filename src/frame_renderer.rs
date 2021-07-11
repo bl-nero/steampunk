@@ -93,9 +93,6 @@ impl FrameRenderer {
     }
 }
 
-pub const FRAME_HEIGHT: u32 = 192;
-pub const VBLANK_HEIGHT: u32 = 37;
-
 /// A builder for [`FrameRenderer`](struct.FrameRenderer.html) instances.
 ///
 /// # Examples
@@ -122,9 +119,9 @@ impl FrameRendererBuilder {
     /// Creates a new `FrameRendererBuilder` with default settings.
     pub fn new() -> FrameRendererBuilder {
         FrameRendererBuilder {
-            height: FRAME_HEIGHT,
+            height: 192,
             palette: Palette::new(),
-            first_visible_scanline_index: VBLANK_HEIGHT as i32,
+            first_visible_scanline_index: 37,
         }
     }
 
@@ -135,7 +132,6 @@ impl FrameRendererBuilder {
     }
 
     /// Changes the viewport height.
-    #[cfg(test)]
     pub fn with_height(mut self, height: u32) -> Self {
         self.height = height;
         return self;

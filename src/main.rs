@@ -17,7 +17,10 @@ mod tia;
 
 mod test_utils;
 
-use atari::{Atari, AtariAddressSpace, FrameStatus, Switch, SwitchPosition, JoystickPort, JoystickInput};
+use atari::{
+    Atari, AtariAddressSpace, FrameStatus, JoystickInput, JoystickPort, Switch, SwitchPosition,
+};
+use frame_renderer::FrameRendererBuilder;
 use image::RgbaImage;
 use memory::{AtariRam, AtariRom};
 use piston_window::WindowSettings;
@@ -25,7 +28,7 @@ use piston_window::{
     Button, ButtonState, Event, Filter, Input, Key, Loop, PistonWindow, Texture, TextureSettings,
     Window,
 };
-use riot::{Riot};
+use riot::Riot;
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -44,7 +47,13 @@ fn main() {
         riot: Riot::new(),
         rom: AtariRom::new(&rom_bytes[..]).expect("Unable to load the ROM into Atari"),
     });
-    let mut atari = Atari::new(address_space);
+    let mut atari = Atari::new(
+        address_space,
+        FrameRendererBuilder::new()
+            .with_palette(colors::ntsc_palette())
+            .with_height(210)
+            .build(),
+    );
     atari.reset().expect("Unable to reset Atari");
 
     let mut window = build_window(atari.frame_image());
@@ -179,8 +188,8 @@ fn main() {
 
 fn build_window(frame_image: &RgbaImage) -> PistonWindow {
     // Build a window.
-    let screen_width = frame_image.width();
-    let screen_height = frame_image.height();
+    let screen_width = frame_image.width() * 3;
+    let screen_height = frame_image.height() * 2;
     let window_settings =
         WindowSettings::new("Atari 2600", [screen_width, screen_height]).exit_on_esc(true);
     return window_settings.build().expect("Could not build a window");

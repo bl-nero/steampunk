@@ -1,8 +1,6 @@
 use crate::address_space::AddressSpace;
-use crate::colors;
 use crate::cpu::Cpu;
 use crate::frame_renderer::FrameRenderer;
-use crate::frame_renderer::FrameRendererBuilder;
 use crate::memory::{AtariRam, AtariRom};
 use crate::riot;
 use crate::riot::Riot;
@@ -28,12 +26,10 @@ pub enum FrameStatus {
 }
 
 impl Atari {
-    pub fn new(address_space: Box<AtariAddressSpace>) -> Self {
+    pub fn new(address_space: Box<AtariAddressSpace>, frame_renderer: FrameRenderer) -> Self {
         let mut atari = Atari {
             cpu: Cpu::new(address_space),
-            frame_renderer: FrameRendererBuilder::new()
-                .with_palette(colors::ntsc_palette())
-                .build(),
+            frame_renderer,
             switch_positions: enum_map! { _ => SwitchPosition::Up },
             joysticks: enum_map! { _ => Joystick::new() },
         };
@@ -237,7 +233,9 @@ mod tests {
     extern crate test;
 
     use super::*;
+    use crate::colors;
     use crate::cpu::{opcodes, CpuHaltedError};
+    use crate::frame_renderer::FrameRendererBuilder;
     use image::DynamicImage;
     use image::GenericImageView;
     use image_diff;
@@ -261,7 +259,12 @@ mod tests {
             riot: Riot::new(),
             rom: AtariRom::new(&rom).unwrap(),
         });
-        let mut atari = Atari::new(address_space);
+        let mut atari = Atari::new(
+            address_space,
+            FrameRendererBuilder::new()
+                .with_palette(colors::ntsc_palette())
+                .build(),
+        );
         atari.reset().unwrap();
         return atari;
     }
@@ -506,7 +509,12 @@ mod tests {
                 riot: Riot::new(),
                 rom: AtariRom::new(&rom).unwrap(),
             });
-            let mut atari = Atari::new(address_space);
+            let mut atari = Atari::new(
+                address_space,
+                FrameRendererBuilder::new()
+                    .with_palette(colors::ntsc_palette())
+                    .build(),
+            );
 
             atari.reset().unwrap();
             next_frame(&mut atari).unwrap();
