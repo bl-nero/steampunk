@@ -12,7 +12,11 @@ pub const CTRLPF_REFLECT: u8 = 0b0000_0001;
 /// Bit mask for turning on the playfield score mode using `CTRLPF` register.
 #[cfg(test)]
 pub const CTRLPF_SCORE: u8 = 0b0000_0010;
+/// Bit mask for reflecting player graphics using `REFPx` registers.
 pub const REFPX_REFLECT: u8 = 0b0000_1000;
+/// Bit mask for turning on the vertical delay flags for sprites using `VDELxx`
+/// registers.
+pub const VDELXX_ON: u8 = 0b0000_0001;
 
 // Indicates a HIGH status of an input port.
 pub const INPUT_HIGH: u8 = 1 << 7;

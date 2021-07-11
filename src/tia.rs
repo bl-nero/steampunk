@@ -374,18 +374,26 @@ impl Memory for Tia {
             | registers::AUDF0
             | registers::AUDF1 => {}
 
-            registers::GRP0 => self.player0.bitmap = value,
-            registers::GRP1 => self.player1.bitmap = value,
+            registers::GRP0 => {
+                self.player1.bitmaps[1] = self.player1.bitmaps[0];
+                self.player0.bitmaps[0] = value;
+            }
+            registers::GRP1 => {
+                self.player0.bitmaps[1] = self.player0.bitmaps[0];
+                self.player1.bitmaps[0] = value;
+            }
             registers::ENAM0 => {
-                self.missile0.bitmap = if value & 0b0000_0010 != 0 { 1 << 7 } else { 0 }
+                self.missile0.bitmaps[0] = if value & 0b0000_0010 != 0 { 1 << 7 } else { 0 }
             }
             registers::ENAM1 => {
-                self.missile1.bitmap = if value & 0b0000_0010 != 0 { 1 << 7 } else { 0 }
+                self.missile1.bitmaps[0] = if value & 0b0000_0010 != 0 { 1 << 7 } else { 0 }
             }
             registers::HMP0 => self.player0.hmove_offset = (value as i8) >> 4,
             registers::HMP1 => self.player1.hmove_offset = (value as i8) >> 4,
             registers::HMM0 => self.missile0.hmove_offset = (value as i8) >> 4,
             registers::HMM1 => self.missile1.hmove_offset = (value as i8) >> 4,
+            registers::VDELP0 => self.player0.bitmap_index = (value & flags::VDELXX_ON) as usize,
+            registers::VDELP1 => self.player1.bitmap_index = (value & flags::VDELXX_ON) as usize,
             registers::RESMP0 => self.reg_resmp0 = value,
             registers::RESMP1 => self.reg_resmp1 = value,
             // Note: there is an additional delay here, but it requires emulating the Hφ1 signal.
@@ -427,7 +435,10 @@ impl Memory for Tia {
 #[derive(Debug)]
 struct Sprite {
     counter: u32,
-    bitmap: u8,
+    /// New and old bitmap.
+    bitmaps: [u8; 2],
+    /// Index to the bitmaps array.
+    bitmap_index: usize,
     /// Index of the current bit being rendered (if any).
     current_bit: Option<u8>,
     reflect: bool,
@@ -446,7 +457,8 @@ impl Sprite {
     fn new(reset_delay: i32) -> Self {
         Sprite {
             counter: 0,
-            bitmap: 0b0000_0000,
+            bitmaps: [0b0000_0000, 0b0000_0000],
+            bitmap_index: 0,
             current_bit: None,
             reflect: false,
             reset_countdown: 0,
@@ -464,7 +476,7 @@ impl Sprite {
             None => 0,
             Some(bit) => 1 << if self.reflect { 7 - bit } else { bit },
         };
-        self.output_latch = self.bitmap & mask != 0;
+        self.output_latch = self.bitmaps[self.bitmap_index] & mask != 0;
         self.current_bit = match self.current_bit {
             None | Some(0) => None,
             Some(bit) => Some(bit - 1),

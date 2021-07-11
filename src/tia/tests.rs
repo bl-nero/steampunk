@@ -373,6 +373,62 @@ fn moves_sprites() {
 }
 
 #[test]
+fn sprite_delay() {
+    let mut tia = Tia::new();
+    tia.write(registers::COLUP0, 0x02).unwrap();
+    tia.write(registers::COLUP1, 0x04).unwrap();
+    tia.write(registers::VDELP0, flags::VDELXX_ON).unwrap();
+    tia.write(registers::VDELP1, flags::VDELXX_ON).unwrap();
+    // Reset both new and old values.
+    tia.write(registers::GRP0, 0b0000_0001).unwrap();
+    tia.write(registers::GRP1, 0b0000_0001).unwrap();
+    tia.write(registers::GRP0, 0b0000_0001).unwrap();
+    tia.write(registers::GRP1, 0b0000_0001).unwrap();
+
+    let p0_delay = 30 * 3;
+    let p1_delay = 3 * 3;
+    wait_ticks(&mut tia, p0_delay);
+    tia.write(registers::RESP0, 0).unwrap();
+    wait_ticks(&mut tia, p1_delay);
+    tia.write(registers::RESP1, 0).unwrap();
+    wait_ticks(&mut tia, TOTAL_WIDTH - p0_delay - p1_delay);
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000000000000000000000000000000000020000000040000000000000000000000000000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    // Write a new value to GRP0, update old value of GRP1. Since old value of
+    // GRP1 is the same as the new value of GRP1, no change is expected.
+    tia.write(registers::GRP0, 0b0000_0011).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000000000000000000000000000000000020000000040000000000000000000000000000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    // Write a new value to GRP1, update old value of GRP0.
+    tia.write(registers::GRP1, 0b0000_0011).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000000000000000000000000000000000220000000040000000000000000000000000000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    // Write a new value to GRP0, update old value of GRP1.
+    tia.write(registers::GRP0, 0b0000_0111).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000000000000000000000000000000000220000000440000000000000000000000000000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+}
+
+#[test]
 fn player_reflection() {
     let mut tia = Tia::new();
     tia.write(registers::COLUP0, 0x0A).unwrap();
