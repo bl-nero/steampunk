@@ -155,12 +155,6 @@ fn tells_riot_to_tick_every_three_cycles() {
 
 #[test]
 fn draws_playfield() {
-    let expected_output = decode_video_outputs(
-        "................||||||||||||||||....................................\
-         22220000222222222222000000002222222222220000222222220000222200002222222200002222\
-         22220000222222222222000000002222222222220000222222220000222200002222222200002222",
-    );
-
     let mut tia = Tia::new();
     tia.write(registers::COLUBK, 0).unwrap();
     tia.write(registers::COLUPF, 2).unwrap();
@@ -172,9 +166,13 @@ fn draws_playfield() {
         0xff & !flags::CTRLPF_REFLECT & !flags::CTRLPF_SCORE,
     )
     .unwrap();
-    // Generate two scanlines (2 * TOTAL_WIDTH clock cycles).
-    let output = VideoOutputIterator { tia: &mut tia }.take(TOTAL_WIDTH as usize);
-    itertools::assert_equal(output, expected_output);
+
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         22220000222222222222000000002222222222220000222222220000222200002222222200002222\
+         22220000222222222222000000002222222222220000222222220000222200002222222200002222",
+    );
 }
 
 #[test]
@@ -354,19 +352,32 @@ fn moves_sprites() {
     // Test RESMPx: make sure the missiles move along with players and stop
     // following them once they are freed.
     tia.write(registers::RESMP0, flags::RESMPX_RESET).unwrap();
-    tia.write(registers::RESMP1, flags::RESMPX_RESET).unwrap();
-
-    let mut scanline = scan_video(&mut tia, TOTAL_WIDTH);
-    tia.write(registers::RESMP0, 0).unwrap();
-    tia.write(registers::RESMP1, 0).unwrap();
-    scanline.append(&mut scan_video(&mut tia, TOTAL_WIDTH));
-
     assert_eq!(
-        encode_video_outputs(scanline),
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000000000000000000000000000220000220000000000000000000000000044000044000000400\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    tia.write(registers::RESMP1, flags::RESMPX_RESET).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
         "................||||||||||||||||....................................\
          00000000000000000000000000000220000220000000000000000000000000044000044000000000\
-         00000000000000000000000000000000000000000000000000000000000000000000000000000000\
-         ................||||||||||||||||....................................\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    tia.write(registers::RESMP0, 0).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000000000000000000000000000220020220000000000000000000000000044000044000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+    tia.write(registers::RESMP1, 0).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
          00000000000000000000000000000220020220000000000000000000000000044004044000000000\
          00000000000000000000000000000000000000000000000000000000000000000000000000000000",
     );

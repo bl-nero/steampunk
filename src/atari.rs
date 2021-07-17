@@ -34,7 +34,7 @@ impl Atari {
             joysticks: enum_map! { _ => Joystick::new() },
         };
         atari.update_switches_riot_port();
-        atari.update_joystick_riot_port();
+        atari.update_joystick_ports();
         return atari;
     }
 
@@ -107,10 +107,10 @@ impl Atari {
         state: bool,
     ) {
         self.joysticks[port].set_state(input, state);
-        self.update_joystick_riot_port();
+        self.update_joystick_ports();
     }
 
-    fn update_joystick_riot_port(&mut self) {
+    fn update_joystick_ports(&mut self) {
         let (left_dir_port, left_fire_port) = self.joysticks[JoystickPort::Left].port_values();
         let (right_dir_port, right_fire_port) = self.joysticks[JoystickPort::Right].port_values();
         self.mut_riot()
@@ -385,6 +385,12 @@ mod tests {
     fn playfield_timing() {
         let mut atari = atari_with_rom("playfield_timing.bin");
         assert_produces_frame(&mut atari, "playfield_timing.png", "playfield_timing");
+    }
+
+    #[test]
+    fn sprite_timing() {
+        let mut atari = atari_with_rom("sprite_timing.bin");
+        assert_produces_frame(&mut atari, "sprite_timing.png", "sprite_timing");
     }
 
     #[test]

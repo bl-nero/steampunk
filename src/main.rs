@@ -10,6 +10,7 @@ mod address_space;
 mod atari;
 mod colors;
 mod cpu;
+mod delay_buffer;
 mod frame_renderer;
 mod memory;
 mod riot;
@@ -188,8 +189,8 @@ fn main() {
 
 fn build_window(frame_image: &RgbaImage) -> PistonWindow {
     // Build a window.
-    let screen_width = frame_image.width() * 3;
-    let screen_height = frame_image.height() * 2;
+    let screen_width = frame_image.width() * 5;
+    let screen_height = frame_image.height() * 3;
     let window_settings =
         WindowSettings::new("Atari 2600", [screen_width, screen_height]).exit_on_esc(true);
     return window_settings.build().expect("Could not build a window");

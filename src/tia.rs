@@ -2,6 +2,7 @@ mod flags;
 mod registers;
 mod tests;
 
+use crate::delay_buffer::DelayBuffer;
 use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 use enum_map::{enum_map, Enum, EnumMap};
 
@@ -69,10 +70,8 @@ pub struct Tia {
     hsync_on: bool,
     /// Holds CPU ticks until we reach the end of a scanline.
     wait_for_sync: bool,
-    /// Temporarily stores a playfield register bit.
-    playfield_bit_latch_1: bool,
-    /// Temporarily stores a playfield register bit.
-    playfield_bit_latch_2: bool,
+    /// Temporarily latches playfield bits for rendering.
+    playfield_buffer: DelayBuffer<bool>,
     /// Latches the HMOVE signal until end of the scanline.
     hmove_latch: bool,
     /// Counts from 7 down to -8 while additional clock ticks are sent to the
@@ -83,9 +82,6 @@ pub struct Tia {
     player1: Sprite,
     missile0: Sprite,
     missile1: Sprite,
-    // missile_0_pos: u32,
-    // missile_1_pos: u32,
-    // ball_pos: u32,
 
     // "Raw" values on the input port pins. They don't necessarily directly
     // reflect `reg_inpt`, since they are not latched.
@@ -127,8 +123,7 @@ impl Tia {
             hsync_on: false,
             hblank_on: false,
             wait_for_sync: false,
-            playfield_bit_latch_1: false,
-            playfield_bit_latch_2: false,
+            playfield_buffer: DelayBuffer::new(2),
             hmove_latch: false,
             hmove_counter: 0,
             player0: Sprite::new(5),
@@ -178,23 +173,24 @@ impl Tia {
             self.hmove_counter -= 1;
         }
 
+        let p0_bit = self.player0.tick(!self.hblank_on);
+        let p1_bit = self.player1.tick(!self.hblank_on);
+        let m0_bit = self.missile0.tick(!self.hblank_on);
+        let m1_bit = self.missile1.tick(!self.hblank_on);
+
         let pixel = if self.hblank_on {
             None
         } else {
             let resmp0 = self.reg_resmp0 & flags::RESMPX_RESET != 0;
             let resmp1 = self.reg_resmp1 & flags::RESMPX_RESET != 0;
-            if resmp0 && self.player0.counter == 0 {
+            let m0_bit = !resmp0 && m0_bit;
+            let m1_bit = !resmp1 && m1_bit;
+            if resmp0 && self.player0.position_counter == 1 {
                 self.missile0.reset_position();
             }
-            if resmp1 && self.player1.counter == 0 {
+            if resmp1 && self.player1.position_counter == 1 {
                 self.missile1.reset_position();
             }
-            // Even if these bits can ultimately remain unused, we still need to
-            // perform a tick if we are outside the horizontal blank.
-            let p0_bit = self.player0.tick();
-            let p1_bit = self.player1.tick();
-            let m0_bit = self.missile0.tick() && !resmp0;
-            let m1_bit = self.missile1.tick() && !resmp1;
             if vblank_on {
                 None
             } else {
@@ -260,10 +256,10 @@ impl Tia {
 
     fn playfield_tick(&mut self) -> bool {
         if self.column_counter % 4 == 0 {
-            self.playfield_bit_latch_2 = self.playfield_bit_latch_1;
-            self.playfield_bit_latch_1 = self.playfield_bit_at(self.playfiled_bit_index_to_latch());
+            self.playfield_buffer
+                .shift(self.playfield_bit_at(self.playfiled_bit_index_to_latch()));
         }
-        return self.playfield_bit_latch_2;
+        return *self.playfield_buffer.peek();
     }
 
     fn playfield_bit_at(&self, playfield_bit_index: i32) -> bool {
@@ -434,11 +430,13 @@ impl Memory for Tia {
 /// RESPx register strobing.
 #[derive(Debug)]
 struct Sprite {
-    counter: u32,
+    position_counter: u32,
     /// New and old bitmap.
     bitmaps: [u8; 2],
     /// Index to the bitmaps array.
     bitmap_index: usize,
+    /// A buffer that holds the bitmap to be drawn.
+    bitmap_buffer: DelayBuffer<u8>,
     /// Index of the current bit being rendered (if any).
     current_bit: Option<u8>,
     reflect: bool,
@@ -448,62 +446,75 @@ struct Sprite {
     /// reset.
     reset_delay: i32,
     hmove_offset: i8,
-    /// A buffer that holds a pixel once its value is settled, but before it's
-    /// emitted.
-    output_latch: bool,
+    /// A buffer for bit masks.
+    mask_buffer: DelayBuffer<u8>,
+    /// A buffer that delays the "start drawing" signal.
+    start_drawing_buffer: DelayBuffer<bool>,
 }
 
 impl Sprite {
     fn new(reset_delay: i32) -> Self {
         Sprite {
-            counter: 0,
+            position_counter: 0,
             bitmaps: [0b0000_0000, 0b0000_0000],
             bitmap_index: 0,
+            bitmap_buffer: DelayBuffer::new(3),
             current_bit: None,
             reflect: false,
             reset_countdown: 0,
             reset_delay,
             hmove_offset: 0,
-            output_latch: false,
+            mask_buffer: DelayBuffer::new(3),
+            start_drawing_buffer: DelayBuffer::new(4),
         }
     }
 
     /// Performs a clock tick and returns `true` if a player pixel should be
     /// drawn, or `false` otherwise.
-    fn tick(&mut self) -> bool {
-        let output = self.output_latch;
-        let mask = match self.current_bit {
-            None => 0,
-            Some(bit) => 1 << if self.reflect { 7 - bit } else { bit },
-        };
-        self.output_latch = self.bitmaps[self.bitmap_index] & mask != 0;
-        self.current_bit = match self.current_bit {
-            None | Some(0) => None,
-            Some(bit) => Some(bit - 1),
-        };
-
-        self.counter = (self.counter + 1) % 160;
+    fn tick(&mut self, run_sprite_clock: bool) -> bool {
         if self.reset_countdown > 0 {
             self.reset_countdown -= 1;
             if self.reset_countdown == 0 {
-                self.counter = 0;
+                self.position_counter = 0;
             }
         }
-        if self.counter == 1 {
-            self.current_bit = Some(7);
+
+        let bitmap = self.bitmap_buffer.shift(self.bitmaps[self.bitmap_index]);
+
+        if run_sprite_clock {
+            let start = self
+                .start_drawing_buffer
+                .shift(self.position_counter == 156);
+            if start {
+                self.current_bit = Some(7);
+            }
+            let mask = self.mask_buffer.shift(match self.current_bit {
+                None => 0,
+                Some(bit) => 1 << if self.reflect { 7 - bit } else { bit },
+            });
+            self.current_bit = match self.current_bit {
+                None | Some(0) => None,
+                Some(bit) => Some(bit - 1),
+            };
+            self.position_counter = (self.position_counter + 1) % 160;
+            return bitmap & mask != 0;
+        } else {
+            return false;
         }
-        return output;
     }
 
     fn hmove_tick(&mut self, hmove_counter: i8) {
         if self.hmove_offset >= hmove_counter {
-            self.tick();
+            self.tick(true);
         }
     }
 
     /// Resets player position. Called when RESPx register gets strobed.
     fn reset_position(&mut self) {
         self.reset_countdown = self.reset_delay;
+        if self.reset_countdown == 0 {
+            self.position_counter = 0;
+        }
     }
 }
 
