@@ -388,6 +388,12 @@ mod tests {
     }
 
     #[test]
+    fn missile_alignment() {
+        let mut atari = atari_with_rom("missile_alignment.bin");
+        assert_produces_frame(&mut atari, "missile_alignment.png", "missile_alignment");
+    }
+
+    #[test]
     fn input() {
         let mut atari = atari_with_rom("io_monitor.bin");
         assert_eq!(
