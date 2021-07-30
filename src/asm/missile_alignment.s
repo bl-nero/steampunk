@@ -100,7 +100,59 @@ StartOfFrame:
             dex
             bne :-
 
+            jsr DrawCrosshairs
+            sta WSYNC
+
+            ; Test double-sized sprites.
+            lda #%00010101
+            sta NUSIZ0
+            sta NUSIZ1
+            sta WSYNC
+            sta WSYNC
+
+            jsr DrawCrosshairs
+
+            ; Test quad-sized sprites.
+            lda #%00100111
+            sta NUSIZ0
+            sta NUSIZ1
+            sta WSYNC
+            sta WSYNC
+
+            jsr DrawCrosshairs
+
+            lda #%00000000
+            sta NUSIZ0
+            sta NUSIZ1
+
+            ; Wait for the remaining scanlines.
+            ldx #(192 - 56)
+:           sta WSYNC
+            dex
+            bne :-
+
+            ; Start vertical blanking.
+            lda #%00000010
+            sta VBLANK
+
+            ; Move player sprites.
+            sta WSYNC
+            sta HMOVE
+
+            ; Wait for 35*64 cycles, which should be just short of 30 lines of overscan.
+            lda #35
+            sta TIM64T
+:           lda INTIM
+            bpl :-
+            sta WSYNC
+
+            jmp StartOfFrame
+
+DrawCrosshairs:
             ; Reset missiles to players
+            lda #%00000010
+            sta ENAM0
+            sta ENAM1
             sta RESMP0
             sta RESMP1
 
@@ -130,29 +182,7 @@ SpriteLoop: lda Sprite,x
             lda #0
             sta GRP0
             sta GRP1
-
-            ; Wait for the remaining scanlines.
-            ldx #(192 - 37)
-:           sta WSYNC
-            dex
-            bne :-
-
-            ; Start vertical blanking.
-            lda #%00000010
-            sta VBLANK
-
-            ; Move player sprites.
-            sta WSYNC
-            sta HMOVE
-
-            ; Wait for 35*64 cycles, which should be just short of 30 lines of overscan.
-            lda #35
-            sta TIM64T
-:           lda INTIM
-            bpl :-
-            sta WSYNC
-
-            jmp StartOfFrame
+            rts
 
 .segment "RODATA"
 Sprite:     .byte %01111111

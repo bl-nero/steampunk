@@ -480,6 +480,228 @@ fn player_reflection() {
 }
 
 #[test]
+fn sprite_copies() {
+    use flags::*;
+    use registers::{NUSIZ0, NUSIZ1};
+
+    let mut tia = Tia::new();
+    tia.write(registers::COLUP0, 0x0A).unwrap();
+    tia.write(registers::COLUP1, 0x0C).unwrap();
+    tia.write(registers::GRP0, 0b1010_0101).unwrap();
+    tia.write(registers::GRP1, 0b1010_0101).unwrap();
+    tia.write(registers::ENAM0, flags::ENAXX_ENABLE).unwrap();
+    tia.write(registers::ENAM1, flags::ENAXX_ENABLE).unwrap();
+
+    let p0_delay = 21 * 3;
+    let m0_delay = 3 * 3;
+    let p1_delay = 23 * 3;
+    let m1_delay = 4 * 3;
+    wait_ticks(&mut tia, p0_delay);
+    tia.write(registers::RESP0, 0).unwrap();
+    wait_ticks(&mut tia, m0_delay);
+    tia.write(registers::RESM0, 0).unwrap();
+    wait_ticks(&mut tia, p1_delay);
+    tia.write(registers::RESP1, 0).unwrap();
+    wait_ticks(&mut tia, m1_delay);
+    tia.write(registers::RESM1, 0).unwrap();
+    wait_ticks(
+        &mut tia,
+        TOTAL_WIDTH - p0_delay - p1_delay - m0_delay - m1_delay,
+    );
+    tia.write(registers::HMP0, 3 << 4).unwrap();
+    tia.write(registers::HMOVE, 0).unwrap();
+    wait_ticks(&mut tia, TOTAL_WIDTH);
+    tia.write(registers::HMP0, 0).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         A0A00A0A00A000000000000000000000000000000000000000000000000000000000000000000000\
+         C0C00C0C000C00000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    tia.write(NUSIZ0, NUSIZX_TWO_COPIES_CLOSE | NUSIZX_MISSILE_WIDTH_1)
+        .unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         A0A00A0A00A00000A0A00A0A00A00000000000000000000000000000000000000000000000000000\
+         C0C00C0C000C00000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    tia.write(NUSIZ0, NUSIZX_TWO_COPIES_MEDIUM | NUSIZX_MISSILE_WIDTH_1)
+        .unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         A0A00A0A00A000000000000000000000A0A00A0A00A0000000000000000000000000000000000000\
+         C0C00C0C000C00000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    tia.write(NUSIZ0, NUSIZX_TWO_COPIES_WIDE | NUSIZX_MISSILE_WIDTH_1)
+        .unwrap();
+    tia.write(NUSIZ1, NUSIZX_TWO_COPIES_CLOSE | NUSIZX_MISSILE_WIDTH_1)
+        .unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         A0A00A0A00A00000000000000000000000000000000000000000000000000000A0A00A0A00A00000\
+         C0C00C0C000C0000C0C00C0C000C0000000000000000000000000000000000000000000000000000",
+    );
+
+    tia.write(NUSIZ0, NUSIZX_THREE_COPIES_CLOSE | NUSIZX_MISSILE_WIDTH_1)
+        .unwrap();
+    tia.write(NUSIZ1, NUSIZX_ONE_COPY | NUSIZX_MISSILE_WIDTH_1)
+        .unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         A0A00A0A00A00000A0A00A0A00A00000A0A00A0A00A0000000000000000000000000000000000000\
+         C0C00C0C000C00000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    tia.write(NUSIZ0, NUSIZX_THREE_COPIES_MEDIUM | NUSIZX_MISSILE_WIDTH_1)
+        .unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         A0A00A0A00A000000000000000000000A0A00A0A00A000000000000000000000A0A00A0A00A00000\
+         C0C00C0C000C00000000000000000000000000000000000000000000000000000000000000000000",
+    );
+}
+
+#[test]
+fn sprite_scaling() {
+    use flags::*;
+    use registers::{NUSIZ0, NUSIZ1};
+
+    let mut tia = Tia::new();
+    tia.write(registers::COLUP0, 0x0A).unwrap();
+    tia.write(registers::COLUP1, 0x0C).unwrap();
+    tia.write(registers::GRP0, 0b1010_0101).unwrap();
+    tia.write(registers::GRP1, 0b1010_0101).unwrap();
+    tia.write(registers::ENAM0, flags::ENAXX_ENABLE).unwrap();
+    tia.write(registers::ENAM1, flags::ENAXX_ENABLE).unwrap();
+
+    let p0_delay = 22 * 3;
+    let m0_delay = 20 * 3;
+    let p1_delay = 7 * 3;
+    let m1_delay = 20 * 3;
+    wait_ticks(&mut tia, p0_delay);
+    tia.write(registers::RESP0, 0).unwrap();
+    wait_ticks(&mut tia, m0_delay);
+    tia.write(registers::RESM0, 0).unwrap();
+    wait_ticks(&mut tia, p1_delay);
+    tia.write(registers::RESP1, 0).unwrap();
+    wait_ticks(&mut tia, m1_delay);
+    tia.write(registers::RESM1, 0).unwrap();
+    wait_ticks(
+        &mut tia,
+        TOTAL_WIDTH - p0_delay - p1_delay - m0_delay - m1_delay,
+    );
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000A0A00A0A000000000000000000000000000000000000000000000000000A000000000000000\
+         000000C0C00C0C000000000000000000000000000000000000000000000000000C00000000000000",
+    );
+
+    tia.write(NUSIZ0, NUSIZX_DOUBLE_SIZED_PLAYER | NUSIZX_MISSILE_WIDTH_1)
+        .unwrap();
+    // Damn, I don't know if this should be necessary. But right now it is, or
+    // the sprite would become "warped".
+    wait_ticks(&mut tia, TOTAL_WIDTH);
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         000000AA00AA0000AA00AA000000000000000000000000000000000000000000A000000000000000\
+         000000C0C00C0C000000000000000000000000000000000000000000000000000C00000000000000",
+    );
+
+    tia.write(registers::HMOVE, 0).unwrap();
+    wait_ticks(&mut tia, TOTAL_WIDTH);
+    tia.write(registers::HMOVE, 0).unwrap();
+    wait_ticks(&mut tia, TOTAL_WIDTH);
+    tia.write(registers::HMM0, 0).unwrap();
+    tia.write(NUSIZ0, NUSIZX_QUAD_SIZED_PLAYER | NUSIZX_MISSILE_WIDTH_1)
+        .unwrap();
+    tia.write(NUSIZ1, NUSIZX_DOUBLE_SIZED_PLAYER | NUSIZX_MISSILE_WIDTH_1)
+        .unwrap();
+    wait_ticks(&mut tia, TOTAL_WIDTH);
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         000000AAAA0000AAAA00000000AAAA0000AAAA00000000000000000000000000A000000000000000\
+         0000000CC00CC0000CC00CC000000000000000000000000000000000000000000C00000000000000",
+    );
+}
+
+#[test]
+fn missile_scaling() {
+    use flags::*;
+    use registers::{NUSIZ0, NUSIZ1};
+
+    let mut tia = Tia::new();
+    tia.write(registers::COLUP0, 0x0A).unwrap();
+    tia.write(registers::COLUP1, 0x0C).unwrap();
+    tia.write(registers::GRP0, 0b1010_0101).unwrap();
+    tia.write(registers::GRP1, 0b1010_0101).unwrap();
+    tia.write(registers::ENAM0, flags::ENAXX_ENABLE).unwrap();
+    tia.write(registers::ENAM1, flags::ENAXX_ENABLE).unwrap();
+
+    let p0_delay = 22 * 3;
+    let m0_delay = 20 * 3;
+    let p1_delay = 7 * 3;
+    let m1_delay = 20 * 3;
+    wait_ticks(&mut tia, p0_delay);
+    tia.write(registers::RESP0, 0).unwrap();
+    wait_ticks(&mut tia, m0_delay);
+    tia.write(registers::RESM0, 0).unwrap();
+    wait_ticks(&mut tia, p1_delay);
+    tia.write(registers::RESP1, 0).unwrap();
+    wait_ticks(&mut tia, m1_delay);
+    tia.write(registers::RESM1, 0).unwrap();
+    wait_ticks(
+        &mut tia,
+        TOTAL_WIDTH - p0_delay - p1_delay - m0_delay - m1_delay,
+    );
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000A0A00A0A000000000000000000000000000000000000000000000000000A000000000000000\
+         000000C0C00C0C000000000000000000000000000000000000000000000000000C00000000000000",
+    );
+
+    tia.write(NUSIZ0, NUSIZX_ONE_COPY | NUSIZX_MISSILE_WIDTH_2)
+        .unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000A0A00A0A000000000000000000000000000000000000000000000000000AA00000000000000\
+         000000C0C00C0C000000000000000000000000000000000000000000000000000C00000000000000",
+    );
+
+    tia.write(NUSIZ0, NUSIZX_ONE_COPY | NUSIZX_MISSILE_WIDTH_4)
+        .unwrap();
+    tia.write(NUSIZ1, NUSIZX_DOUBLE_SIZED_PLAYER | NUSIZX_MISSILE_WIDTH_2)
+        .unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000A0A00A0A000000000000000000000000000000000000000000000000000AAAA000000000000\
+         0000000CC00CC0000CC00CC000000000000000000000000000000000000000000CC0000000000000",
+    );
+
+    tia.write(NUSIZ0, NUSIZX_ONE_COPY | NUSIZX_MISSILE_WIDTH_8)
+        .unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         00000A0A00A0A000000000000000000000000000000000000000000000000000AAAAAAAA00000000\
+         0000000CC00CC0000CC00CC000000000000000000000000000000000000000000CC0000000000000",
+    );
+}
+
+#[test]
 fn graphics_priorities() {
     let mut tia = Tia::new();
     tia.write(registers::COLUBK, 0x00).unwrap();
