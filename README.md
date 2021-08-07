@@ -34,4 +34,11 @@ Where `<rom-file-path>` is a path of the Atari 2600 ROM to be executed.
 
 # Compatibility
 
-In its current state, the emulator is just enough to support at least one officially supported Atari 2600 cartridge — I'm avoiding the word “game” purposefully here — _Basic Math_, a.k.a. _Fun with Numbers_. TIA supports playfield graphics, joystick readouts and nothing more, which is exactly what _Basic Math_ requires. No player graphics yet, and no sound. The 6502 module also supports just enough to support that single cartridge as a starting point, so it only supports only 111 out of 151 official 65xx opcodes.
+Currently, at least two official Atari 2600 cartridges are known to be supported:
+* _Basic Math_, a.k.a. _Fun with Numbers_
+* Combat
+
+Known issues:
+* Not all 6502 opcodes are supported (not even official ones)
+* No sound support
+* No support for bank switching
