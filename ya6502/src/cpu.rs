@@ -16,6 +16,9 @@ enum SequenceState {
     Opcode(u8, u32),
 }
 
+/// A 6502 CPU that operates on a given type of memory. A key to creating a
+/// working hardware implementation is to provide a `Memory` implementation
+/// specific to your particular hardware.
 #[derive(Debug)]
 pub struct Cpu<M: Memory> {
     memory: Box<M>,

@@ -1,18 +1,10 @@
 #![feature(test)]
-#![recursion_limit = "256"] // For assembly macros with long content
-
-#[cfg(test)]
-#[macro_use]
-#[no_link]
-extern crate rustasm6502;
 
 mod address_space;
 mod atari;
 mod colors;
-mod cpu;
 mod delay_buffer;
 mod frame_renderer;
-mod memory;
 mod riot;
 mod tia;
 
@@ -23,7 +15,6 @@ use atari::{
 };
 use frame_renderer::FrameRendererBuilder;
 use image::RgbaImage;
-use memory::{AtariRam, AtariRom};
 use piston_window::WindowSettings;
 use piston_window::{
     Button, ButtonState, Event, Filter, Input, Key, Loop, PistonWindow, Texture, TextureSettings,
@@ -34,6 +25,7 @@ use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tia::Tia;
+use ya6502::memory::{AtariRam, AtariRom};
 
 fn main() {
     println!("Ready player ONE!");

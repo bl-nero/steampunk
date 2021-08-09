@@ -1,6 +1,6 @@
-use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 use rand::Rng;
 use std::cell::Cell;
+use ya6502::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 
 /// A MOS Technology 6532 RIOT chip. Note that originally, this chip also
 /// included 128 bytes of RAM, but for the sake of single-responsibility

@@ -1,5 +1,5 @@
-use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 use std::fmt;
+use ya6502::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 
 /// Dispatches read/write calls to various devices with memory-mapped interfaces:
 /// TIA, RAM, RIOT (not yet implemented), and ROM.
@@ -86,8 +86,8 @@ fn hexdump(f: &mut fmt::Formatter, offset: u16, bytes: &[u8]) -> fmt::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::SimpleRam;
     use std::error;
+    use ya6502::memory::SimpleRam;
 
     #[test]
     fn reads_and_writes() -> Result<(), Box<dyn error::Error>> {

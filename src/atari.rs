@@ -1,7 +1,5 @@
 use crate::address_space::AddressSpace;
-use crate::cpu::Cpu;
 use crate::frame_renderer::FrameRenderer;
-use crate::memory::{AtariRam, AtariRom};
 use crate::riot;
 use crate::riot::Riot;
 use crate::tia;
@@ -10,6 +8,8 @@ use enum_map::{enum_map, Enum, EnumMap};
 use image;
 use image::RgbaImage;
 use std::error;
+use ya6502::cpu::Cpu;
+use ya6502::memory::{AtariRam, AtariRom};
 
 pub type AtariAddressSpace = AddressSpace<Tia, AtariRam, Riot, AtariRom>;
 
@@ -234,7 +234,6 @@ mod tests {
 
     use super::*;
     use crate::colors;
-    use crate::cpu::{opcodes, CpuHaltedError};
     use crate::frame_renderer::FrameRendererBuilder;
     use image::DynamicImage;
     use image::GenericImageView;
@@ -242,6 +241,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
     use test::Bencher;
+    use ya6502::cpu::{opcodes, CpuHaltedError};
 
     fn read_test_rom(name: &str) -> Vec<u8> {
         std::fs::read(Path::new(env!("OUT_DIR")).join("roms").join(name)).unwrap()

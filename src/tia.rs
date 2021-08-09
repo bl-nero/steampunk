@@ -3,8 +3,8 @@ mod registers;
 mod tests;
 
 use crate::delay_buffer::DelayBuffer;
-use crate::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 use enum_map::{enum_map, Enum, EnumMap};
+use ya6502::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 
 #[derive(Debug, Enum, Copy, Clone)]
 pub enum Port {
