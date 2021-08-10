@@ -1,5 +1,5 @@
 [workspace]
-members = ["ya6502"]
+members = ["atari2600", "ya6502"]
 
 # The "image" crate and some of its dependencies (especially "inflate" and
 # "adler32") are particularly slow in the debug mode. To avoid multi-second
@@ -12,27 +12,6 @@ opt-level = 2
 opt-level = 2
 [profile.dev.package.adler32]
 opt-level = 2
-
-[package]
-name = "atari-emulator"
-version = "0.1.0"
-authors = [
-    "Bartosz Leper <bl.nero@gmail.com>",
-    "technomaniak",
-]
-edition = "2018"
-
-[dependencies]
-image = "0.23.14"
-piston_window = "0.120.0"
-piston2d-graphics = "0.40.0"
-piston = "0.53.0"
-rand = "0.8.3"
-itertools = "0.10.0"
-ctrlc = "3.1.9"
-image-diff = "0.1.13"
-enum-map = "1.1.1"
-ya6502 = { path = "ya6502" }
 
 [patch.crates-io]
 # Must override the rustasm6502 crate because it doesn't properly support
