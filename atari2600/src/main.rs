@@ -7,24 +7,17 @@ mod delay_buffer;
 mod frame_renderer;
 mod riot;
 mod tia;
+mod ui;
 
 mod test_utils;
 
-use atari::{
-    Atari, AtariAddressSpace, FrameStatus, JoystickInput, JoystickPort, Switch, SwitchPosition,
-};
+use atari::{Atari, AtariAddressSpace};
 use frame_renderer::FrameRendererBuilder;
-use image::RgbaImage;
-use piston_window::WindowSettings;
-use piston_window::{
-    Button, ButtonState, Event, Filter, Input, Key, Loop, PistonWindow, Texture, TextureSettings,
-    Window,
-};
 use riot::Riot;
 use std::env;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tia::Tia;
+use ui::Application;
 use ya6502::memory::{AtariRam, AtariRom};
 
 fn main() {
@@ -47,143 +40,15 @@ fn main() {
             .with_height(210)
             .build(),
     );
-    atari.reset().expect("Unable to reset Atari");
 
-    let mut window = build_window(atari.frame_image());
+    let mut app = Application::new(&mut atari);
+    let interrupted = app.interrupted();
 
-    // Create a texture.
-    let texture_settings = TextureSettings::new().mag(Filter::Nearest);
-    let mut texture_context = window.create_texture_context();
-    let mut texture =
-        Texture::from_image(&mut texture_context, atari.frame_image(), &texture_settings)
-            .expect("Could not create a texture");
+    ctrlc::set_handler(move || {
+        eprintln!("Terminating.");
+        interrupted.store(true, Ordering::Relaxed);
+    })
+    .expect("Unable to set interrupt signal handler");
 
-    let interrupted = Arc::new(AtomicBool::new(false));
-    {
-        let interrupted = interrupted.clone();
-        ctrlc::set_handler(move || {
-            eprintln!("Terminating.");
-            interrupted.store(true, Ordering::Relaxed);
-        })
-        .expect("Unable to set the Ctrl-C handler");
-    }
-
-    // Main loop.
-    let mut running = true;
-    while let Some(e) = window.next() {
-        let window_size = window.size();
-        match e {
-            Event::Input(
-                Input::Button(piston_window::ButtonArgs {
-                    state: ButtonState::Press,
-                    button: Button::Keyboard(key @ (Key::D1 | Key::D2 | Key::D3)),
-                    ..
-                }),
-                _timestamp,
-            ) => {
-                if let Some(switch) = match key {
-                    Key::D1 => Some(Switch::TvType),
-                    Key::D2 => Some(Switch::LeftDifficulty),
-                    Key::D3 => Some(Switch::RightDifficulty),
-                    _ => None,
-                } {
-                    atari.flip_switch(switch, !atari.switch_position(switch));
-                }
-            }
-            Event::Input(
-                Input::Button(piston_window::ButtonArgs {
-                    state,
-                    button: Button::Keyboard(key @ (Key::D4 | Key::D5)),
-                    ..
-                }),
-                _timestamp,
-            ) => {
-                if let Some(switch) = match key {
-                    Key::D4 => Some(Switch::GameSelect),
-                    Key::D5 => Some(Switch::GameReset),
-                    _ => None,
-                } {
-                    atari.flip_switch(
-                        switch,
-                        match state {
-                            ButtonState::Press => SwitchPosition::Down,
-                            ButtonState::Release => SwitchPosition::Up,
-                        },
-                    );
-                }
-            }
-            Event::Input(
-                Input::Button(piston_window::ButtonArgs {
-                    state,
-                    button: Button::Keyboard(key),
-                    ..
-                }),
-                _timestamp,
-            ) => {
-                if let Some((port, input)) = match key {
-                    Key::W => Some((JoystickPort::Left, JoystickInput::Up)),
-                    Key::A => Some((JoystickPort::Left, JoystickInput::Left)),
-                    Key::S => Some((JoystickPort::Left, JoystickInput::Down)),
-                    Key::D => Some((JoystickPort::Left, JoystickInput::Right)),
-                    Key::LShift | Key::Space => Some((JoystickPort::Left, JoystickInput::Fire)),
-
-                    Key::I | Key::Up => Some((JoystickPort::Right, JoystickInput::Up)),
-                    Key::J | Key::Left => Some((JoystickPort::Right, JoystickInput::Left)),
-                    Key::K | Key::Down => Some((JoystickPort::Right, JoystickInput::Down)),
-                    Key::L | Key::Right => Some((JoystickPort::Right, JoystickInput::Right)),
-                    Key::N | Key::Period => Some((JoystickPort::Right, JoystickInput::Fire)),
-                    _ => None,
-                } {
-                    atari.set_joystick_input_state(port, input, state == ButtonState::Press);
-                };
-            }
-            Event::Loop(Loop::Render(_)) => {
-                // TODO: This code is a total mess. I need to clean it up.
-                while running {
-                    match atari.tick() {
-                        Ok(FrameStatus::Pending) => {}
-                        Ok(FrameStatus::Complete) => break,
-                        Err(e) => {
-                            running = false;
-                            eprintln!("ERROR: {}. Atari halted.", e);
-                            eprintln!("{}", atari.cpu());
-                            eprintln!("{}", atari.cpu().memory());
-                        }
-                    }
-                    if interrupted.load(Ordering::Relaxed) {
-                        eprintln!("{}", atari.cpu());
-                        eprintln!("{}", atari.cpu().memory());
-                        std::process::exit(1);
-                    }
-                }
-                if interrupted.load(Ordering::Relaxed) {
-                    eprintln!("{}", atari.cpu());
-                    eprintln!("{}", atari.cpu().memory());
-                    std::process::exit(1);
-                }
-                window.draw_2d(&e, |ctx, g, device| {
-                    let frame_image = atari.frame_image();
-                    texture
-                        .update(&mut texture_context, frame_image)
-                        .expect("Unable to update texture");
-                    graphics::clear([0.0, 0.0, 0.0, 1.0], g);
-                    graphics::Image::new()
-                        .rect([0.0, 0.0, window_size.width, window_size.height])
-                        .draw(&texture, &ctx.draw_state, ctx.transform, g);
-                    texture_context.encoder.flush(device);
-                });
-            }
-            _ => {}
-        };
-        window.event(&e);
-    }
-}
-
-fn build_window(frame_image: &RgbaImage) -> PistonWindow {
-    // Build a window.
-    let screen_width = frame_image.width() * 5;
-    let screen_height = frame_image.height() * 3;
-    let window_settings =
-        WindowSettings::new("Atari 2600", [screen_width, screen_height]).exit_on_esc(true);
-    return window_settings.build().expect("Could not build a window");
+    app.run();
 }
