@@ -1,23 +1,23 @@
 #![feature(test)]
 
 mod address_space;
+mod app;
 mod atari;
 mod colors;
 mod delay_buffer;
 mod frame_renderer;
 mod riot;
 mod tia;
-mod ui;
 
 mod test_utils;
 
+use app::Application;
 use atari::{Atari, AtariAddressSpace};
 use frame_renderer::FrameRendererBuilder;
 use riot::Riot;
 use std::env;
 use std::sync::atomic::Ordering;
 use tia::Tia;
-use ui::Application;
 use ya6502::memory::{AtariRam, AtariRom};
 
 fn main() {

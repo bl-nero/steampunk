@@ -218,3 +218,128 @@ impl View {
         texture_context.encoder.flush(device);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::assert_images_equal;
+    use crate::test_utils::atari_with_rom;
+    use crate::test_utils::read_test_image;
+    use image::DynamicImage;
+    use piston_window::ButtonArgs;
+    use piston_window::UpdateArgs;
+
+    fn assert_current_frame(controller: &mut Controller, test_image_name: &str, test_name: &str) {
+        let actual_image = DynamicImage::ImageRgba8(controller.frame_image().clone());
+        let expected_image = read_test_image(test_image_name);
+        assert_images_equal(actual_image, expected_image, test_name);
+    }
+
+    #[test]
+    fn controller_produces_image() {
+        let mut atari = atari_with_rom("horizontal_stripes.bin");
+        let mut controller = Controller::new(&mut atari, Arc::new(AtomicBool::new(false)));
+        controller.reset();
+        controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
+        assert_current_frame(
+            &mut controller,
+            "horizontal_stripes_1.png",
+            "controller_produces_image",
+        );
+    }
+
+    fn send_key(controller: &mut Controller, key: Key, state: ButtonState) {
+        controller.event(&Event::from(ButtonArgs {
+            button: Button::Keyboard(key),
+            state,
+            scancode: None,
+        }));
+    }
+
+    #[test]
+    fn console_switches() {
+        let mut atari = atari_with_rom("io_monitor.bin");
+        let mut controller = Controller::new(&mut atari, Arc::new(AtomicBool::new(false)));
+        controller.reset();
+        controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
+        assert_current_frame(
+            &mut controller,
+            "console_switches_1.png",
+            "console_switches_1",
+        );
+
+        send_key(&mut controller, Key::D1, ButtonState::Press);
+        send_key(&mut controller, Key::D2, ButtonState::Press);
+        send_key(&mut controller, Key::D3, ButtonState::Press);
+        send_key(&mut controller, Key::D4, ButtonState::Press);
+        send_key(&mut controller, Key::D5, ButtonState::Press);
+        controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
+        assert_current_frame(
+            &mut controller,
+            "console_switches_2.png",
+            "console_switches_2",
+        );
+
+        send_key(&mut controller, Key::D1, ButtonState::Release);
+        send_key(&mut controller, Key::D2, ButtonState::Release);
+        send_key(&mut controller, Key::D3, ButtonState::Release);
+        send_key(&mut controller, Key::D4, ButtonState::Release);
+        send_key(&mut controller, Key::D5, ButtonState::Release);
+        controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
+        assert_current_frame(
+            &mut controller,
+            "console_switches_3.png",
+            "console_switches_3",
+        );
+
+        send_key(&mut controller, Key::D1, ButtonState::Press);
+        send_key(&mut controller, Key::D2, ButtonState::Press);
+        send_key(&mut controller, Key::D3, ButtonState::Press);
+        send_key(&mut controller, Key::D4, ButtonState::Press);
+        send_key(&mut controller, Key::D5, ButtonState::Press);
+        controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
+        assert_current_frame(
+            &mut controller,
+            "console_switches_4.png",
+            "console_switches_4",
+        );
+
+        send_key(&mut controller, Key::D1, ButtonState::Release);
+        send_key(&mut controller, Key::D2, ButtonState::Release);
+        send_key(&mut controller, Key::D3, ButtonState::Release);
+        send_key(&mut controller, Key::D4, ButtonState::Release);
+        send_key(&mut controller, Key::D5, ButtonState::Release);
+        controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
+        assert_current_frame(
+            &mut controller,
+            "console_switches_1.png",
+            "console_switches_5",
+        );
+    }
+
+    #[test]
+    fn joysticks() {
+        let mut atari = atari_with_rom("io_monitor.bin");
+        let mut controller = Controller::new(&mut atari, Arc::new(AtomicBool::new(false)));
+        controller.reset();
+        controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
+
+        send_key(&mut controller, Key::I, ButtonState::Press);
+        send_key(&mut controller, Key::J, ButtonState::Press);
+        send_key(&mut controller, Key::N, ButtonState::Press);
+        send_key(&mut controller, Key::S, ButtonState::Press);
+        send_key(&mut controller, Key::D, ButtonState::Press);
+        send_key(&mut controller, Key::LShift, ButtonState::Press);
+        controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
+        assert_current_frame(&mut controller, "joysticks_1.png", "joysticks_1");
+
+        send_key(&mut controller, Key::K, ButtonState::Press);
+        send_key(&mut controller, Key::L, ButtonState::Press);
+        send_key(&mut controller, Key::N, ButtonState::Release);
+        send_key(&mut controller, Key::A, ButtonState::Press);
+        send_key(&mut controller, Key::W, ButtonState::Press);
+        send_key(&mut controller, Key::LShift, ButtonState::Release);
+        controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
+        assert_current_frame(&mut controller, "joysticks_2.png", "joysticks_2");
+    }
+}

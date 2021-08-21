@@ -235,39 +235,13 @@ mod tests {
     use super::*;
     use crate::colors;
     use crate::frame_renderer::FrameRendererBuilder;
+    use crate::test_utils::assert_images_equal;
+    use crate::test_utils::atari_with_rom;
+    use crate::test_utils::read_test_image;
+    use crate::test_utils::read_test_rom;
     use image::DynamicImage;
-    use image::GenericImageView;
-    use image_diff;
-    use std::fs;
-    use std::path::Path;
     use test::Bencher;
     use ya6502::cpu::{opcodes, CpuHaltedError};
-
-    fn read_test_rom(name: &str) -> Vec<u8> {
-        std::fs::read(Path::new(env!("OUT_DIR")).join("roms").join(name)).unwrap()
-    }
-
-    fn read_test_image(name: &str) -> DynamicImage {
-        image::open(Path::new("src").join("test_data").join(name)).unwrap()
-    }
-
-    fn atari_with_rom(file_name: &str) -> Atari {
-        let rom = read_test_rom(file_name);
-        let address_space = Box::new(AtariAddressSpace {
-            tia: Tia::new(),
-            ram: AtariRam::new(),
-            riot: Riot::new(),
-            rom: AtariRom::new(&rom).unwrap(),
-        });
-        let mut atari = Atari::new(
-            address_space,
-            FrameRendererBuilder::new()
-                .with_palette(colors::ntsc_palette())
-                .build(),
-        );
-        atari.reset().unwrap();
-        return atari;
-    }
 
     fn next_frame(atari: &mut Atari) -> Result<RgbaImage, Box<dyn error::Error>> {
         loop {
@@ -283,43 +257,6 @@ mod tests {
             }
         }
         return Ok(atari.frame_renderer.frame_image().clone());
-    }
-
-    fn assert_images_equal(actual: DynamicImage, expected: DynamicImage, test_name: &str) {
-        let equal = itertools::equal(actual.pixels(), expected.pixels());
-        if equal {
-            return;
-        }
-
-        let dir_path = Path::new(env!("OUT_DIR")).join("test_results");
-        fs::create_dir_all(&dir_path).unwrap();
-        let actual_path = dir_path
-            .join(String::from(test_name) + "-actual")
-            .with_extension("png");
-        let expected_path = dir_path
-            .join(String::from(test_name) + "-expected")
-            .with_extension("png");
-        let diff_path = dir_path
-            .join(String::from(test_name) + "-diff")
-            .with_extension("png");
-        let new_golden_path = dir_path
-            .join(String::from(test_name) + "-new-golden")
-            .with_extension("png");
-        actual.save(&new_golden_path).unwrap();
-
-        let diff = image_diff::diff(&expected, &actual).unwrap();
-
-        actual.save(&actual_path).unwrap();
-        expected.save(&expected_path).unwrap();
-        diff.save(&diff_path).unwrap();
-        panic!(
-            "Images differ for test {}\nActual: {}\nExpected: {}\nDiff: {}\nNew golden: {}",
-            test_name,
-            actual_path.display(),
-            expected_path.display(),
-            diff_path.display(),
-            new_golden_path.display(),
-        );
     }
 
     fn assert_produces_frame(atari: &mut Atari, test_image_name: &str, test_name: &str) {
