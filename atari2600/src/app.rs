@@ -236,15 +236,31 @@ mod tests {
     }
 
     #[test]
-    fn controller_produces_image() {
-        let mut atari = atari_with_rom("horizontal_stripes.bin");
+    fn controller_produces_images_until_interrupted() {
+        let mut atari = atari_with_rom("horizontal_stripes_animated.bin");
         let mut controller = Controller::new(&mut atari, Arc::new(AtomicBool::new(false)));
         controller.reset();
+
         controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
         assert_current_frame(
             &mut controller,
             "horizontal_stripes_1.png",
-            "controller_produces_image",
+            "controller_produces_image_until_interrupted_1",
+        );
+
+        controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
+        assert_current_frame(
+            &mut controller,
+            "horizontal_stripes_2.png",
+            "controller_produces_image_until_interrupted_2",
+        );
+
+        controller.interrupted.store(true, Ordering::Relaxed);
+        controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
+        assert_current_frame(
+            &mut controller,
+            "horizontal_stripes_2.png",
+            "controller_produces_image_until_interrupted_3",
         );
     }
 
