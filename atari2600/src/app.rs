@@ -46,6 +46,12 @@ impl<'a> Application<'a> {
                 view.draw(frame_image, ctx, graphics, device);
             });
             self.window.event(&e);
+            if self.controller.interrupted.load(Ordering::Relaxed) {
+                eprintln!("Interrupted!");
+                eprintln!("{}", self.controller.atari.cpu());
+                eprintln!("{}", self.controller.atari.cpu().memory());
+                return;
+            }
         }
     }
 
@@ -157,12 +163,6 @@ impl<'a> Controller<'a> {
                     eprintln!("{}", self.atari.cpu());
                     eprintln!("{}", self.atari.cpu().memory());
                 };
-                if self.interrupted.load(Ordering::Relaxed) {
-                    eprintln!("Interrupted!");
-                    eprintln!("{}", self.atari.cpu());
-                    eprintln!("{}", self.atari.cpu().memory());
-                    std::process::exit(1);
-                }
             }
             _ => {}
         }
