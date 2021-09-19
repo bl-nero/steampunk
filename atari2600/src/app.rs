@@ -26,12 +26,11 @@ impl<'a> Application<'a> {
         window.set_ups(60);
         let texture_context = window.create_texture_context();
         let view = View::new(texture_context, &atari);
-        let interrupted = Arc::new(AtomicBool::new(false));
 
         Self {
             window,
             view,
-            controller: Controller::new(atari, interrupted),
+            controller: Controller::new(atari),
         }
     }
 
@@ -70,11 +69,11 @@ struct Controller<'a> {
 }
 
 impl<'a> Controller<'a> {
-    fn new(atari: &'a mut Atari, interrupted: Arc<AtomicBool>) -> Self {
+    fn new(atari: &'a mut Atari) -> Self {
         return Controller {
             atari,
             running: false,
-            interrupted,
+            interrupted: Arc::new(AtomicBool::new(false)),
         };
     }
 
@@ -238,7 +237,7 @@ mod tests {
     #[test]
     fn controller_produces_images_until_interrupted() {
         let mut atari = atari_with_rom("horizontal_stripes_animated.bin");
-        let mut controller = Controller::new(&mut atari, Arc::new(AtomicBool::new(false)));
+        let mut controller = Controller::new(&mut atari);
         controller.reset();
 
         controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
@@ -275,7 +274,7 @@ mod tests {
     #[test]
     fn console_switches() {
         let mut atari = atari_with_rom("io_monitor.bin");
-        let mut controller = Controller::new(&mut atari, Arc::new(AtomicBool::new(false)));
+        let mut controller = Controller::new(&mut atari);
         controller.reset();
         controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
         assert_current_frame(
@@ -336,7 +335,7 @@ mod tests {
     #[test]
     fn joysticks() {
         let mut atari = atari_with_rom("io_monitor.bin");
-        let mut controller = Controller::new(&mut atari, Arc::new(AtomicBool::new(false)));
+        let mut controller = Controller::new(&mut atari);
         controller.reset();
         controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
 

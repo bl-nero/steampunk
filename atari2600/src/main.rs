@@ -3,6 +3,7 @@
 mod address_space;
 mod app;
 mod atari;
+mod audio;
 mod colors;
 mod delay_buffer;
 mod frame_renderer;
@@ -33,12 +34,14 @@ fn main() {
         riot: Riot::new(),
         rom: AtariRom::new(&rom_bytes[..]).expect("Unable to load the ROM into Atari"),
     });
+    let (audio_consumer, stream, _sink) = audio::initialize();
     let mut atari = Atari::new(
         address_space,
         FrameRendererBuilder::new()
             .with_palette(colors::ntsc_palette())
             .with_height(210)
             .build(),
+        audio_consumer,
     );
 
     let mut app = Application::new(&mut atari);
@@ -51,4 +54,14 @@ fn main() {
     .expect("Unable to set interrupt signal handler");
 
     app.run();
+
+    // Note: The order of dropping is important here, hence we make it explicit.
+    // If we drop Atari before the audio stream, we'll end up with a potential
+    // deadlock: the audio stream may not finish until a blocking read of the
+    // audio sample is performed, and it won't be interrupted unless we "hang
+    // up" on the writing side (the AudioConsumer), which owns an
+    // mspc::SyncSender instance. Since the audio consumer is owned by Atari, we
+    // need to drop it first.
+    drop(atari);
+    drop(stream);
 }

@@ -1,4 +1,5 @@
 use crate::address_space::AddressSpace;
+use crate::audio::AudioConsumer;
 use crate::frame_renderer::FrameRenderer;
 use crate::riot;
 use crate::riot::Riot;
@@ -16,6 +17,7 @@ pub type AtariAddressSpace = AddressSpace<Tia, AtariRam, Riot, AtariRom>;
 pub struct Atari {
     cpu: Cpu<AtariAddressSpace>,
     frame_renderer: FrameRenderer,
+    audio_consumer: AudioConsumer,
     switch_positions: EnumMap<Switch, SwitchPosition>,
     joysticks: EnumMap<JoystickPort, Joystick>,
 }
@@ -26,10 +28,15 @@ pub enum FrameStatus {
 }
 
 impl Atari {
-    pub fn new(address_space: Box<AtariAddressSpace>, frame_renderer: FrameRenderer) -> Self {
+    pub fn new(
+        address_space: Box<AtariAddressSpace>,
+        frame_renderer: FrameRenderer,
+        audio_consumer: AudioConsumer,
+    ) -> Self {
         let mut atari = Atari {
             cpu: Cpu::new(address_space),
             frame_renderer,
+            audio_consumer,
             switch_positions: enum_map! { _ => SwitchPosition::Up },
             joysticks: enum_map! { _ => Joystick::new() },
         };
@@ -62,6 +69,9 @@ impl Atari {
         }
         if tia_result.riot_tick {
             self.mut_riot().tick();
+        }
+        if let Some(audio) = tia_result.audio {
+            self.audio_consumer.consume((audio.au0 + audio.au1) / 2.0);
         }
         return if self.frame_renderer.consume(tia_result.video) {
             Ok(FrameStatus::Complete)
@@ -233,6 +243,7 @@ mod tests {
     extern crate test;
 
     use super::*;
+    use crate::audio::create_consumer_and_source;
     use crate::colors;
     use crate::frame_renderer::FrameRendererBuilder;
     use crate::test_utils::assert_images_equal;
@@ -458,11 +469,13 @@ mod tests {
                 riot: Riot::new(),
                 rom: AtariRom::new(&rom).unwrap(),
             });
+            let (consumer, _) = create_consumer_and_source();
             let mut atari = Atari::new(
                 address_space,
                 FrameRendererBuilder::new()
                     .with_palette(colors::ntsc_palette())
                     .build(),
+                consumer,
             );
 
             atari.reset().unwrap();

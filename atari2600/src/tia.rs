@@ -122,6 +122,9 @@ pub struct Tia {
     // A temporary hack to allow one-time initialization before complaining each
     // time a register is written to.
     initialized_registers: [bool; 0x100],
+
+    // TODO: Temporary. Remove before merging to master.
+    x: u32,
 }
 
 impl Tia {
@@ -167,6 +170,7 @@ impl Tia {
             // ball_pos: 0,
             input_ports: enum_map! { _ => true },
             initialized_registers: [false; 0x100],
+            x: 0,
         }
     }
 
@@ -280,6 +284,7 @@ impl Tia {
                 vsync: vsync_on,
                 pixel,
             },
+            audio: self.audio_tick(),
             riot_tick: self.column_counter % 3 == 0,
             cpu_tick: !self.wait_for_sync && self.column_counter % 3 == 0,
         };
@@ -334,6 +339,16 @@ impl Tia {
                 39 - x // Reflected mode (reflect the left half).
             }
         };
+    }
+
+    fn audio_tick(&mut self) -> Option<AudioOutput> {
+        // TODO: Temporary. Remove before merging to master.
+        if self.column_counter != 0 && self.column_counter != TOTAL_WIDTH / 2 {
+            return None;
+        }
+        self.x += 1;
+        let au0 = if self.x % 10 < 5 { 1.0 } else { -1.0 };
+        return Some(AudioOutput { au0, au1: 0.0 });
     }
 
     pub fn set_port(&mut self, port: Port, value: bool) {
@@ -593,6 +608,7 @@ fn missile_reset_delay_for_player(player: &Sprite) -> i32 {
 /// other parts of the system.
 pub struct TiaOutput {
     pub video: VideoOutput,
+    pub audio: Option<AudioOutput>,
     /// If `true`, TIA allows CPU to perform a tick. Otherwise, the CPU is put on
     /// hold.
     pub cpu_tick: bool,
@@ -661,10 +677,7 @@ pub const FRAME_WIDTH: u32 = 160;
 pub const LAST_COLUMN: u32 = TOTAL_WIDTH - 1;
 pub const TOTAL_WIDTH: u32 = FRAME_WIDTH + HBLANK_WIDTH;
 
-// On the second thought, these constants will probably be more needed
-// elsewhere...
-// const FRAME_HEIGHT: i32 = 192;
-// const VSYNC_HEIGHT: i32 = 3;
-// const V_BLANK_HEIGHT: i32 = 37;
-// const OVERSCAN_HEIGHT: i32 = 30;
-// const TOTAL_HEIGHT: i32 = FRAME_HEIGHT + VSYNC_HEIGHT + V_BLANK_HEIGHT;
+pub struct AudioOutput {
+    pub au0: f32,
+    pub au1: f32,
+}

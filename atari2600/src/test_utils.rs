@@ -1,4 +1,5 @@
 #![cfg(test)]
+use crate::audio::create_consumer_and_source;
 use crate::colors;
 use crate::tia::VideoOutput;
 use crate::Atari;
@@ -113,11 +114,13 @@ pub fn atari_with_rom(file_name: &str) -> Atari {
         riot: Riot::new(),
         rom: AtariRom::new(&rom).unwrap(),
     });
+    let (consumer, _) = create_consumer_and_source();
     let mut atari = Atari::new(
         address_space,
         FrameRendererBuilder::new()
             .with_palette(colors::ntsc_palette())
             .build(),
+        consumer,
     );
     atari.reset().unwrap();
     return atari;
