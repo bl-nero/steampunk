@@ -5,7 +5,6 @@ mod app;
 mod atari;
 mod audio;
 mod colors;
-mod delay_buffer;
 mod frame_renderer;
 mod riot;
 mod tia;

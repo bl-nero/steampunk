@@ -1,9 +1,14 @@
+mod audio_generator;
+mod delay_buffer;
 mod flags;
 mod registers;
+mod sprite;
 mod tests;
 
-use crate::delay_buffer::DelayBuffer;
+use audio_generator::AudioGenerator;
+use delay_buffer::DelayBuffer;
 use enum_map::{enum_map, Enum, EnumMap};
+use sprite::{missile_reset_delay_for_player, set_reg_nusiz, Sprite};
 use ya6502::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 
 #[derive(Debug, Enum, Copy, Clone)]
@@ -11,38 +16,6 @@ pub enum Port {
     Input4,
     Input5,
 }
-
-/// A list of position counter values that trigger a "start drawing" signal for
-/// player sprites. Indexes are values of NUSIZx registers, masked with
-/// `flags::NUSIZX_PLAYER_MASK`.
-const PLAYER_OFFSETS: [&[i32]; 8] = [
-    &[156],
-    &[156, 12],
-    &[156, 28],
-    &[156, 12, 28],
-    &[156, 60],
-    // Note: For some reason, double or quad-size player sprites add 1 CLK to
-    // the position counter, hence 157 instead of 156.
-    &[157],
-    &[156, 28, 60],
-    &[157],
-];
-
-/// A list of position counter values that trigger a "start drawing" signal for
-/// missile sprites. Indexes are values of NUSIZx registers, masked with
-/// `flags::NUSIZX_PLAYER_MASK`.
-///
-/// TODO: this probably needs tweaking.
-const MISSILE_OFFSETS: [&[i32]; 8] = [
-    &[156],
-    &[156, 12],
-    &[156, 28],
-    &[156, 12, 28],
-    &[156, 60],
-    &[156],
-    &[156, 28, 60],
-    &[156],
-];
 
 /// TIA is responsible for generating the video signal, sound (not yet
 /// implemented) and for synchronizing CPU with the screen's electron beam.
@@ -220,11 +193,11 @@ impl Tia {
             let resmp1 = self.reg_resmp1 & flags::RESMPX_RESET != 0;
             let m0_bit = !resmp0 && m0_bit;
             let m1_bit = !resmp1 && m1_bit;
-            if resmp0 && self.player0.position_counter == 1 {
+            if resmp0 && self.player0.position_counter() == 1 {
                 self.missile0
                     .reset_position(missile_reset_delay_for_player(&self.player0));
             }
-            if resmp1 && self.player1.position_counter == 1 {
+            if resmp1 && self.player1.position_counter() == 1 {
                 self.missile1
                     .reset_position(missile_reset_delay_for_player(&self.player1));
             }
@@ -404,8 +377,8 @@ impl Memory for Tia {
             registers::COLUPF => self.reg_colupf = value,
             registers::COLUBK => self.reg_colubk = value,
             registers::CTRLPF => self.reg_ctrlpf = value,
-            registers::REFP0 => self.player0.reflect = value & flags::REFPX_REFLECT != 0,
-            registers::REFP1 => self.player1.reflect = value & flags::REFPX_REFLECT != 0,
+            registers::REFP0 => self.player0.set_reg_refp(value),
+            registers::REFP1 => self.player1.set_reg_refp(value),
             registers::PF0 => self.reg_pf0 = value,
             registers::PF1 => self.reg_pf1 = value,
             registers::PF2 => self.reg_pf2 = value,
@@ -423,21 +396,21 @@ impl Memory for Tia {
             registers::AUDV1 => self.audio1.set_volume(value),
 
             registers::GRP0 => {
-                self.player1.bitmaps[1] = self.player1.bitmaps[0];
-                self.player0.bitmaps[0] = value;
+                self.player1.shift_bitmaps();
+                self.player0.set_bitmap(value);
             }
             registers::GRP1 => {
-                self.player0.bitmaps[1] = self.player0.bitmaps[0];
-                self.player1.bitmaps[0] = value;
+                self.player0.shift_bitmaps();
+                self.player1.set_bitmap(value);
             }
-            registers::ENAM0 => self.missile0.bitmaps[0] = (value & flags::ENAXX_ENABLE) << 6,
-            registers::ENAM1 => self.missile1.bitmaps[0] = (value & flags::ENAXX_ENABLE) << 6,
-            registers::HMP0 => self.player0.hmove_offset = (value as i8) >> 4,
-            registers::HMP1 => self.player1.hmove_offset = (value as i8) >> 4,
-            registers::HMM0 => self.missile0.hmove_offset = (value as i8) >> 4,
-            registers::HMM1 => self.missile1.hmove_offset = (value as i8) >> 4,
-            registers::VDELP0 => self.player0.bitmap_index = (value & flags::VDELXX_ON) as usize,
-            registers::VDELP1 => self.player1.bitmap_index = (value & flags::VDELXX_ON) as usize,
+            registers::ENAM0 => self.missile0.set_bitmap((value & flags::ENAXX_ENABLE) << 6),
+            registers::ENAM1 => self.missile1.set_bitmap((value & flags::ENAXX_ENABLE) << 6),
+            registers::HMP0 => self.player0.set_reg_hm(value),
+            registers::HMP1 => self.player1.set_reg_hm(value),
+            registers::HMM0 => self.missile0.set_reg_hm(value),
+            registers::HMM1 => self.missile1.set_reg_hm(value),
+            registers::VDELP0 => self.player0.set_reg_vdel(value),
+            registers::VDELP1 => self.player1.set_reg_vdel(value),
             registers::RESMP0 => self.reg_resmp0 = value,
             registers::RESMP1 => self.reg_resmp1 = value,
             // Note: there is an additional delay here, but it requires emulating the Hφ1 signal.
@@ -446,10 +419,10 @@ impl Memory for Tia {
                 self.hmove_counter = 7;
             }
             registers::HMCLR => {
-                self.player0.hmove_offset = 0;
-                self.player1.hmove_offset = 0;
-                self.missile0.hmove_offset = 0;
-                self.missile1.hmove_offset = 0;
+                self.player0.set_reg_hm(0);
+                self.player1.set_reg_hm(0);
+                self.missile0.set_reg_hm(0);
+                self.missile1.set_reg_hm(0);
             }
             registers::CXCLR => {
                 self.reg_cxm0p = 0;
@@ -471,170 +444,6 @@ impl Memory for Tia {
             }
         }
         Ok(())
-    }
-}
-
-/// Represents player graphics state: the pixel counter and bitmap. Also handles
-/// RESPx register strobing.
-#[derive(Debug)]
-struct Sprite {
-    position_counter: i32,
-    /// Position counter value where the current sprite copy was started.
-    current_start: i32,
-    /// A list of position counter values that trigger a "start drawing" signal.
-    offsets: &'static [i32],
-    scale: i32,
-    /// New and old bitmap.
-    bitmaps: [u8; 2],
-    /// Index to the bitmaps array.
-    bitmap_index: usize,
-    /// A buffer that holds the bitmap to be drawn.
-    bitmap_buffer: DelayBuffer<u8>,
-    /// Index of the current bit being rendered (if any).
-    current_bit: Option<u8>,
-    reflect: bool,
-    /// Counts down until position reset happens to emulate TIA latching delays.
-    reset_countdown: i32,
-    hmove_offset: i8,
-    /// A buffer for bit masks.
-    mask_buffer: DelayBuffer<u8>,
-    /// A buffer that delays the "start drawing" signal.
-    start_drawing_buffer: DelayBuffer<bool>,
-}
-
-impl Sprite {
-    fn new() -> Self {
-        Sprite {
-            position_counter: 0,
-            current_start: 0,
-            offsets: PLAYER_OFFSETS[flags::NUSIZX_ONE_COPY as usize],
-            scale: 1,
-            bitmaps: [0b0000_0000, 0b0000_0000],
-            bitmap_index: 0,
-            bitmap_buffer: DelayBuffer::new(3),
-            current_bit: None,
-            reflect: false,
-            reset_countdown: 0,
-            hmove_offset: 0,
-            mask_buffer: DelayBuffer::new(3),
-            start_drawing_buffer: DelayBuffer::new(4),
-        }
-    }
-
-    /// Performs a clock tick and returns `true` if a player pixel should be
-    /// drawn, or `false` otherwise.
-    fn tick(&mut self, run_sprite_clock: bool) -> bool {
-        if self.reset_countdown > 0 {
-            self.reset_countdown -= 1;
-            if self.reset_countdown == 0 {
-                self.position_counter = 0;
-            }
-        }
-
-        let bitmap = self.bitmap_buffer.shift(self.bitmaps[self.bitmap_index]);
-
-        if run_sprite_clock {
-            let start = self
-                .start_drawing_buffer
-                .shift(self.offsets.contains(&self.position_counter));
-            if start {
-                self.current_bit = Some(7);
-                self.current_start = self.position_counter;
-            }
-            let mask = self.mask_buffer.shift(match self.current_bit {
-                None => 0,
-                Some(bit) => 1 << if self.reflect { 7 - bit } else { bit },
-            });
-            self.position_counter = (self.position_counter + 1) % 160;
-            let go_to_next_bit = (self.position_counter - self.current_start) % self.scale == 0;
-            if go_to_next_bit {
-                self.current_bit = match self.current_bit {
-                    None | Some(0) => None,
-                    Some(bit) => Some(bit - 1),
-                };
-            }
-            return bitmap & mask != 0;
-        } else {
-            return false;
-        }
-    }
-
-    fn hmove_tick(&mut self, hmove_counter: i8) {
-        if self.hmove_offset >= hmove_counter {
-            self.tick(true);
-        }
-    }
-
-    /// Resets player position. Called when RESPx register gets strobed.
-    fn reset_position(&mut self, delay: i32) {
-        self.reset_countdown = delay;
-        if self.reset_countdown == 0 {
-            self.position_counter = 0;
-        }
-    }
-}
-
-/// Sets sprites' offset and scale values basing on a NUSIZx register value.
-fn set_reg_nusiz(player: &mut Sprite, missile: &mut Sprite, value: u8) {
-    let player_value = value & flags::NUSIZX_PLAYER_MASK;
-    let missile_value = value & flags::NUSIZX_MISSILE_WIDTH_MASK;
-    player.offsets = PLAYER_OFFSETS[player_value as usize];
-    player.scale = match player_value {
-        flags::NUSIZX_DOUBLE_SIZED_PLAYER => 2,
-        flags::NUSIZX_QUAD_SIZED_PLAYER => 4,
-        _ => 1,
-    };
-    missile.offsets = MISSILE_OFFSETS[player_value as usize];
-    missile.scale = match missile_value {
-        flags::NUSIZX_MISSILE_WIDTH_1 => 1,
-        flags::NUSIZX_MISSILE_WIDTH_2 => 2,
-        flags::NUSIZX_MISSILE_WIDTH_4 => 4,
-        flags::NUSIZX_MISSILE_WIDTH_8 => 8,
-        _ => 1,
-    };
-}
-
-/// Returns missile reset delay appropriate to the scale of player sprite.
-fn missile_reset_delay_for_player(player: &Sprite) -> i32 {
-    match player.scale {
-        2 => 8,
-        4 => 11,
-        _ => 4,
-    }
-}
-
-#[derive(Debug)]
-struct AudioGenerator {
-    volume: u8,
-    frequency_divider: u8,
-    counter: u8,
-}
-
-impl AudioGenerator {
-    fn new() -> Self {
-        Self {
-            volume: 0,
-            frequency_divider: 0,
-            counter: 0,
-        }
-    }
-
-    fn set_volume(&mut self, vol: u8) {
-        self.volume = vol & 0b0000_1111;
-    }
-
-    fn set_frequency_divider(&mut self, divider: u8) {
-        self.frequency_divider = divider;
-    }
-
-    fn tick(&mut self) -> u8 {
-        let result = if self.counter < self.frequency_divider + 1 {
-            0
-        } else {
-            self.volume
-        };
-        self.counter = (self.counter + 1) % ((self.frequency_divider + 1) * 2);
-        return result;
     }
 }
 
