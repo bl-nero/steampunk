@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::test_utils::decode_video_outputs;
+use crate::test_utils::encode_audio;
 use crate::test_utils::encode_video_outputs;
 
 /// A utility that produces a sequence of TIA video outputs. Useful for
@@ -26,6 +27,20 @@ fn wait_ticks(tia: &mut Tia, n: u32) {
 
 fn scan_video(tia: &mut Tia, n_pixels: u32) -> Vec<VideoOutput> {
     (0..n_pixels).map(|_| tia.tick().video).collect()
+}
+
+fn scan_audio<'a>(tia: &'a mut Tia, n_samples: usize) -> impl Iterator<Item = AudioOutput> + 'a {
+    std::iter::from_fn(move || Some(tia.tick().audio))
+        // Only those who are not None.
+        .filter_map(std::convert::identity)
+        .take(n_samples)
+}
+
+fn scan_audio_ticks<'a>(tia: &'a mut Tia, n_ticks: u32) -> impl Iterator<Item = AudioOutput> + 'a {
+    (0..n_ticks)
+        .map(move |_| tia.tick().audio)
+        // Only those who are not None.
+        .filter_map(std::convert::identity)
 }
 
 #[test]
@@ -881,4 +896,89 @@ fn latched_input_ports() {
     tia.set_port(Port::Input4, false);
     tia.write(registers::VBLANK, 0).unwrap();
     assert_eq!(tia.read(registers::INPT4).unwrap(), 0);
+}
+
+#[test]
+fn generates_audio() {
+    let mut tia = Tia::new();
+    tia.write(registers::AUDV0, 15).unwrap();
+    tia.write(registers::AUDF0, 0).unwrap();
+    tia.write(registers::AUDC0, 4).unwrap();
+    assert_eq!(
+        encode_audio(scan_audio(&mut tia, 7).map(|a| a.au0)),
+        "0F0F0F0",
+    );
+}
+
+#[test]
+fn audio_base_frequency() {
+    let mut tia = Tia::new();
+    tia.write(registers::AUDV0, 15).unwrap();
+    let n_samples = scan_audio_ticks(&mut tia, 5 * TOTAL_WIDTH).count();
+    assert_eq!(n_samples, 10);
+    let n_samples = scan_audio_ticks(&mut tia, 3 * TOTAL_WIDTH).count();
+    assert_eq!(n_samples, 6);
+}
+
+#[test]
+fn audio_volume() {
+    let mut tia = Tia::new();
+    tia.write(registers::AUDF0, 0).unwrap();
+    tia.write(registers::AUDC0, 4).unwrap();
+    tia.write(registers::AUDF1, 0).unwrap();
+    tia.write(registers::AUDC1, 4).unwrap();
+
+    tia.write(registers::AUDV0, 6).unwrap();
+    tia.write(registers::AUDV1, 10).unwrap();
+    let audio: Vec<AudioOutput> = scan_audio(&mut tia, 4).collect();
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "0606");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "0A0A");
+
+    tia.write(registers::AUDV0, 7).unwrap();
+    tia.write(registers::AUDV1, 9).unwrap();
+    let audio: Vec<AudioOutput> = scan_audio(&mut tia, 4).collect();
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "0707");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "0909");
+
+    tia.write(registers::AUDV0, 0).unwrap();
+    tia.write(registers::AUDV1, 0).unwrap();
+    let audio: Vec<AudioOutput> = scan_audio(&mut tia, 4).collect();
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "0000");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "0000");
+}
+
+#[test]
+fn audio_voulume_outside_range() {
+    let mut tia = Tia::new();
+    tia.write(registers::AUDF0, 0).unwrap();
+    tia.write(registers::AUDC0, 4).unwrap();
+    tia.write(registers::AUDF1, 0).unwrap();
+    tia.write(registers::AUDC1, 4).unwrap();
+
+    tia.write(registers::AUDV0, 0xf7).unwrap();
+    tia.write(registers::AUDV1, 0x48).unwrap();
+    let audio: Vec<AudioOutput> = scan_audio(&mut tia, 4).collect();
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "0707");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "0808");
+}
+
+#[test]
+fn audio_frequency() {
+    let mut tia = Tia::new();
+    tia.write(registers::AUDC0, 4).unwrap();
+    tia.write(registers::AUDC1, 4).unwrap();
+    tia.write(registers::AUDV0, 1).unwrap();
+    tia.write(registers::AUDV1, 1).unwrap();
+
+    tia.write(registers::AUDF0, 0).unwrap();
+    tia.write(registers::AUDF1, 0).unwrap();
+    let audio: Vec<AudioOutput> = scan_audio(&mut tia, 4).collect();
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "0101");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "0101");
+
+    tia.write(registers::AUDF0, 2).unwrap();
+    tia.write(registers::AUDF1, 4).unwrap();
+    let audio: Vec<AudioOutput> = scan_audio(&mut tia, 12).collect();
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "000111000111");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "000001111100");
 }

@@ -114,6 +114,8 @@ pub struct Tia {
     player1: Sprite,
     missile0: Sprite,
     missile1: Sprite,
+    audio0: AudioGenerator,
+    audio1: AudioGenerator,
 
     // "Raw" values on the input port pins. They don't necessarily directly
     // reflect `reg_inpt`, since they are not latched.
@@ -122,9 +124,6 @@ pub struct Tia {
     // A temporary hack to allow one-time initialization before complaining each
     // time a register is written to.
     initialized_registers: [bool; 0x100],
-
-    // TODO: Temporary. Remove before merging to master.
-    x: u32,
 }
 
 impl Tia {
@@ -161,16 +160,16 @@ impl Tia {
             playfield_buffer: DelayBuffer::new(2),
             hmove_latch: false,
             hmove_counter: 0,
+
             player0: Sprite::new(),
             player1: Sprite::new(),
             missile0: Sprite::new(),
             missile1: Sprite::new(),
-            // missile_0_pos: 0,
-            // missile_1_pos: 0,
-            // ball_pos: 0,
+            audio0: AudioGenerator::new(),
+            audio1: AudioGenerator::new(),
+
             input_ports: enum_map! { _ => true },
             initialized_registers: [false; 0x100],
-            x: 0,
         }
     }
 
@@ -346,9 +345,10 @@ impl Tia {
         if self.column_counter != 0 && self.column_counter != TOTAL_WIDTH / 2 {
             return None;
         }
-        self.x += 1;
-        let au0 = if self.x % 10 < 5 { 1.0 } else { -1.0 };
-        return Some(AudioOutput { au0, au1: 0.0 });
+        return Some(AudioOutput {
+            au0: self.audio0.tick(),
+            au1: self.audio1.tick(),
+        });
     }
 
     pub fn set_port(&mut self, port: Port, value: bool) {
@@ -414,14 +414,13 @@ impl Memory for Tia {
             registers::RESM0 => self.missile0.reset_position(4),
             registers::RESM1 => self.missile1.reset_position(4),
 
-            // Audio. Skip that thing for now, since it's complex and not
-            // essential.
-            registers::AUDC0
-            | registers::AUDC1
-            | registers::AUDV0
-            | registers::AUDV1
-            | registers::AUDF0
-            | registers::AUDF1 => {}
+            // Audio. Work in progress, so some registers are skipped.
+            registers::AUDC0 | registers::AUDC1 => {}
+
+            registers::AUDF0 => self.audio0.set_frequency_divider(value),
+            registers::AUDF1 => self.audio1.set_frequency_divider(value),
+            registers::AUDV0 => self.audio0.set_volume(value),
+            registers::AUDV1 => self.audio1.set_volume(value),
 
             registers::GRP0 => {
                 self.player1.bitmaps[1] = self.player1.bitmaps[0];
@@ -604,6 +603,41 @@ fn missile_reset_delay_for_player(player: &Sprite) -> i32 {
     }
 }
 
+#[derive(Debug)]
+struct AudioGenerator {
+    volume: u8,
+    frequency_divider: u8,
+    counter: u8,
+}
+
+impl AudioGenerator {
+    fn new() -> Self {
+        Self {
+            volume: 0,
+            frequency_divider: 0,
+            counter: 0,
+        }
+    }
+
+    fn set_volume(&mut self, vol: u8) {
+        self.volume = vol & 0b0000_1111;
+    }
+
+    fn set_frequency_divider(&mut self, divider: u8) {
+        self.frequency_divider = divider;
+    }
+
+    fn tick(&mut self) -> u8 {
+        let result = if self.counter < self.frequency_divider + 1 {
+            0
+        } else {
+            self.volume
+        };
+        self.counter = (self.counter + 1) % ((self.frequency_divider + 1) * 2);
+        return result;
+    }
+}
+
 /// TIA output structure. It indicates how a single TIA clock tick influences
 /// other parts of the system.
 pub struct TiaOutput {
@@ -678,6 +712,6 @@ pub const LAST_COLUMN: u32 = TOTAL_WIDTH - 1;
 pub const TOTAL_WIDTH: u32 = FRAME_WIDTH + HBLANK_WIDTH;
 
 pub struct AudioOutput {
-    pub au0: f32,
-    pub au1: f32,
+    pub au0: u8,
+    pub au1: u8,
 }

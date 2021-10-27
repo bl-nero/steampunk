@@ -71,7 +71,8 @@ impl Atari {
             self.mut_riot().tick();
         }
         if let Some(audio) = tia_result.audio {
-            self.audio_consumer.consume((audio.au0 + audio.au1) / 2.0);
+            self.audio_consumer
+                .consume((audio.au0 + audio.au1) as f32 / 30.0 - 0.5);
         }
         return if self.frame_renderer.consume(tia_result.video) {
             Ok(FrameStatus::Complete)

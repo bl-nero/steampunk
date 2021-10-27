@@ -91,19 +91,25 @@ pub fn encode_video_outputs<I: IntoIterator<Item = VideoOutput>>(outputs: I) -> 
                 vsync: false,
                 hsync: false,
                 pixel: Some(pixel),
-            } => {
-                if pixel <= 0x0f {
-                    format!("{:X}", pixel)
-                        .chars()
-                        .last()
-                        .expect("Hex formatting error")
-                } else {
-                    '?'
-                }
-            }
+            } => as_single_hex_digit(pixel),
             _ => '?',
         })
         .collect()
+}
+
+pub fn encode_audio<I: Iterator<Item = u8>>(outputs: I) -> String {
+    outputs.map(as_single_hex_digit).collect()
+}
+
+fn as_single_hex_digit(n: u8) -> char {
+    if n <= 0x0f {
+        format!("{:X}", n)
+            .chars()
+            .last()
+            .expect("Hex formatting error")
+    } else {
+        '?'
+    }
 }
 
 pub fn atari_with_rom(file_name: &str) -> Atari {
@@ -217,9 +223,23 @@ mod tests {
                 VideoOutput::pixel(0x0A),
                 VideoOutput::pixel(0x0C),
                 VideoOutput::pixel(0x0E),
+                VideoOutput::pixel(0xA0),
                 VideoOutput::pixel(0x00).with_vsync(),
             ]),
-            ".|-+02468ACE=",
+            ".|-+02468ACE?=",
         );
+    }
+
+    #[test]
+    fn encodes_audio() {
+        assert_eq!(encode_audio(iter::empty()), "");
+        assert_eq!(
+            encode_audio(
+                vec![0x0, 0x9, 0x8, 0xA, 0xF, 0xC, 0xE, 0x10]
+                    .iter()
+                    .copied()
+            ),
+            "098AFCE?"
+        )
     }
 }
