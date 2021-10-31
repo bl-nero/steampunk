@@ -380,6 +380,21 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::CMP_ZP_X, _) => {
                 self.tick_compare_zero_page_x(self.reg_a)?;
             }
+            SequenceState::Opcode(opcodes::CMP_ABS, _) => {
+                self.tick_compare_absolute(self.reg_a)?;
+            }
+            SequenceState::Opcode(opcodes::CMP_ABS_X, _) => {
+                self.tick_compare_absolute_indexed(self.reg_x, self.reg_a)?;
+            }
+            SequenceState::Opcode(opcodes::CMP_ABS_Y, _) => {
+                self.tick_compare_absolute_indexed(self.reg_y, self.reg_a)?;
+            }
+            SequenceState::Opcode(opcodes::CMP_X_INDIR, _) => {
+                self.tick_compare_x_indirect(self.reg_a)?;
+            }
+            SequenceState::Opcode(opcodes::CMP_INDIR_Y, _) => {
+                self.tick_compare_indirect_y(self.reg_a)?;
+            }
 
             SequenceState::Opcode(opcodes::CPX_IMM, _) => {
                 self.tick_compare_immediate(self.reg_x)?;
@@ -1012,6 +1027,22 @@ impl<M: Memory + Debug> Cpu<M> {
 
     fn tick_compare_zero_page_x(&mut self, register: u8) -> Result<(), ReadError> {
         self.tick_load_zero_page_x(&mut |me, value| me.compare(register, value))
+    }
+
+    fn tick_compare_absolute(&mut self, register: u8) -> Result<(), ReadError> {
+        self.tick_load_absolute(&mut |me, value| me.compare(register, value))
+    }
+
+    fn tick_compare_absolute_indexed(&mut self, index: u8, register: u8) -> Result<(), ReadError> {
+        self.tick_load_absolute_indexed(index, &mut |me, value| me.compare(register, value))
+    }
+
+    fn tick_compare_x_indirect(&mut self, register: u8) -> Result<(), ReadError> {
+        self.tick_load_x_indirect(&mut |me, value| me.compare(register, value))
+    }
+
+    fn tick_compare_indirect_y(&mut self, register: u8) -> Result<(), ReadError> {
+        self.tick_load_indirect_y(&mut |me, value| me.compare(register, value))
     }
 
     fn tick_push(&mut self, value: u8) -> TickResult {

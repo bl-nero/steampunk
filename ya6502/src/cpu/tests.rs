@@ -334,6 +334,27 @@ fn cmp() {
                 php
                 // 9 cycles
 
+                cmp abs 0x2345
+                php
+                // 7 cycles
+
+                cmp abs 0x2341,x
+                php
+                // 7 cycles
+
+                ldy #4
+                cmp abs 0x2343,y
+                php
+                // 9 cycles
+
+                cmp (36,x)
+                php
+                // 9 cycles
+
+                cmp (43),y
+                php
+                // 8 cycles
+
                 nop  // to be replaced
             fail:
                 jmp fail
@@ -344,14 +365,20 @@ fn cmp() {
     program[program.len() - 4] = opcodes::HLT1;
     let mut cpu = cpu_with_program(&program);
     // Some test data.
-    cpu.mut_memory().bytes[40..=40].copy_from_slice(&[8]);
-    cpu.ticks(10 + 4 * 11 + 6 + 9).unwrap();
+    cpu.mut_memory().bytes[40..=44].copy_from_slice(&[8, 0x48, 0x23, 0x45, 0x23]);
+    cpu.mut_memory().bytes[0x2345..=0x2349].copy_from_slice(&[6, 7, 8, 6, 7]);
+    cpu.ticks(10 + 4 * 11 + 6 + 9 + 7 + 7 + 9 + 9 + 9).unwrap();
     assert_eq!(cpu.memory.bytes[30..=33], [7, 7, 7, 7]);
     assert_eq!(
         reversed_stack(&cpu),
         [
             flags::UNUSED | flags::Z | flags::C,
             flags::UNUSED | flags::N,
+            flags::UNUSED | flags::C,
+            flags::UNUSED | flags::Z | flags::C,
+            flags::UNUSED | flags::N,
+            flags::UNUSED | flags::C,
+            flags::UNUSED | flags::Z | flags::C,
         ]
     );
 }

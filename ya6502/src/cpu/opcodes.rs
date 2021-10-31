@@ -68,6 +68,11 @@ pub const ROR_ABS: u8 = 0x6E;
 pub const CMP_IMM: u8 = 0xC9;
 pub const CMP_ZP: u8 = 0xC5;
 pub const CMP_ZP_X: u8 = 0xD5;
+pub const CMP_ABS: u8 = 0xCD;
+pub const CMP_ABS_X: u8 = 0xDD;
+pub const CMP_ABS_Y: u8 = 0xD9;
+pub const CMP_X_INDIR: u8 = 0xC1;
+pub const CMP_INDIR_Y: u8 = 0xD1;
 
 pub const CPX_IMM: u8 = 0xE0;
 pub const CPX_ZP: u8 = 0xE4;
