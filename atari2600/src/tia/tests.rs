@@ -906,7 +906,7 @@ fn generates_audio() {
     tia.write(registers::AUDC0, 4).unwrap();
     assert_eq!(
         encode_audio(scan_audio(&mut tia, 7).map(|a| a.au0)),
-        "0F0F0F0",
+        "F0F0F0F",
     );
 }
 
@@ -931,14 +931,14 @@ fn audio_volume() {
     tia.write(registers::AUDV0, 6).unwrap();
     tia.write(registers::AUDV1, 10).unwrap();
     let audio: Vec<AudioOutput> = scan_audio(&mut tia, 4).collect();
-    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "0606");
-    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "0A0A");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "6060");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "A0A0");
 
     tia.write(registers::AUDV0, 7).unwrap();
     tia.write(registers::AUDV1, 9).unwrap();
     let audio: Vec<AudioOutput> = scan_audio(&mut tia, 4).collect();
-    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "0707");
-    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "0909");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "7070");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "9090");
 
     tia.write(registers::AUDV0, 0).unwrap();
     tia.write(registers::AUDV1, 0).unwrap();
@@ -948,18 +948,12 @@ fn audio_volume() {
 }
 
 #[test]
-fn audio_voulume_outside_range() {
+fn audio_volume_outside_range() {
     let mut tia = Tia::new();
     tia.write(registers::AUDF0, 0).unwrap();
     tia.write(registers::AUDC0, 4).unwrap();
-    tia.write(registers::AUDF1, 0).unwrap();
-    tia.write(registers::AUDC1, 4).unwrap();
-
     tia.write(registers::AUDV0, 0xf7).unwrap();
-    tia.write(registers::AUDV1, 0x48).unwrap();
-    let audio: Vec<AudioOutput> = scan_audio(&mut tia, 4).collect();
-    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "0707");
-    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "0808");
+    assert_eq!(encode_audio(scan_audio(&mut tia, 4).map(|a| a.au0)), "7070");
 }
 
 #[test]
@@ -973,12 +967,137 @@ fn audio_frequency() {
     tia.write(registers::AUDF0, 0).unwrap();
     tia.write(registers::AUDF1, 0).unwrap();
     let audio: Vec<AudioOutput> = scan_audio(&mut tia, 4).collect();
-    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "0101");
-    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "0101");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "1010");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "1010");
 
     tia.write(registers::AUDF0, 2).unwrap();
     tia.write(registers::AUDF1, 4).unwrap();
     let audio: Vec<AudioOutput> = scan_audio(&mut tia, 12).collect();
-    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "000111000111");
-    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "000001111100");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), "111000111000");
+    assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), "111110000011");
 }
+
+#[test]
+fn audio_frequency_outside_range() {
+    let mut tia = Tia::new();
+    tia.write(registers::AUDC0, 4).unwrap();
+    tia.write(registers::AUDV0, 1).unwrap();
+    tia.write(registers::AUDF0, 0b1110_0001).unwrap();
+    assert_eq!(
+        encode_audio(scan_audio(&mut tia, 12).map(|a| a.au0)),
+        "110011001100"
+    );
+}
+
+macro_rules! test_audio_pattern {
+    ($fn_name:ident, $audc:expr, $expected_pattern:expr) => {
+        #[test]
+        fn $fn_name() {
+            let mut tia = Tia::new();
+            tia.write(registers::AUDF0, 0).unwrap();
+            tia.write(registers::AUDF1, 0).unwrap();
+            tia.write(registers::AUDV0, 1).unwrap();
+            tia.write(registers::AUDV1, 1).unwrap();
+            tia.write(registers::AUDC0, $audc).unwrap();
+            tia.write(registers::AUDC1, $audc).unwrap();
+            let audio: Vec<AudioOutput> = scan_audio(&mut tia, $expected_pattern.len()).collect();
+            assert_eq!(encode_audio(audio.iter().map(|a| a.au0)), $expected_pattern);
+            assert_eq!(encode_audio(audio.iter().map(|a| a.au1)), $expected_pattern);
+        }
+    };
+}
+
+// See the implementation note of `AudioGenerator.tick()` for a note about
+// original test cases.
+test_audio_pattern!(
+    audio_pattern_0,
+    0x0,
+    "1111111111111111111111111111111111111111111111111111111111111111111111"
+);
+test_audio_pattern!(
+    audio_pattern_1,
+    0x1,
+    "1111000100110101111000100110101111000100110101111000100110101111000100"
+);
+test_audio_pattern!(
+    audio_pattern_2,
+    0x2,
+    "1111111111111111111111111111111111111111111111111111111111111100000000"
+);
+test_audio_pattern!(
+    audio_pattern_3,
+    0x3,
+    // Original test case:
+    // "1111110000001000111001111100011111110001111000110011000001111111110001"
+    "1111000000110011110000011100111111000000100011100111110001111111000111"
+);
+test_audio_pattern!(
+    audio_pattern_4,
+    0x4,
+    "1010101010101010101010101010101010101010101010101010101010101010101010"
+);
+test_audio_pattern!(
+    audio_pattern_5,
+    0x5,
+    "1010101010101010101010101010101010101010101010101010101010101010101010"
+);
+test_audio_pattern!(
+    audio_pattern_6,
+    0x6,
+    "1111111111111111110000000000000111111111111111111000000000000011111111"
+);
+test_audio_pattern!(
+    audio_pattern_7,
+    0x7,
+    "1111100011011101010000100101100111110001101110101000010010110011111000"
+);
+test_audio_pattern!(
+    audio_pattern_8,
+    0x8,
+    "1111111110000011110111110001011100110010000010010100111011010001111001"
+);
+test_audio_pattern!(
+    audio_pattern_9,
+    0x9,
+    "1111100011011101010000100101100111110001101110101000010010110011111000"
+);
+test_audio_pattern!(
+    audio_pattern_a,
+    0xA,
+    "1111111111111111110000000000000111111111111111111000000000000011111111"
+);
+test_audio_pattern!(
+    audio_pattern_b,
+    0xB,
+    "1111111111111111111111111111111111111111111111111111111111111111111111"
+);
+test_audio_pattern!(
+    audio_pattern_c,
+    0xC,
+    "1110001110001110001110001110001110001110001110001110001110001110001110"
+);
+test_audio_pattern!(
+    audio_pattern_d,
+    0xD,
+    "1110001110001110001110001110001110001110001110001110001110001110001110"
+);
+test_audio_pattern!(
+    audio_pattern_e,
+    0xE,
+    // Original test case:
+    // "1111111111111111111111111111111111111111111111111000000000000000000000"
+    "1111111111111111111111111111111111111111111111111111110000000000000000"
+);
+test_audio_pattern!(
+    audio_pattern_f,
+    0xF,
+    // Original test case:
+    // "1111111111000001110000000111100000000001111110001111110000111111111000"
+    "1111111111111110000000001111110001111111110001110001110000000000001110"
+);
+
+test_audio_pattern!(
+    audio_pattern_outside_range,
+    0xF4,
+    "1010101010101010101010101010101010101010101010101010101010101010101010"
+);

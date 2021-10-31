@@ -387,9 +387,8 @@ impl Memory for Tia {
             registers::RESM0 => self.missile0.reset_position(4),
             registers::RESM1 => self.missile1.reset_position(4),
 
-            // Audio. Work in progress, so some registers are skipped.
-            registers::AUDC0 | registers::AUDC1 => {}
-
+            registers::AUDC0 => self.audio0.set_pattern(value),
+            registers::AUDC1 => self.audio1.set_pattern(value),
             registers::AUDF0 => self.audio0.set_frequency_divider(value),
             registers::AUDF1 => self.audio1.set_frequency_divider(value),
             registers::AUDV0 => self.audio0.set_volume(value),
