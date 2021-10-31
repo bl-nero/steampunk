@@ -40,5 +40,4 @@ Currently, at least two official Atari 2600 cartridges are known to be supported
 
 Known issues:
 * Not all 6502 opcodes are supported (not even official ones)
-* No sound support
 * No support for bank switching
