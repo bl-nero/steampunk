@@ -756,6 +756,37 @@ fn graphics_priorities() {
 }
 
 #[test]
+fn score_mode() {
+    let mut tia = Tia::new();
+    tia.write(registers::COLUBK, 0x00).unwrap();
+    tia.write(registers::COLUPF, 0x02).unwrap();
+    tia.write(registers::COLUP0, 0x04).unwrap();
+    tia.write(registers::COLUP1, 0x06).unwrap();
+    tia.write(registers::PF0, 0b1111_0000).unwrap();
+    tia.write(registers::PF2, 0b1111_1111).unwrap();
+
+    tia.write(registers::CTRLPF, flags::CTRLPF_SCORE).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         44444444444444440000000000000000000000000000000044444444444444444444444444444444\
+         66666666666666660000000000000000000000000000000066666666666666666666666666666666",
+    );
+
+    tia.write(
+        registers::CTRLPF,
+        flags::CTRLPF_SCORE | flags::CTRLPF_PRIORITY,
+    )
+    .unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         22222222222222220000000000000000000000000000000022222222222222222222222222222222\
+         22222222222222220000000000000000000000000000000022222222222222222222222222222222",
+    );
+}
+
+#[test]
 fn sprite_collisions() {
     let mut tia = Tia::new();
     tia.write(registers::PF1, 0b0000_0100).unwrap();

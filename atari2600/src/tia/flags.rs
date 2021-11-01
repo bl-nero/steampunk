@@ -31,7 +31,6 @@ pub const NUSIZX_MISSILE_WIDTH_MASK: u8 = 0b0011_0000;
 /// Bit mask for turning on reflected playfield using `CTRLPF` register.
 pub const CTRLPF_REFLECT: u8 = 0b0000_0001;
 /// Bit mask for turning on the playfield score mode using `CTRLPF` register.
-#[allow(dead_code)]
 pub const CTRLPF_SCORE: u8 = 0b0000_0010;
 /// Bit mask for turning playfield/ball priority using the `CTRLPF` register.
 pub const CTRLPF_PRIORITY: u8 = 0b0000_0100;

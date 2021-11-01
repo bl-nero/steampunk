@@ -34,10 +34,12 @@ Where `<rom-file-path>` is a path of the Atari 2600 ROM to be executed.
 
 # Compatibility
 
-Currently, at least two official Atari 2600 cartridges are known to be supported:
-* _Basic Math_, a.k.a. _Fun with Numbers_
-* Combat
+Currently, at the following official Atari 2600 cartridges are known to be supported:
+* *Basic Math*, a.k.a. *Fun with Numbers*
+* *Combat*
+* *Air-Sea Battle*
 
 Known issues:
 * Not all 6502 opcodes are supported (not even official ones)
+* No ball graphics just yet
 * No support for bank switching

@@ -17,6 +17,12 @@ pub enum Port {
     Input5,
 }
 
+#[derive(Debug, Copy, Clone)]
+enum ScreenHalf {
+    Left,
+    Right,
+}
+
 /// TIA is responsible for generating the video signal, sound (not yet
 /// implemented) and for synchronizing CPU with the screen's electron beam.
 #[derive(Debug)]
@@ -82,6 +88,8 @@ pub struct Tia {
     /// Counts from 7 down to -8 while additional clock ticks are sent to the
     /// player graphics objects.
     hmove_counter: i8,
+    /// Indicates which screen half (left or right) we're currently rendering.
+    screen_half: ScreenHalf,
 
     player0: Sprite,
     player1: Sprite,
@@ -133,6 +141,7 @@ impl Tia {
             playfield_buffer: DelayBuffer::new(2),
             hmove_latch: false,
             hmove_counter: 0,
+            screen_half: ScreenHalf::Left,
 
             player0: Sprite::new(),
             player1: Sprite::new(),
@@ -153,6 +162,7 @@ impl Tia {
             0 => {
                 self.hblank_on = true;
                 self.wait_for_sync = false;
+                self.screen_half = ScreenHalf::Left;
             }
             HSYNC_START => self.hsync_on = true,
             HSYNC_END => self.hsync_on = false,
@@ -165,6 +175,9 @@ impl Tia {
                 if self.hmove_latch {
                     self.hblank_on = false
                 }
+            }
+            SCREEN_CENTER => {
+                self.screen_half = ScreenHalf::Right;
             }
             LAST_COLUMN => self.hmove_latch = false,
             _ => {}
@@ -237,6 +250,11 @@ impl Tia {
                 Some(
                     if self.reg_ctrlpf & flags::CTRLPF_PRIORITY != 0 && playfield_bit {
                         self.reg_colupf
+                    } else if self.reg_ctrlpf & flags::CTRLPF_SCORE != 0 && playfield_bit {
+                        match self.screen_half {
+                            ScreenHalf::Left => self.reg_colup0,
+                            ScreenHalf::Right => self.reg_colup1,
+                        }
                     } else if p0_bit || m0_bit {
                         self.reg_colup0
                     } else if p1_bit || m1_bit {
@@ -514,8 +532,9 @@ impl VideoOutput {
 pub const HSYNC_START: u32 = 16;
 pub const HSYNC_END: u32 = 32; // 1 cycle after, to make it easy to construct a range.
 pub const HBLANK_WIDTH: u32 = 68;
-pub const HBLANK_EXTENDED_WIDTH: u32 = 68 + 8;
+pub const HBLANK_EXTENDED_WIDTH: u32 = HBLANK_WIDTH + 8;
 pub const FRAME_WIDTH: u32 = 160;
+pub const SCREEN_CENTER: u32 = HBLANK_WIDTH + FRAME_WIDTH / 2;
 pub const LAST_COLUMN: u32 = TOTAL_WIDTH - 1;
 pub const TOTAL_WIDTH: u32 = FRAME_WIDTH + HBLANK_WIDTH;
 
