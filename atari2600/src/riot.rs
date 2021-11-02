@@ -45,11 +45,19 @@ pub struct Riot {
     /// immutable object. Perhaps we should refacor the whole concept of reading
     /// instead?
     reg_timint: Cell<u8>,
+
+    pa7_edge_detection_mode: EdgeDetectionMode,
 }
 
 pub enum Port {
     PA,
     PB,
+}
+
+#[derive(Debug)]
+enum EdgeDetectionMode {
+    Positive,
+    Negative,
 }
 
 impl Riot {
@@ -67,6 +75,8 @@ impl Riot {
             reg_swbcnt: 0x00,
             reg_intim: rng.gen(),
             reg_timint: Cell::new(0),
+
+            pa7_edge_detection_mode: EdgeDetectionMode::Negative,
         }
     }
 
@@ -89,7 +99,24 @@ impl Riot {
 
     pub fn set_port(&mut self, port: Port, value: u8) {
         match port {
-            Port::PA => self.port_a = value,
+            Port::PA => {
+                let pa7_change = (value & (1 << 7)) as i32 - (self.port_a & (1 << 7)) as i32;
+                match self.pa7_edge_detection_mode {
+                    EdgeDetectionMode::Negative => {
+                        if pa7_change < 0 {
+                            self.reg_timint
+                                .set(self.reg_timint.get() | flags::TIMINT_PA7);
+                        }
+                    }
+                    EdgeDetectionMode::Positive => {
+                        if pa7_change > 0 {
+                            self.reg_timint
+                                .set(self.reg_timint.get() | flags::TIMINT_PA7);
+                        }
+                    }
+                }
+                self.port_a = value;
+            }
             Port::PB => self.port_b = value,
         };
     }
@@ -97,7 +124,7 @@ impl Riot {
 
 impl Memory for Riot {
     fn read(&self, address: u16) -> ReadResult {
-        match address {
+        match canonical_read_address(address) {
             registers::SWCHA => {
                 Ok((self.reg_swacnt & self.reg_swcha & self.port_a)
                     | (!self.reg_swacnt & self.port_a))
@@ -112,13 +139,15 @@ impl Memory for Riot {
                     .set(self.reg_timint.get() & !flags::TIMINT_TIMER);
                 return Ok(self.reg_intim);
             }
-            registers::TIMINT => Ok(self.reg_timint.get()),
+            registers::TIMINT => Ok(self
+                .reg_timint
+                .replace(self.reg_timint.get() & !flags::TIMINT_PA7)),
             _ => Err(ReadError { address }),
         }
     }
 
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
-        match address {
+        match canonical_write_address(address) {
             registers::SWCHA => self.reg_swcha = value,
             registers::SWACNT => self.reg_swacnt = value,
             registers::SWCHB => self.reg_swchb = value,
@@ -127,27 +156,56 @@ impl Memory for Riot {
             registers::TIM8T => self.reset_timer(value, 8),
             registers::TIM64T => self.reset_timer(value, 64),
             registers::T1024T => self.reset_timer(value, 1024),
+
+            // Unofficial
+            registers::PA7_NEG => self.pa7_edge_detection_mode = EdgeDetectionMode::Negative,
+            registers::PA7_POS => self.pa7_edge_detection_mode = EdgeDetectionMode::Positive,
+
             _ => return Err(WriteError { address, value }),
         };
         Ok(())
     }
 }
 
+fn canonical_read_address(address: u16) -> u16 {
+    if address & 0b0100 != 0 {
+        address & 0b0101
+    } else {
+        address & 0b0011
+    }
+}
+
+fn canonical_write_address(address: u16) -> u16 {
+    if address & 0b0001_0100 == 0b0001_0100 {
+        address & 0b0001_0111
+    } else if address & 0b0001_0100 == 0b0000_0100 {
+        address & 0b0000_0101
+    } else {
+        address & 0b0011
+    }
+}
+
 mod registers {
-    pub const SWCHA: u16 = 0x280;
-    pub const SWACNT: u16 = 0x281;
-    pub const SWCHB: u16 = 0x282;
-    pub const SWBCNT: u16 = 0x283;
-    pub const INTIM: u16 = 0x284;
-    pub const TIMINT: u16 = 0x285;
-    pub const TIM1T: u16 = 0x294;
-    pub const TIM8T: u16 = 0x295;
-    pub const TIM64T: u16 = 0x296;
-    pub const T1024T: u16 = 0x297;
+    // Note: the "official" addresses of these registers are 0x280-based.
+    pub const SWCHA: u16 = 0x00;
+    pub const SWACNT: u16 = 0x01;
+    pub const SWCHB: u16 = 0x02;
+    pub const SWBCNT: u16 = 0x03;
+    pub const INTIM: u16 = 0x04;
+    pub const TIMINT: u16 = 0x05;
+    pub const TIM1T: u16 = 0x14;
+    pub const TIM8T: u16 = 0x15;
+    pub const TIM64T: u16 = 0x16;
+    pub const T1024T: u16 = 0x17;
+
+    // Unofficial write addresses (PA7 edge detection)
+    pub const PA7_NEG: u16 = 0x04; // Use negative edge detection
+    pub const PA7_POS: u16 = 0x05; // Use positive edge detection
 }
 
 mod flags {
     pub const TIMINT_TIMER: u8 = 1 << 7;
+    pub const TIMINT_PA7: u8 = 1 << 6;
 }
 
 #[cfg(test)]
@@ -258,9 +316,6 @@ mod tests {
     }
 
     #[test]
-    fn address_mirroring() {}
-
-    #[test]
     fn input_ports() {
         let mut riot = Riot::new();
         riot.set_port(Port::PA, 0x12);
@@ -307,5 +362,44 @@ mod tests {
         // rule still applies.
         riot.write(registers::SWACNT, 0b0000_1111).unwrap();
         assert_eq!(riot.read(registers::SWCHA).unwrap(), 0b1100_0100);
+    }
+
+    #[test]
+    fn pa7_edge_detection() {
+        let mut riot = Riot::new();
+        riot.set_port(Port::PA, 0);
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), 0);
+
+        riot.write(registers::PA7_POS, 0).unwrap();
+        riot.set_port(Port::PA, 1 << 7);
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), flags::TIMINT_PA7);
+        riot.set_port(Port::PA, 0);
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), 0);
+        riot.set_port(Port::PA, !(1 << 7));
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), 0);
+        riot.set_port(Port::PA, 0);
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), 0);
+
+        riot.write(registers::PA7_NEG, 0).unwrap();
+        riot.set_port(Port::PA, 1 << 7);
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), 0);
+        riot.set_port(Port::PA, 0);
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), flags::TIMINT_PA7);
+        riot.set_port(Port::PA, !(1 << 7));
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), 0);
+        riot.set_port(Port::PA, 0);
+        assert_eq!(riot.read(registers::TIMINT).unwrap(), 0);
+    }
+
+    #[test]
+    fn address_mirroring() {
+        assert_eq!(canonical_read_address(0xEDF8), registers::SWCHA);
+        assert_eq!(canonical_read_address(0xA553), registers::SWBCNT);
+        assert_eq!(canonical_read_address(0xEDFF), registers::TIMINT);
+
+        assert_eq!(canonical_write_address(0xEDFA), registers::SWCHB);
+        assert_eq!(canonical_write_address(0xA559), registers::SWACNT);
+        assert_eq!(canonical_write_address(0xEDFF), registers::T1024T);
+        assert_eq!(canonical_write_address(0xEDEF), registers::PA7_POS);
     }
 }

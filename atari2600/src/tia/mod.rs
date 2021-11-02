@@ -454,10 +454,11 @@ impl Memory for Tia {
 
             // Not (yet) supported. Allow one initialization pass, but that's it.
             _ => {
-                if self.initialized_registers[address as usize] || value != 0 {
+                let internal_address = address as u8 as usize;
+                if self.initialized_registers[internal_address] || value != 0 {
                     return Err(WriteError { address, value });
                 }
-                self.initialized_registers[address as usize] = true;
+                self.initialized_registers[internal_address] = true;
             }
         }
         Ok(())
