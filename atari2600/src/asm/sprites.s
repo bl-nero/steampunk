@@ -27,6 +27,8 @@ Reset:
             sta HMP0
             lda #$20
             sta HMP1
+            lda #$10
+            sta HMBL
 
             ; Reset the sprite horizontal position.
             ldx #5
@@ -37,6 +39,15 @@ Reset:
             nop
             nop
             sta RESP1
+            nop
+            nop
+            nop
+            nop
+            nop
+            nop
+            sta RESBL
+            lda #%00100000
+            sta CTRLPF
 
 StartOfFrame:
             ; Start vertical blanking.
@@ -84,7 +95,7 @@ StartOfFrame:
             dex
             bne :-
 
-            ; 8 lines of sprites.
+            ; 8 lines of player sprites.
             ldx #0
 :           lda Sprite0,x
             sta GRP0
@@ -95,14 +106,40 @@ StartOfFrame:
             sta WSYNC
             bne :-
 
-            ; Turn off sprites.
+            ; Turn off player sprites.
             lda #0
             sta GRP0
             sta GRP1
 
+            ; 5 lines of margin.
+            ldx #5
+:           sta WSYNC
+            dex
+            bne :-
+
+            ; Clear playfield for the ball.
+            lda #0
+            sta PF0
+            sta PF1
+            sta PF2
+
+            ; Ball.
+            lda #2
+            sta ENABL
+            sta WSYNC
+
+            lda #0
+            sta ENABL
+
+            ; Continue drawing the playfield.
+            sta PF2
+            lda #%01010000
+            sta PF0
+            lda #%10101010
+            sta PF1
 
             ; Wait for the remaining scanlines.
-            ldx #(192 - 18)
+            ldx #(192 - 24)
 :           sta WSYNC
             dex
             bne :-

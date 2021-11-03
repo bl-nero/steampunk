@@ -108,6 +108,16 @@ impl Sprite {
         self.bitmap_index = (value & flags::VDELXX_ON) as usize;
     }
 
+    pub fn set_reg_ctrlpf(&mut self, value: u8) {
+        self.scale = match value & flags::CTRLPF_BALL_MASK {
+            flags::CTRLPF_BALL_1 => 1,
+            flags::CTRLPF_BALL_2 => 2,
+            flags::CTRLPF_BALL_4 => 4,
+            flags::CTRLPF_BALL_8 => 8,
+            _ => 1,
+        }
+    }
+
     /// Performs a clock tick and returns `true` if a player pixel should be
     /// drawn, or `false` otherwise.
     pub fn tick(&mut self, run_sprite_clock: bool) -> bool {

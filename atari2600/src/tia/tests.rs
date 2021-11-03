@@ -239,15 +239,18 @@ fn draws_sprites() {
     tia.write(registers::COLUBK, 0x02).unwrap();
     tia.write(registers::COLUP0, 0x04).unwrap();
     tia.write(registers::COLUP1, 0x06).unwrap();
+    tia.write(registers::COLUPF, 0x08).unwrap();
     tia.write(registers::GRP0, 0b1010_0101).unwrap();
     tia.write(registers::GRP1, 0b1100_0011).unwrap();
     tia.write(registers::ENAM0, flags::ENAXX_ENABLE).unwrap();
     tia.write(registers::ENAM1, flags::ENAXX_ENABLE).unwrap();
+    tia.write(registers::ENABL, flags::ENAXX_ENABLE).unwrap();
 
     let p0_delay = 30 * 3;
     let p1_delay = 3 * 3;
     let m0_delay = 4 * 3;
     let m1_delay = 2 * 3;
+    let ball_delay = 3 * 3;
     wait_ticks(&mut tia, p0_delay);
     tia.write(registers::RESP0, 0).unwrap();
     wait_ticks(&mut tia, p1_delay);
@@ -256,20 +259,23 @@ fn draws_sprites() {
     tia.write(registers::RESM0, 0).unwrap();
     wait_ticks(&mut tia, m1_delay);
     tia.write(registers::RESM1, 0).unwrap();
+    wait_ticks(&mut tia, ball_delay);
+    tia.write(registers::RESBL, 0).unwrap();
     wait_ticks(
         &mut tia,
-        TOTAL_WIDTH - p0_delay - p1_delay - m0_delay - m1_delay,
+        TOTAL_WIDTH - p0_delay - p1_delay - m0_delay - m1_delay - ball_delay,
     );
 
     assert_eq!(
         encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
         "................||||||||||||||||....................................\
-         22222222222222222222222222222424224242662222662224222226222222222222222222222222\
+         22222222222222222222222222222424224242662222662224222226222222228222222222222222\
          22222222222222222222222222222222222222222222222222222222222222222222222222222222",
     );
 
-    tia.write(registers::COLUP0, 0x08).unwrap();
-    tia.write(registers::COLUP1, 0x0A).unwrap();
+    tia.write(registers::COLUP0, 0x0A).unwrap();
+    tia.write(registers::COLUP1, 0x0C).unwrap();
+    tia.write(registers::COLUPF, 0x0E).unwrap();
     tia.write(registers::GRP0, 0b1111_0101).unwrap();
     tia.write(registers::GRP1, 0b1010_1111).unwrap();
 
@@ -277,6 +283,7 @@ fn draws_sprites() {
     let p1_delay = 6 * 3;
     let m0_delay = 8 * 3;
     let m1_delay = 1 * 3;
+    let ball_delay = 2 * 3;
     wait_ticks(&mut tia, p0_delay);
     tia.write(registers::RESP0, 0).unwrap();
     wait_ticks(&mut tia, p1_delay);
@@ -285,16 +292,18 @@ fn draws_sprites() {
     tia.write(registers::RESM0, 0).unwrap();
     wait_ticks(&mut tia, m1_delay);
     tia.write(registers::RESM1, 0).unwrap();
+    wait_ticks(&mut tia, ball_delay);
+    tia.write(registers::RESBL, 0).unwrap();
     wait_ticks(
         &mut tia,
-        TOTAL_WIDTH - p0_delay - p1_delay - m0_delay - m1_delay,
+        TOTAL_WIDTH - p0_delay - p1_delay - m0_delay - m1_delay - ball_delay,
     );
 
     assert_eq!(
         encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
         "................||||||||||||||||....................................\
-         22222222222222222222222222222222222222222222222888828282222222222A2A2AAAA2222222\
-         22222222822A22222222222222222222222222222222222222222222222222222222222222222222",
+         22222222222222222222222222222222222222222222222AAAA2A2A2222222222C2C2CCCC2222222\
+         22222222A22C22222E22222222222222222222222222222222222222222222222222222222222222",
     );
 }
 
@@ -304,19 +313,23 @@ fn moves_sprites() {
     tia.write(registers::COLUBK, 0x00).unwrap();
     tia.write(registers::COLUP0, 0x02).unwrap();
     tia.write(registers::COLUP1, 0x04).unwrap();
+    tia.write(registers::COLUPF, 0x06).unwrap();
     tia.write(registers::GRP0, 0b1100_0011).unwrap();
     tia.write(registers::GRP1, 0b1100_0011).unwrap();
     tia.write(registers::ENAM0, flags::ENAXX_ENABLE).unwrap();
     tia.write(registers::ENAM1, flags::ENAXX_ENABLE).unwrap();
+    tia.write(registers::ENABL, flags::ENAXX_ENABLE).unwrap();
     tia.write(registers::HMP0, 3 << 4).unwrap();
     tia.write(registers::HMP1, (-5i8 << 4) as u8).unwrap();
     tia.write(registers::HMM0, (-6i8 << 4) as u8).unwrap();
     tia.write(registers::HMM1, 4 << 4 as u8).unwrap();
+    tia.write(registers::HMBL, (-1i8 << 4) as u8).unwrap();
 
     let p0_delay = 32 * 3;
     let p1_delay = 6 * 3;
     let m0_delay = 9 * 3;
     let m1_delay = 2 * 3;
+    let ball_delay = 3 * 3;
     wait_ticks(&mut tia, p0_delay);
     tia.write(registers::RESP0, 0).unwrap();
     wait_ticks(&mut tia, p1_delay);
@@ -325,9 +338,11 @@ fn moves_sprites() {
     tia.write(registers::RESM0, 0).unwrap();
     wait_ticks(&mut tia, m1_delay);
     tia.write(registers::RESM1, 0).unwrap();
+    wait_ticks(&mut tia, ball_delay);
+    tia.write(registers::RESBL, 0).unwrap();
     wait_ticks(
         &mut tia,
-        TOTAL_WIDTH - p0_delay - p1_delay - m0_delay - m1_delay,
+        TOTAL_WIDTH - p0_delay - p1_delay - m0_delay - m1_delay - ball_delay,
     );
 
     // Pretend we're doing an STA: wait for 2 CPU cycles, write to register
@@ -340,7 +355,7 @@ fn moves_sprites() {
         encode_video_outputs(scanline),
         "................||||||||||||||||....................................\
          ........000000000000000000000000220000220000000000000000004400004400000000000000\
-         04000200000000000000000000000000000000000000000000000000000000000000000000000000",
+         04000200000000060000000000000000000000000000000000000000000000000000000000000000",
     );
 
     // Do the same once again, and then clear the movement registers before
@@ -358,10 +373,10 @@ fn moves_sprites() {
         encode_video_outputs(scanline),
         "................||||||||||||||||....................................\
          ........000000000000000000000220000220000000000000000000000000044000044000000400\
-         00000000000200000000000000000000000000000000000000000000000000000000000000000000\
+         00000000000200006000000000000000000000000000000000000000000000000000000000000000\
          ................||||||||||||||||....................................\
          ........000000000000000000000220000220000000000000000000000000044000044000000400\
-         00000000000200000000000000000000000000000000000000000000000000000000000000000000",
+         00000000000200006000000000000000000000000000000000000000000000000000000000000000",
     );
 
     // Test RESMPx: make sure the missiles move along with players and stop
@@ -371,7 +386,7 @@ fn moves_sprites() {
         encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
         "................||||||||||||||||....................................\
          00000000000000000000000000000220000220000000000000000000000000044000044000000400\
-         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+         00000000000000006000000000000000000000000000000000000000000000000000000000000000",
     );
 
     tia.write(registers::RESMP1, flags::RESMPX_RESET).unwrap();
@@ -379,7 +394,7 @@ fn moves_sprites() {
         encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
         "................||||||||||||||||....................................\
          00000000000000000000000000000220000220000000000000000000000000044000044000000000\
-         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+         00000000000000006000000000000000000000000000000000000000000000000000000000000000",
     );
 
     tia.write(registers::RESMP0, 0).unwrap();
@@ -387,14 +402,14 @@ fn moves_sprites() {
         encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
         "................||||||||||||||||....................................\
          00000000000000000000000000000220020220000000000000000000000000044000044000000000\
-         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+         00000000000000006000000000000000000000000000000000000000000000000000000000000000",
     );
     tia.write(registers::RESMP1, 0).unwrap();
     assert_eq!(
         encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
         "................||||||||||||||||....................................\
          00000000000000000000000000000220020220000000000000000000000000044004044000000000\
-         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+         00000000000000006000000000000000000000000000000000000000000000000000000000000000",
     );
 }
 
@@ -403,21 +418,27 @@ fn sprite_delay() {
     let mut tia = Tia::new();
     tia.write(registers::COLUP0, 0x02).unwrap();
     tia.write(registers::COLUP1, 0x04).unwrap();
+    tia.write(registers::COLUPF, 0x06).unwrap();
     tia.write(registers::VDELP0, flags::VDELXX_ON).unwrap();
     tia.write(registers::VDELP1, flags::VDELXX_ON).unwrap();
+    tia.write(registers::VDELBL, flags::VDELXX_ON).unwrap();
     // Reset both new and old values.
     tia.write(registers::GRP0, 0b0000_0001).unwrap();
     tia.write(registers::GRP1, 0b0000_0001).unwrap();
     tia.write(registers::GRP0, 0b0000_0001).unwrap();
     tia.write(registers::GRP1, 0b0000_0001).unwrap();
+    tia.write(registers::ENABL, flags::ENAXX_ENABLE).unwrap();
 
     let p0_delay = 30 * 3;
     let p1_delay = 3 * 3;
+    let ball_delay = 5 * 3;
     wait_ticks(&mut tia, p0_delay);
     tia.write(registers::RESP0, 0).unwrap();
     wait_ticks(&mut tia, p1_delay);
     tia.write(registers::RESP1, 0).unwrap();
-    wait_ticks(&mut tia, TOTAL_WIDTH - p0_delay - p1_delay);
+    wait_ticks(&mut tia, ball_delay);
+    tia.write(registers::RESBL, 0).unwrap();
+    wait_ticks(&mut tia, TOTAL_WIDTH - p0_delay - p1_delay - ball_delay);
     assert_eq!(
         encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
         "................||||||||||||||||....................................\
@@ -435,12 +456,12 @@ fn sprite_delay() {
          00000000000000000000000000000000000000000000000000000000000000000000000000000000",
     );
 
-    // Write a new value to GRP1, update old value of GRP0.
+    // Write a new value to GRP1, update old value of GRP0 and the ball.
     tia.write(registers::GRP1, 0b0000_0011).unwrap();
     assert_eq!(
         encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
         "................||||||||||||||||....................................\
-         00000000000000000000000000000000000220000000040000000000000000000000000000000000\
+         00000000000000000000000000000000000220000000040000006000000000000000000000000000\
          00000000000000000000000000000000000000000000000000000000000000000000000000000000",
     );
 
@@ -449,7 +470,7 @@ fn sprite_delay() {
     assert_eq!(
         encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
         "................||||||||||||||||....................................\
-         00000000000000000000000000000000000220000000440000000000000000000000000000000000\
+         00000000000000000000000000000000000220000000440000006000000000000000000000000000\
          00000000000000000000000000000000000000000000000000000000000000000000000000000000",
     );
 }
@@ -585,7 +606,7 @@ fn sprite_copies() {
 }
 
 #[test]
-fn sprite_scaling() {
+fn player_scaling() {
     use flags::*;
     use registers::{NUSIZ0, NUSIZ1};
 
@@ -717,6 +738,58 @@ fn missile_scaling() {
 }
 
 #[test]
+fn ball_scaling() {
+    let mut tia = Tia::new();
+    tia.write(registers::COLUPF, 0x0A).unwrap();
+    tia.write(registers::ENABL, flags::ENAXX_ENABLE).unwrap();
+
+    let ball_delay = 22 * 3;
+    wait_ticks(&mut tia, ball_delay);
+    tia.write(registers::RESBL, 0).unwrap();
+    wait_ticks(&mut tia, TOTAL_WIDTH - ball_delay);
+    tia.write(registers::CTRLPF, flags::CTRLPF_BALL_1).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         0000A000000000000000000000000000000000000000000000000000000000000000000000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    tia.write(registers::CTRLPF, flags::CTRLPF_BALL_2).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         0000AA00000000000000000000000000000000000000000000000000000000000000000000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    tia.write(registers::CTRLPF, flags::CTRLPF_BALL_4).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         0000AAAA000000000000000000000000000000000000000000000000000000000000000000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    tia.write(registers::CTRLPF, flags::CTRLPF_BALL_8).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         0000AAAAAAAA00000000000000000000000000000000000000000000000000000000000000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    // Make sure that other bits are ignored.
+    tia.write(registers::CTRLPF, 0xFF).unwrap();
+    assert_eq!(
+        encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
+        "................||||||||||||||||....................................\
+         0000AAAAAAAA00000000000000000000000000000000000000000000000000000000000000000000\
+         00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    );
+}
+
+#[test]
 fn graphics_priorities() {
     let mut tia = Tia::new();
     tia.write(registers::COLUBK, 0x00).unwrap();
@@ -726,18 +799,26 @@ fn graphics_priorities() {
     tia.write(registers::PF1, 0b1111_0011).unwrap();
     tia.write(registers::GRP0, 0b1010_1010).unwrap();
     tia.write(registers::GRP1, 0b1111_1111).unwrap();
+    tia.write(registers::CTRLPF, flags::CTRLPF_BALL_2).unwrap();
     tia.write(registers::ENAM0, flags::ENAXX_ENABLE).unwrap();
     tia.write(registers::ENAM1, flags::ENAXX_ENABLE).unwrap();
+    tia.write(registers::ENABL, flags::ENAXX_ENABLE).unwrap();
 
     let player_delay = 30 * 3;
-    let missile_delay = 4 * 3;
+    let ball_delay = 2 * 3;
+    let missile_delay = 2 * 3;
     wait_ticks(&mut tia, player_delay);
     tia.write(registers::RESP0, 0).unwrap();
     tia.write(registers::RESP1, 0).unwrap();
+    wait_ticks(&mut tia, ball_delay);
+    tia.write(registers::RESBL, 0).unwrap();
     wait_ticks(&mut tia, missile_delay);
     tia.write(registers::RESM0, 0).unwrap();
     tia.write(registers::RESM1, 0).unwrap();
-    wait_ticks(&mut tia, TOTAL_WIDTH - player_delay - missile_delay);
+    wait_ticks(
+        &mut tia,
+        TOTAL_WIDTH - player_delay - ball_delay - missile_delay,
+    );
     assert_eq!(
         encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
         "................||||||||||||||||....................................\
@@ -745,12 +826,15 @@ fn graphics_priorities() {
          00000000000000002222222222222222000000002222222200000000000000000000000000000000",
     );
 
-    tia.write(registers::CTRLPF, flags::CTRLPF_PRIORITY)
-        .unwrap();
+    tia.write(
+        registers::CTRLPF,
+        flags::CTRLPF_PRIORITY | flags::CTRLPF_BALL_2,
+    )
+    .unwrap();
     assert_eq!(
         encode_video_outputs(scan_video(&mut tia, TOTAL_WIDTH)),
         "................||||||||||||||||....................................\
-         00000000000000002222222222222222646460002222222200000000000000000000000000000000\
+         00000000000000002222222222222222642260002222222200000000000000000000000000000000\
          00000000000000002222222222222222000000002222222200000000000000000000000000000000",
     );
 }
@@ -792,21 +876,26 @@ fn sprite_collisions() {
     tia.write(registers::PF1, 0b0000_0100).unwrap();
     tia.write(registers::ENAM0, flags::ENAXX_ENABLE).unwrap();
     tia.write(registers::ENAM1, flags::ENAXX_ENABLE).unwrap();
+    tia.write(registers::ENABL, flags::ENAXX_ENABLE).unwrap();
     tia.write(registers::GRP0, 0b1000_0000).unwrap();
     tia.write(registers::GRP1, 0b1000_0000).unwrap();
     tia.write(registers::VBLANK, flags::VBLANK_ON).unwrap();
 
     // Position all graphics objects in a way where everything is separated,
-    // in order: M0, P0, M1, P1, PF.
+    // in order: M0, P0, M1, P1, BL, PF.
     let sprite_delay = 32 * 3;
     wait_ticks(&mut tia, sprite_delay);
     tia.write(registers::RESP0, 0).unwrap();
     tia.write(registers::RESP1, 0).unwrap();
     tia.write(registers::RESM0, 0).unwrap();
     tia.write(registers::RESM1, 0).unwrap();
+    tia.write(registers::RESBL, 0).unwrap();
     wait_ticks(&mut tia, TOTAL_WIDTH - sprite_delay);
-    tia.write(registers::HMP0, 2 << 4).unwrap();
-    tia.write(registers::HMM0, 2 << 4).unwrap();
+    tia.write(registers::HMP0, 3 << 4).unwrap();
+    tia.write(registers::HMM0, 3 << 4).unwrap();
+    tia.write(registers::HMP1, 1 << 4).unwrap();
+    tia.write(registers::HMM1, 1 << 4).unwrap();
+    tia.write(registers::HMBL, (-1i8 << 4) as u8).unwrap();
     tia.write(registers::HMOVE, 0).unwrap();
     wait_ticks(&mut tia, TOTAL_WIDTH);
     tia.write(registers::VBLANK, 0).unwrap();
@@ -831,11 +920,17 @@ fn sprite_collisions() {
     wait_ticks(&mut tia, TOTAL_WIDTH);
     assert_collision_latches(&tia, [0b11, 0b11, 0b00, 0b00, 0b00, 0b00, 0b00, 0b11]);
 
-    // M0+P0+M1+P1+PF.
+    // M0+P0+M1+P1+BL.
     tia.write(registers::HMP1, (-1i8 << 4) as u8).unwrap();
     tia.write(registers::HMOVE, 0).unwrap();
     wait_ticks(&mut tia, TOTAL_WIDTH);
-    assert_collision_latches(&tia, [0b11, 0b11, 0b10, 0b10, 0b10, 0b10, 0b00, 0b11]);
+    assert_collision_latches(&tia, [0b11, 0b11, 0b01, 0b01, 0b01, 0b01, 0b00, 0b11]);
+
+    // M0+P0+M1+P1+BL+PF.
+    tia.write(registers::HMBL, (-1i8 << 4) as u8).unwrap();
+    tia.write(registers::HMOVE, 0).unwrap();
+    wait_ticks(&mut tia, TOTAL_WIDTH);
+    assert_collision_latches(&tia, [0b11, 0b11, 0b11, 0b11, 0b11, 0b11, 0b10, 0b11]);
 
     tia.write(registers::CXCLR, 0).unwrap();
     assert_collision_latches(&tia, [0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00]);

@@ -34,6 +34,17 @@ pub const CTRLPF_REFLECT: u8 = 0b0000_0001;
 pub const CTRLPF_SCORE: u8 = 0b0000_0010;
 /// Bit mask for turning playfield/ball priority using the `CTRLPF` register.
 pub const CTRLPF_PRIORITY: u8 = 0b0000_0100;
+/// Flag for extracting ball size from the CTRLPF register. Also, an excuse for
+/// calling something a "ball mask".
+pub const CTRLPF_BALL_MASK: u8 = 0b0011_0000;
+/// Sets ball width to 1 using the `CTRLPF` register.
+pub const CTRLPF_BALL_1: u8 = 0b0000_0000;
+/// Sets ball width to 2 using the `CTRLPF` register.
+pub const CTRLPF_BALL_2: u8 = 0b0001_0000;
+/// Sets ball width to 4 using the `CTRLPF` register.
+pub const CTRLPF_BALL_4: u8 = 0b0010_0000;
+/// Sets ball width to 8 using the `CTRLPF` register.
+pub const CTRLPF_BALL_8: u8 = 0b0011_0000;
 /// Bit mask for resetting missile position to player using the `RESMPx`
 /// registers.
 pub const RESMPX_RESET: u8 = 0b0000_0010;

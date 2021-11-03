@@ -95,6 +95,7 @@ pub struct Tia {
     player1: Sprite,
     missile0: Sprite,
     missile1: Sprite,
+    ball: Sprite,
     audio0: AudioGenerator,
     audio1: AudioGenerator,
 
@@ -147,6 +148,7 @@ impl Tia {
             player1: Sprite::new(),
             missile0: Sprite::new(),
             missile1: Sprite::new(),
+            ball: Sprite::new(),
             audio0: AudioGenerator::new(),
             audio1: AudioGenerator::new(),
 
@@ -191,6 +193,7 @@ impl Tia {
             self.player1.hmove_tick(self.hmove_counter);
             self.missile0.hmove_tick(self.hmove_counter);
             self.missile1.hmove_tick(self.hmove_counter);
+            self.ball.hmove_tick(self.hmove_counter);
             self.hmove_counter -= 1;
         }
 
@@ -198,6 +201,7 @@ impl Tia {
         let p1_bit = self.player1.tick(!self.hblank_on);
         let m0_bit = self.missile0.tick(!self.hblank_on);
         let m1_bit = self.missile1.tick(!self.hblank_on);
+        let ball_bit = self.ball.tick(!self.hblank_on);
 
         let pixel = if self.hblank_on {
             None
@@ -232,14 +236,29 @@ impl Tia {
                 if p0_bit && playfield_bit {
                     self.reg_cxp0fb |= 1 << 7;
                 }
+                if p0_bit && ball_bit {
+                    self.reg_cxp0fb |= 1 << 6;
+                }
                 if p1_bit && playfield_bit {
                     self.reg_cxp1fb |= 1 << 7;
+                }
+                if p1_bit && ball_bit {
+                    self.reg_cxp1fb |= 1 << 6;
                 }
                 if m0_bit && playfield_bit {
                     self.reg_cxm0fb |= 1 << 7;
                 }
+                if m0_bit && ball_bit {
+                    self.reg_cxm0fb |= 1 << 6;
+                }
                 if m1_bit && playfield_bit {
                     self.reg_cxm1fb |= 1 << 7;
+                }
+                if m1_bit && ball_bit {
+                    self.reg_cxm1fb |= 1 << 6;
+                }
+                if ball_bit && playfield_bit {
+                    self.reg_cxblpf |= 1 << 7;
                 }
                 if p0_bit && p1_bit {
                     self.reg_cxppmm |= 1 << 7;
@@ -248,7 +267,9 @@ impl Tia {
                     self.reg_cxppmm |= 1 << 6;
                 }
                 Some(
-                    if self.reg_ctrlpf & flags::CTRLPF_PRIORITY != 0 && playfield_bit {
+                    // TODO: Need to tweak priorities in the score mode.
+                    if self.reg_ctrlpf & flags::CTRLPF_PRIORITY != 0 && (playfield_bit || ball_bit)
+                    {
                         self.reg_colupf
                     } else if self.reg_ctrlpf & flags::CTRLPF_SCORE != 0 && playfield_bit {
                         match self.screen_half {
@@ -259,7 +280,9 @@ impl Tia {
                         self.reg_colup0
                     } else if p1_bit || m1_bit {
                         self.reg_colup1
-                    } else if self.reg_ctrlpf & flags::CTRLPF_PRIORITY == 0 && playfield_bit {
+                    } else if self.reg_ctrlpf & flags::CTRLPF_PRIORITY == 0
+                        && (playfield_bit || ball_bit)
+                    {
                         self.reg_colupf
                     } else {
                         self.reg_colubk
@@ -394,7 +417,10 @@ impl Memory for Tia {
             registers::COLUP1 => self.reg_colup1 = value,
             registers::COLUPF => self.reg_colupf = value,
             registers::COLUBK => self.reg_colubk = value,
-            registers::CTRLPF => self.reg_ctrlpf = value,
+            registers::CTRLPF => {
+                self.reg_ctrlpf = value;
+                self.ball.set_reg_ctrlpf(value);
+            }
             registers::REFP0 => self.player0.set_reg_refp(value),
             registers::REFP1 => self.player1.set_reg_refp(value),
             registers::PF0 => self.reg_pf0 = value,
@@ -404,6 +430,7 @@ impl Memory for Tia {
             registers::RESP1 => self.player1.reset_position(5),
             registers::RESM0 => self.missile0.reset_position(4),
             registers::RESM1 => self.missile1.reset_position(4),
+            registers::RESBL => self.ball.reset_position(4),
 
             registers::AUDC0 => self.audio0.set_pattern(value),
             registers::AUDC1 => self.audio1.set_pattern(value),
@@ -418,16 +445,20 @@ impl Memory for Tia {
             }
             registers::GRP1 => {
                 self.player0.shift_bitmaps();
+                self.ball.shift_bitmaps();
                 self.player1.set_bitmap(value);
             }
             registers::ENAM0 => self.missile0.set_bitmap((value & flags::ENAXX_ENABLE) << 6),
             registers::ENAM1 => self.missile1.set_bitmap((value & flags::ENAXX_ENABLE) << 6),
+            registers::ENABL => self.ball.set_bitmap((value & flags::ENAXX_ENABLE) << 6),
             registers::HMP0 => self.player0.set_reg_hm(value),
             registers::HMP1 => self.player1.set_reg_hm(value),
             registers::HMM0 => self.missile0.set_reg_hm(value),
             registers::HMM1 => self.missile1.set_reg_hm(value),
+            registers::HMBL => self.ball.set_reg_hm(value),
             registers::VDELP0 => self.player0.set_reg_vdel(value),
             registers::VDELP1 => self.player1.set_reg_vdel(value),
+            registers::VDELBL => self.ball.set_reg_vdel(value),
             registers::RESMP0 => self.reg_resmp0 = value,
             registers::RESMP1 => self.reg_resmp1 = value,
             // Note: there is an additional delay here, but it requires emulating the Hφ1 signal.
@@ -440,6 +471,7 @@ impl Memory for Tia {
                 self.player1.set_reg_hm(0);
                 self.missile0.set_reg_hm(0);
                 self.missile1.set_reg_hm(0);
+                self.ball.set_reg_hm(0);
             }
             registers::CXCLR => {
                 self.reg_cxm0p = 0;
