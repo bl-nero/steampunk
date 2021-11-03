@@ -9,7 +9,7 @@ use audio_generator::AudioGenerator;
 use delay_buffer::DelayBuffer;
 use enum_map::{enum_map, Enum, EnumMap};
 use sprite::{missile_reset_delay_for_player, set_reg_nusiz, Sprite};
-use ya6502::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
+use ya6502::memory::{Memory, ReadError, ReadResult, WriteResult};
 
 #[derive(Debug, Enum, Copy, Clone)]
 pub enum Port {
@@ -102,10 +102,6 @@ pub struct Tia {
     // "Raw" values on the input port pins. They don't necessarily directly
     // reflect `reg_inpt`, since they are not latched.
     input_ports: EnumMap<Port, bool>,
-
-    // A temporary hack to allow one-time initialization before complaining each
-    // time a register is written to.
-    initialized_registers: [bool; 0x100],
 }
 
 impl Tia {
@@ -153,7 +149,6 @@ impl Tia {
             audio1: AudioGenerator::new(),
 
             input_ports: enum_map! { _ => true },
-            initialized_registers: [false; 0x100],
         }
     }
 
@@ -484,14 +479,7 @@ impl Memory for Tia {
                 self.reg_cxppmm = 0;
             }
 
-            // Not (yet) supported. Allow one initialization pass, but that's it.
-            _ => {
-                let internal_address = address as u8 as usize;
-                if self.initialized_registers[internal_address] || value != 0 {
-                    return Err(WriteError { address, value });
-                }
-                self.initialized_registers[internal_address] = true;
-            }
+            _ => {} // Unknown register; just ignore.
         }
         Ok(())
     }
