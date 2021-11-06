@@ -803,13 +803,63 @@ fn eor() {
             eor 20
             pha
             // 6 cycles
-    };
-    cpu.mut_memory().bytes[20..=20].copy_from_slice(&[0b1111_0000]);
-    // cpu.mut_memory().bytes[0x1234..=0x123D].copy_from_slice(&[
-    // ]);
 
-    cpu.ticks(11 + 6).unwrap();
-    assert_eq!(reversed_stack(&cpu), [0b1100_0011, 0b0011_0011,]);
+            ldx #10
+            eor 11,x
+            pha
+            // 9 cycles
+
+            eor abs 0x3210
+            pha
+            // 7 cycles
+
+            eor abs 0x3207,x
+            pha
+            // 7 cycles
+
+            ldy #2
+            eor abs 0x3210,y
+            pha
+            // 9 cycles
+
+            eor (12,x)
+            pha
+            // 9 cycles
+
+            eor (24),y
+            pha
+            // 8 cycles
+    };
+    cpu.mut_memory().bytes[20..=25].copy_from_slice(&[
+        0b1111_0000,
+        0b1010_0101,
+        0x13,
+        0x32,
+        0x12,
+        0x32,
+    ]);
+    cpu.mut_memory().bytes[0x3210..=0x3214].copy_from_slice(&[
+        0b0000_1111,
+        0b1100_1100,
+        0b1111_1111,
+        0b0011_1100,
+        0b0001_1000,
+    ]);
+
+    cpu.ticks(11 + 6 + 9 + 7 + 7 + 9 + 9 + 8).unwrap();
+    assert_eq!(
+        reversed_stack(&cpu),
+        [
+            0b1100_0011,
+            0b0011_0011,
+            0b1001_0110,
+            0b1001_1001,
+            0b0101_0101,
+            0b1010_1010,
+            0b1001_0110,
+            0b1000_1110,
+        ],
+    );
 }
 
 #[test]

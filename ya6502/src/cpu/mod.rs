@@ -321,6 +321,30 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::EOR_ZP, _) => {
                 self.tick_load_zero_page(&mut |me, value| me.set_reg_a(me.reg_a ^ value))?;
             }
+            SequenceState::Opcode(opcodes::EOR_ZP_X, _) => {
+                self.tick_load_zero_page_indexed(self.reg_x, &mut |me, value| {
+                    me.set_reg_a(me.reg_a ^ value)
+                })?;
+            }
+            SequenceState::Opcode(opcodes::EOR_ABS, _) => {
+                self.tick_load_absolute(&mut |me, value| me.set_reg_a(me.reg_a ^ value))?;
+            }
+            SequenceState::Opcode(opcodes::EOR_ABS_X, _) => {
+                self.tick_load_absolute_indexed(self.reg_x, &mut |me, value| {
+                    me.set_reg_a(me.reg_a ^ value)
+                })?;
+            }
+            SequenceState::Opcode(opcodes::EOR_ABS_Y, _) => {
+                self.tick_load_absolute_indexed(self.reg_y, &mut |me, value| {
+                    me.set_reg_a(me.reg_a ^ value)
+                })?;
+            }
+            SequenceState::Opcode(opcodes::EOR_X_INDIR, _) => {
+                self.tick_load_x_indirect(&mut |me, value| me.set_reg_a(me.reg_a ^ value))?;
+            }
+            SequenceState::Opcode(opcodes::EOR_INDIR_Y, _) => {
+                self.tick_load_indirect_y(&mut |me, value| me.set_reg_a(me.reg_a ^ value))?;
+            }
 
             SequenceState::Opcode(opcodes::ASL_A, _) => {
                 self.tick_simple_internal_operation(&mut |me| {
