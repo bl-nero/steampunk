@@ -161,7 +161,7 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_load_zero_page(&mut |me, value| me.set_reg_a(value))?;
             }
             SequenceState::Opcode(opcodes::LDA_ZP_X, _) => {
-                self.tick_load_zero_page_x(&mut |me, value| me.set_reg_a(value))?;
+                self.tick_load_zero_page_indexed(self.reg_x, &mut |me, value| me.set_reg_a(value))?;
             }
             SequenceState::Opcode(opcodes::LDA_ABS, _) => {
                 self.tick_load_absolute(&mut |me, value| me.set_reg_a(value))?;
@@ -185,8 +185,14 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::LDX_ZP, _) => {
                 self.tick_load_zero_page(&mut |me, value| me.set_reg_x(value))?;
             }
+            SequenceState::Opcode(opcodes::LDX_ZP_Y, _) => {
+                self.tick_load_zero_page_indexed(self.reg_y, &mut |me, value| me.set_reg_x(value))?;
+            }
             SequenceState::Opcode(opcodes::LDX_ABS, _) => {
                 self.tick_load_absolute(&mut |me, value| me.set_reg_x(value))?;
+            }
+            SequenceState::Opcode(opcodes::LDX_ABS_Y, _) => {
+                self.tick_load_absolute_indexed(self.reg_y, &mut |me, value| me.set_reg_x(value))?;
             }
 
             SequenceState::Opcode(opcodes::LDY_IMM, _) => {
@@ -195,15 +201,21 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::LDY_ZP, _) => {
                 self.tick_load_zero_page(&mut |me, value| me.set_reg_y(value))?;
             }
+            SequenceState::Opcode(opcodes::LDY_ZP_X, _) => {
+                self.tick_load_zero_page_indexed(self.reg_x, &mut |me, value| me.set_reg_y(value))?;
+            }
             SequenceState::Opcode(opcodes::LDY_ABS, _) => {
                 self.tick_load_absolute(&mut |me, value| me.set_reg_y(value))?;
+            }
+            SequenceState::Opcode(opcodes::LDY_ABS_X, _) => {
+                self.tick_load_absolute_indexed(self.reg_x, &mut |me, value| me.set_reg_y(value))?;
             }
 
             SequenceState::Opcode(opcodes::STA_ZP, _) => {
                 self.tick_store_zero_page(self.reg_a)?;
             }
             SequenceState::Opcode(opcodes::STA_ZP_X, _) => {
-                self.tick_store_zero_page_x(self.reg_a)?;
+                self.tick_store_zero_page_indexed(self.reg_x, self.reg_a)?;
             }
             SequenceState::Opcode(opcodes::STA_ABS, _) => {
                 self.tick_store_abs(self.reg_a)?;
@@ -224,6 +236,9 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::STX_ZP, _) => {
                 self.tick_store_zero_page(self.reg_x)?;
             }
+            SequenceState::Opcode(opcodes::STX_ZP_Y, _) => {
+                self.tick_store_zero_page_indexed(self.reg_y, self.reg_x)?;
+            }
             SequenceState::Opcode(opcodes::STX_ABS, _) => {
                 self.tick_store_abs(self.reg_x)?;
             }
@@ -232,7 +247,7 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_store_zero_page(self.reg_y)?;
             }
             SequenceState::Opcode(opcodes::STY_ZP_X, _) => {
-                self.tick_store_zero_page_x(self.reg_y)?;
+                self.tick_store_zero_page_indexed(self.reg_x, self.reg_y)?;
             }
             SequenceState::Opcode(opcodes::STY_ABS, _) => {
                 self.tick_store_abs(self.reg_y)?;
@@ -245,7 +260,9 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_load_zero_page(&mut |me, value| me.set_reg_a(me.reg_a & value))?;
             }
             SequenceState::Opcode(opcodes::AND_ZP_X, _) => {
-                self.tick_load_zero_page_x(&mut |me, value| me.set_reg_a(me.reg_a & value))?;
+                self.tick_load_zero_page_indexed(self.reg_x, &mut |me, value| {
+                    me.set_reg_a(me.reg_a & value)
+                })?;
             }
             SequenceState::Opcode(opcodes::AND_ABS, _) => {
                 self.tick_load_absolute(&mut |me, value| me.set_reg_a(me.reg_a & value))?;
@@ -274,7 +291,9 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_load_zero_page(&mut |me, value| me.set_reg_a(me.reg_a | value))?;
             }
             SequenceState::Opcode(opcodes::ORA_ZP_X, _) => {
-                self.tick_load_zero_page_x(&mut |me, value| me.set_reg_a(me.reg_a | value))?;
+                self.tick_load_zero_page_indexed(self.reg_x, &mut |me, value| {
+                    me.set_reg_a(me.reg_a | value)
+                })?;
             }
             SequenceState::Opcode(opcodes::ORA_ABS, _) => {
                 self.tick_load_absolute(&mut |me, value| me.set_reg_a(me.reg_a | value))?;
@@ -426,7 +445,7 @@ impl<M: Memory + Debug> Cpu<M> {
                 })?;
             }
             SequenceState::Opcode(opcodes::ADC_ZP_X, _) => {
-                self.tick_load_zero_page_x(&mut |me, value| {
+                self.tick_load_zero_page_indexed(self.reg_x, &mut |me, value| {
                     let sum = me.add_with_carry(me.reg_a, value);
                     me.set_reg_a(sum);
                 })?;
@@ -463,7 +482,7 @@ impl<M: Memory + Debug> Cpu<M> {
                 })?;
             }
             SequenceState::Opcode(opcodes::SBC_ZP_X, _) => {
-                self.tick_load_zero_page_x(&mut |me, value| {
+                self.tick_load_zero_page_indexed(self.reg_x, &mut |me, value| {
                     let diff = me.sub_with_carry(me.reg_a, value);
                     me.set_reg_a(diff);
                 })?;
@@ -735,18 +754,16 @@ impl<M: Memory + Debug> Cpu<M> {
         Ok(())
     }
 
-    fn tick_load_zero_page_x(
+    fn tick_load_zero_page_indexed(
         &mut self,
+        index: u8,
         load: &mut dyn FnMut(&mut Self, u8),
     ) -> Result<(), ReadError> {
         match self.sequence_state {
             SequenceState::Opcode(_, 1) => self.bal = self.consume_program_byte()?,
             SequenceState::Opcode(_, 2) => self.phantom_read(self.bal as u16),
             _ => {
-                load(
-                    self,
-                    self.memory.read(self.bal.wrapping_add(self.reg_x) as u16)?,
-                );
+                load(self, self.memory.read(self.bal.wrapping_add(index) as u16)?);
                 self.sequence_state = SequenceState::Ready;
             }
         };
@@ -861,13 +878,13 @@ impl<M: Memory + Debug> Cpu<M> {
         Ok(())
     }
 
-    fn tick_store_zero_page_x(&mut self, value: u8) -> TickResult {
+    fn tick_store_zero_page_indexed(&mut self, index: u8, value: u8) -> TickResult {
         match self.sequence_state {
             SequenceState::Opcode(_, 1) => self.bal = self.consume_program_byte()?,
             SequenceState::Opcode(_, 2) => self.phantom_read(self.bal as u16),
             _ => {
                 self.memory
-                    .write((self.bal.wrapping_add(self.reg_x)) as u16, value)?;
+                    .write((self.bal.wrapping_add(index)) as u16, value)?;
                 self.sequence_state = SequenceState::Ready;
             }
         };
@@ -1022,7 +1039,7 @@ impl<M: Memory + Debug> Cpu<M> {
     }
 
     fn tick_compare_zero_page_x(&mut self, register: u8) -> Result<(), ReadError> {
-        self.tick_load_zero_page_x(&mut |me, value| me.compare(register, value))
+        self.tick_load_zero_page_indexed(self.reg_x, &mut |me, value| me.compare(register, value))
     }
 
     fn tick_compare_absolute(&mut self, register: u8) -> Result<(), ReadError> {

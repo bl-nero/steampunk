@@ -11,11 +11,15 @@ pub const LDA_INDIR_Y: u8 = 0xB1;
 
 pub const LDX_IMM: u8 = 0xA2;
 pub const LDX_ZP: u8 = 0xA6;
+pub const LDX_ZP_Y: u8 = 0xB6;
 pub const LDX_ABS: u8 = 0xAE;
+pub const LDX_ABS_Y: u8 = 0xBE;
 
 pub const LDY_IMM: u8 = 0xA0;
 pub const LDY_ZP: u8 = 0xA4;
+pub const LDY_ZP_X: u8 = 0xB4;
 pub const LDY_ABS: u8 = 0xAC;
+pub const LDY_ABS_X: u8 = 0xBC;
 
 pub const STA_ZP: u8 = 0x85;
 pub const STA_ZP_X: u8 = 0x95;
@@ -26,6 +30,7 @@ pub const STA_X_INDIR: u8 = 0x81;
 pub const STA_INDIR_Y: u8 = 0x91;
 
 pub const STX_ZP: u8 = 0x86;
+pub const STX_ZP_Y: u8 = 0x96;
 pub const STX_ABS: u8 = 0x8E;
 
 pub const STY_ZP: u8 = 0x84;

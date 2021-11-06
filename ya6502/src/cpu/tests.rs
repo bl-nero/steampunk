@@ -187,11 +187,24 @@ fn ldx_stx() {
             stx 4
             ldx #12
             stx 5
+
             ldx 4
             stx 6
-            ldx abs 0xF002  // should load the STX opcode
+
+            ldx abs 0x3456
             stx abs 0xABCD
+
+            ldy #2
+            ldx 14,y
+            stx 24,y
+
+            ldy #7
+            ldx abs 0x3450,y
+            stx 7
     };
+    // Prepare test data.
+    cpu.mut_memory().bytes[16..=16].copy_from_slice(&[34]);
+    cpu.mut_memory().bytes[0x3456..=0x3457].copy_from_slice(&[17, 56]);
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
     cpu.ticks(5).unwrap();
@@ -200,7 +213,11 @@ fn ldx_stx() {
     assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
     cpu.ticks(14).unwrap();
     assert_eq!(cpu.memory.bytes[4..7], [73, 12, 73]);
-    assert_eq!(cpu.memory.bytes[0xABCD], opcodes::STX_ZP);
+    assert_eq!(cpu.memory.bytes[0xABCD], 17);
+    cpu.ticks(10).unwrap();
+    assert_eq!(cpu.memory.bytes[26], 34);
+    cpu.ticks(9).unwrap();
+    assert_eq!(cpu.memory.bytes[7], 56);
 }
 
 #[test]
@@ -214,9 +231,20 @@ fn ldy_sty() {
             sty 5
             ldy 4
             sty 6
-            ldy abs 0xF002  // should load the STY opcode
+            ldy abs 0x3456
             sty abs 0xABCD
+
+            ldx #2
+            ldy 14,x
+            sty 24,x
+
+            ldx #7
+            ldy abs 0x3450,x
+            sty 7
     };
+    // Prepare test data.
+    cpu.mut_memory().bytes[16..=16].copy_from_slice(&[34]);
+    cpu.mut_memory().bytes[0x3456..=0x3457].copy_from_slice(&[17, 56]);
     cpu.ticks(5).unwrap();
     assert_eq!(cpu.memory.bytes[4..6], [65, 0]);
     cpu.ticks(5).unwrap();
@@ -225,7 +253,11 @@ fn ldy_sty() {
     assert_eq!(cpu.memory.bytes[4..6], [73, 12]);
     cpu.ticks(14).unwrap();
     assert_eq!(cpu.memory.bytes[4..7], [73, 12, 73]);
-    assert_eq!(cpu.memory.bytes[0xABCD], opcodes::STY_ZP);
+    assert_eq!(cpu.memory.bytes[0xABCD], 17);
+    cpu.ticks(10).unwrap();
+    assert_eq!(cpu.memory.bytes[26], 34);
+    cpu.ticks(9).unwrap();
+    assert_eq!(cpu.memory.bytes[7], 56);
 }
 
 #[test]
