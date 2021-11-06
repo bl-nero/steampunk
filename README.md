@@ -38,6 +38,7 @@ Currently, at the following official Atari 2600 cartridges are known to be suppo
 * *Basic Math*, a.k.a. *Fun with Numbers*
 * *Combat*
 * *Air-Sea Battle*
+* *Starship*… sort of. For some reason, we are unable to aim down.
 
 Known issues:
 * Not all 6502 opcodes are supported (not even official ones)
