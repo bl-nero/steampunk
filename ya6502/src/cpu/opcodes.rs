@@ -68,7 +68,7 @@ pub const ASL_A: u8 = 0x0A;
 pub const ASL_ZP: u8 = 0x06;
 pub const ASL_ZP_X: u8 = 0x16;
 pub const ASL_ABS: u8 = 0x0E;
-// pub const ASL_ABS_X: u8 = 0x1E;
+pub const ASL_ABS_X: u8 = 0x1E;
 
 pub const LSR_A: u8 = 0x4A;
 pub const LSR_ZP: u8 = 0x46;

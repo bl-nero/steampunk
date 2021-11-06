@@ -361,6 +361,11 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::ASL_ABS, _) => {
                 self.tick_load_modify_store_absolute(&mut |me, value| me.shift_left(value))?;
             }
+            SequenceState::Opcode(opcodes::ASL_ABS_X, _) => {
+                self.tick_load_modify_store_absolute_indexed(self.reg_x, &mut |me, value| {
+                    me.shift_left(value)
+                })?;
+            }
 
             SequenceState::Opcode(opcodes::LSR_A, _) => {
                 self.tick_simple_internal_operation(&mut |me| {
@@ -1048,6 +1053,39 @@ impl<M: Memory + Debug> Cpu<M> {
             _ => {
                 let result = operation(self, self.tmp_data);
                 self.memory.write(self.address(), result)?;
+                self.sequence_state = SequenceState::Ready;
+            }
+        }
+        Ok(())
+    }
+
+    fn tick_load_modify_store_absolute_indexed(
+        &mut self,
+        index: u8,
+        operation: &mut dyn FnMut(&mut Self, u8) -> u8,
+    ) -> TickResult {
+        match self.sequence_state {
+            SequenceState::Opcode(_, 1) => self.bal = self.consume_program_byte()?,
+            SequenceState::Opcode(_, 2) => self.bah = self.consume_program_byte()?,
+            SequenceState::Opcode(_, 3) => {
+                self.phantom_read(u16::from_le_bytes([self.bal.wrapping_add(index), self.bah]));
+            }
+            SequenceState::Opcode(_, 4) => {
+                self.tmp_data = self
+                    .memory
+                    .read(self.base_address().wrapping_add(index as u16))?;
+            }
+            SequenceState::Opcode(_, 5) => {
+                // Phantom write.
+                self.memory.write(
+                    self.base_address().wrapping_add(index as u16),
+                    self.tmp_data,
+                )?;
+            }
+            _ => {
+                let result = operation(self, self.tmp_data);
+                self.memory
+                    .write(self.base_address().wrapping_add(index as u16), result)?;
                 self.sequence_state = SequenceState::Ready;
             }
         }

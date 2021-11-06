@@ -867,28 +867,42 @@ fn asl() {
     let mut cpu = cpu_with_code! {
             sec
             lda #0b0101_0000
+            // 4 cycles
 
             asl a
         stop1:
             bcs stop1
             sta 0x01
+            // 7 cycles
 
             asl 0x01
         stop2:
             bcc stop2
             sta 0x02
+            // 10 cycles
 
             ldx #1
             asl 0x01,x
         stop3:
             bcc stop3
+            // 10 cycles
 
             stx abs 0x0234
             asl abs 0x0234
+            // 10 cycles
+
+            inx
+            stx abs 0x0235
+            asl abs 0x0233,x
+            // 13 cycles
+
+            ldx #0x80
+            asl abs 0x01B5,x // Test cross-page indexing
+            // 9 cycles
     };
-    cpu.ticks(4 + 7 + 10 + 10 + 10).unwrap();
+    cpu.ticks(4 + 7 + 10 + 10 + 10 + 13 + 9).unwrap();
     assert_eq!(cpu.memory.bytes[1..=2], [0b0100_0000, 0b0100_0000]);
-    assert_eq!(cpu.memory.bytes[0x0234], 2);
+    assert_eq!(cpu.memory.bytes[0x0234..=0x0235], [2, 8]);
 }
 
 #[test]
