@@ -68,18 +68,25 @@ pub const ASL_A: u8 = 0x0A;
 pub const ASL_ZP: u8 = 0x06;
 pub const ASL_ZP_X: u8 = 0x16;
 pub const ASL_ABS: u8 = 0x0E;
+// pub const ASL_ABS_X: u8 = 0x1E;
+
 pub const LSR_A: u8 = 0x4A;
 pub const LSR_ZP: u8 = 0x46;
 pub const LSR_ZP_X: u8 = 0x56;
 pub const LSR_ABS: u8 = 0x4E;
+// pub const LSR_ABS_X: u8 = 0x5E;
+
 pub const ROL_A: u8 = 0x2A;
 pub const ROL_ZP: u8 = 0x26;
 pub const ROL_ZP_X: u8 = 0x36;
 pub const ROL_ABS: u8 = 0x2E;
+// pub const ROL_ABS_X: u8 = 0x3E;
+
 pub const ROR_A: u8 = 0x6A;
 pub const ROR_ZP: u8 = 0x66;
 pub const ROR_ZP_X: u8 = 0x76;
 pub const ROR_ABS: u8 = 0x6E;
+// pub const ROR_ABS_X: u8 = 0x7E;
 
 pub const CMP_IMM: u8 = 0xC9;
 pub const CMP_ZP: u8 = 0xC5;
@@ -92,8 +99,11 @@ pub const CMP_INDIR_Y: u8 = 0xD1;
 
 pub const CPX_IMM: u8 = 0xE0;
 pub const CPX_ZP: u8 = 0xE4;
+// pub const CPX_ABS: u8 = 0xEC;
+
 pub const CPY_IMM: u8 = 0xC0;
 pub const CPY_ZP: u8 = 0xC4;
+// pub const CPY_ABS: u8 = 0xCC;
 
 pub const BIT_ZP: u8 = 0x24;
 pub const BIT_ABS: u8 = 0x2C;
@@ -104,6 +114,8 @@ pub const ADC_ZP_X: u8 = 0x75;
 pub const ADC_ABS: u8 = 0x6D;
 pub const ADC_ABS_X: u8 = 0x7D;
 pub const ADC_ABS_Y: u8 = 0x79;
+// pub const ADC_X_INDIR: u8 = 0x61;
+// pub const ADC_INDIR_Y: u8 = 0x71;
 
 pub const SBC_IMM: u8 = 0xE9;
 pub const SBC_ZP: u8 = 0xE5;
@@ -111,11 +123,18 @@ pub const SBC_ZP_X: u8 = 0xF5;
 pub const SBC_ABS: u8 = 0xED;
 pub const SBC_ABS_X: u8 = 0xFD;
 pub const SBC_ABS_Y: u8 = 0xF9;
+// pub const SBC_X_INDIR: u8 = 0xE1;
+// pub const SBC_INDIR_Y: u8 = 0xF1;
 
 pub const INC_ZP: u8 = 0xE6;
 pub const INC_ZP_X: u8 = 0xF6;
+// pub const INC_ABS: u8 = 0xEE;
+// pub const INC_ABS_X: u8 = 0xFE;
+
 pub const DEC_ZP: u8 = 0xC6;
 pub const DEC_ZP_X: u8 = 0xD6;
+// pub const DEC_ABS: u8 = 0xCE;
+// pub const DEC_ABS_X: u8 = 0xDE;
 
 pub const INX: u8 = 0xE8;
 pub const INY: u8 = 0xC8;
@@ -152,7 +171,10 @@ pub const BVS: u8 = 0x70;
 pub const BVC: u8 = 0x50;
 
 pub const JMP_ABS: u8 = 0x4C;
+// pub const JMP_INDIR: u8 = 0x6C;
 pub const JSR: u8 = 0x20;
 pub const RTS: u8 = 0x60;
+// pub const BRK: u8 = 0x00;
+// pub const RTI: u8 = 0x40;
 
 pub const HLT1: u8 = 0x02;
