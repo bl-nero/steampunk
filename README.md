@@ -32,6 +32,16 @@ cargo run --release -- <rom-file-path>
 
 Where `<rom-file-path>` is a path of the Atari 2600 ROM to be executed.
 
+# Keyboard mapping
+
+* **1**: Toggle TV type switch
+* **2**: Toggle player 1 difficulty
+* **3**: Toggle player 2 difficulty
+* **4**: Game select
+* **5**: Game reset
+* **W**, **A**, **S**, **D**, **Left Shift**, **Space**: Player 1 Joystick
+* **I**, **J**, **K**, **L**, **N**, **.**, arrow keys: Player 2 Joystick
+
 # Compatibility
 
 Currently, the following official Atari 2600 cartridges are known to be supported:
@@ -44,3 +54,4 @@ Currently, the following official Atari 2600 cartridges are known to be supporte
 Known issues:
 * Unofficial 6502 opcodes are not supported
 * No support for bank switching
+* No support for input devices other than joysticks
