@@ -43,6 +43,7 @@ pub struct Cpu<M: Memory> {
     bah: u8,
     // Indirect address
     ial: u8,
+    iah: u8,
     tmp_data: u8,
 }
 
@@ -118,6 +119,7 @@ impl<M: Memory + Debug> Cpu<M> {
             bal: rng.gen(),
             bah: rng.gen(),
             ial: rng.gen(),
+            iah: rng.gen(),
             tmp_data: rng.gen(),
         }
     }
@@ -140,6 +142,7 @@ impl<M: Memory + Debug> Cpu<M> {
 
     /// Performs a single CPU cycle.
     pub fn tick(&mut self) -> TickResult {
+        println!("{:04X}: {:?}", self.reg_pc, self.sequence_state);
         match self.sequence_state {
             // Fetching the opcode. A small trick: at first, we use 0 for
             // subcycle number, and it will later get increased to 1. Funny
@@ -382,6 +385,11 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::LSR_ABS, _) => {
                 self.tick_load_modify_store_absolute(&mut |me, value| me.shift_right(value))?;
             }
+            SequenceState::Opcode(opcodes::LSR_ABS_X, _) => {
+                self.tick_load_modify_store_absolute_indexed(self.reg_x, &mut |me, value| {
+                    me.shift_right(value)
+                })?;
+            }
 
             SequenceState::Opcode(opcodes::ROL_A, _) => {
                 self.tick_simple_internal_operation(&mut |me| {
@@ -398,6 +406,11 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::ROL_ABS, _) => {
                 self.tick_load_modify_store_absolute(&mut |me, value| me.rotate_left(value))?;
             }
+            SequenceState::Opcode(opcodes::ROL_ABS_X, _) => {
+                self.tick_load_modify_store_absolute_indexed(self.reg_x, &mut |me, value| {
+                    me.rotate_left(value)
+                })?;
+            }
 
             SequenceState::Opcode(opcodes::ROR_A, _) => {
                 self.tick_simple_internal_operation(&mut |me| {
@@ -413,6 +426,11 @@ impl<M: Memory + Debug> Cpu<M> {
             }
             SequenceState::Opcode(opcodes::ROR_ABS, _) => {
                 self.tick_load_modify_store_absolute(&mut |me, value| me.rotate_right(value))?;
+            }
+            SequenceState::Opcode(opcodes::ROR_ABS_X, _) => {
+                self.tick_load_modify_store_absolute_indexed(self.reg_x, &mut |me, value| {
+                    me.rotate_right(value)
+                })?;
             }
 
             SequenceState::Opcode(opcodes::CMP_IMM, _) => {
@@ -446,12 +464,18 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::CPX_ZP, _) => {
                 self.tick_compare_zero_page(self.reg_x)?;
             }
+            SequenceState::Opcode(opcodes::CPX_ABS, _) => {
+                self.tick_compare_absolute(self.reg_x)?;
+            }
 
             SequenceState::Opcode(opcodes::CPY_IMM, _) => {
                 self.tick_compare_immediate(self.reg_y)?;
             }
             SequenceState::Opcode(opcodes::CPY_ZP, _) => {
                 self.tick_compare_zero_page(self.reg_y)?;
+            }
+            SequenceState::Opcode(opcodes::CPY_ABS, _) => {
+                self.tick_compare_absolute(self.reg_y)?;
             }
 
             SequenceState::Opcode(opcodes::BIT_ZP, _) => {
@@ -497,6 +521,18 @@ impl<M: Memory + Debug> Cpu<M> {
                     me.set_reg_a(sum);
                 })?;
             }
+            SequenceState::Opcode(opcodes::ADC_X_INDIR, _) => {
+                self.tick_load_x_indirect(&mut |me, value| {
+                    let sum = me.add_with_carry(me.reg_a, value);
+                    me.set_reg_a(sum);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::ADC_INDIR_Y, _) => {
+                self.tick_load_indirect_y(&mut |me, value| {
+                    let sum = me.add_with_carry(me.reg_a, value);
+                    me.set_reg_a(sum);
+                })?;
+            }
 
             SequenceState::Opcode(opcodes::SBC_IMM, _) => {
                 self.tick_load_immediate(&mut |me, value| {
@@ -534,6 +570,18 @@ impl<M: Memory + Debug> Cpu<M> {
                     me.set_reg_a(diff);
                 })?;
             }
+            SequenceState::Opcode(opcodes::SBC_X_INDIR, _) => {
+                self.tick_load_x_indirect(&mut |me, value| {
+                    let diff = me.sub_with_carry(me.reg_a, value);
+                    me.set_reg_a(diff);
+                })?;
+            }
+            SequenceState::Opcode(opcodes::SBC_INDIR_Y, _) => {
+                self.tick_load_indirect_y(&mut |me, value| {
+                    let diff = me.sub_with_carry(me.reg_a, value);
+                    me.set_reg_a(diff);
+                })?;
+            }
 
             SequenceState::Opcode(opcodes::INC_ZP, _) => {
                 self.tick_load_modify_store_zero_page(&mut |me, val| me.inc(val))?;
@@ -541,12 +589,28 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(opcodes::INC_ZP_X, _) => {
                 self.tick_load_modify_store_zero_page_x(&mut |me, val| me.inc(val))?;
             }
+            SequenceState::Opcode(opcodes::INC_ABS, _) => {
+                self.tick_load_modify_store_absolute(&mut |me, val| me.inc(val))?;
+            }
+            SequenceState::Opcode(opcodes::INC_ABS_X, _) => {
+                self.tick_load_modify_store_absolute_indexed(self.reg_x, &mut |me, val| {
+                    me.inc(val)
+                })?;
+            }
 
             SequenceState::Opcode(opcodes::DEC_ZP, _) => {
                 self.tick_load_modify_store_zero_page(&mut |me, val| me.dec(val))?;
             }
             SequenceState::Opcode(opcodes::DEC_ZP_X, _) => {
                 self.tick_load_modify_store_zero_page_x(&mut |me, val| me.dec(val))?;
+            }
+            SequenceState::Opcode(opcodes::DEC_ABS, _) => {
+                self.tick_load_modify_store_absolute(&mut |me, val| me.dec(val))?;
+            }
+            SequenceState::Opcode(opcodes::DEC_ABS_X, _) => {
+                self.tick_load_modify_store_absolute_indexed(self.reg_x, &mut |me, val| {
+                    me.dec(val)
+                })?;
             }
 
             SequenceState::Opcode(opcodes::INX, _) => {
@@ -657,6 +721,19 @@ impl<M: Memory + Debug> Cpu<M> {
                     self.sequence_state = SequenceState::Ready;
                 }
             },
+            SequenceState::Opcode(opcodes::JMP_INDIR, subcycle) => match subcycle {
+                1 => self.ial = self.consume_program_byte()?,
+                2 => self.iah = self.consume_program_byte()?,
+                3 => self.adl = self.memory.read(u16::from_le_bytes([self.ial, self.iah]))?,
+                _ => {
+                    self.adh = self
+                        .memory
+                        .read(u16::from_le_bytes([self.ial.wrapping_add(1), self.iah]))?;
+                    self.reg_pc = self.address();
+                    self.sequence_state = SequenceState::Ready;
+                }
+            },
+
             SequenceState::Opcode(opcodes::JSR, subcycle) => match subcycle {
                 1 => self.adl = self.consume_program_byte()?,
                 2 => {
@@ -696,6 +773,51 @@ impl<M: Memory + Debug> Cpu<M> {
                 }
                 _ => {
                     let _ = self.consume_program_byte();
+                    self.sequence_state = SequenceState::Ready;
+                }
+            },
+
+            SequenceState::Opcode(opcodes::BRK, subcycle) => match subcycle {
+                1 => self.phantom_read(self.reg_pc),
+                2 => {
+                    self.memory
+                        .write(self.stack_pointer(), (self.reg_pc >> 8) as u8)?;
+                    self.reg_sp = self.reg_sp.wrapping_sub(1);
+                }
+                3 => {
+                    self.memory.write(self.stack_pointer(), self.reg_pc as u8)?;
+                    self.reg_sp = self.reg_sp.wrapping_sub(1);
+                }
+                4 => {
+                    self.memory.write(self.stack_pointer(), self.flags)?;
+                    self.reg_sp = self.reg_sp.wrapping_sub(1);
+                }
+                5 => {
+                    self.reg_pc = self.reg_pc & 0xFF00 | (self.memory.read(0xFFFE)? as u16);
+                }
+                _ => {
+                    self.reg_pc = self.reg_pc & 0xFF | ((self.memory.read(0xFFFF)? as u16) << 8);
+                    self.sequence_state = SequenceState::Ready;
+                }
+            },
+            SequenceState::Opcode(opcodes::RTI, subcycle) => match subcycle {
+                1 => self.phantom_read(self.reg_pc),
+                2 => {
+                    self.phantom_read(self.stack_pointer());
+                    self.reg_sp = self.reg_sp.wrapping_add(1);
+                }
+                3 => {
+                    self.flags = self.memory.read(self.stack_pointer())?;
+                    self.reg_sp = self.reg_sp.wrapping_add(1);
+                }
+                4 => {
+                    self.reg_pc =
+                        self.reg_pc & 0xFF00 | self.memory.read(self.stack_pointer())? as u16;
+                    self.reg_sp = self.reg_sp.wrapping_add(1);
+                }
+                _ => {
+                    self.reg_pc = self.reg_pc & 0xFF
+                        | ((self.memory.read(self.stack_pointer())? as u16) << 8);
                     self.sequence_state = SequenceState::Ready;
                 }
             },

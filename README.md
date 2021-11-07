@@ -42,6 +42,5 @@ Currently, the following official Atari 2600 cartridges are known to be supporte
 * *Surround*
 
 Known issues:
-* Not all 6502 opcodes are supported (not even official ones)
-* No ball graphics just yet
+* Unofficial 6502 opcodes are not supported
 * No support for bank switching

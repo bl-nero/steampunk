@@ -1832,7 +1832,7 @@ dependencies = [
 [[package]]
 name = "rustasm6502"
 version = "0.1.4"
-source = "git+https://github.com/bl-nero/rustasm6502#3ba0170cc7828422650a3f2f7bc107745609797c"
+source = "git+https://github.com/bl-nero/rustasm6502#aed4ac0b5123e1c23ed9b491b07b5f23e26e73fd"
 
 [[package]]
 name = "rustc-hash"

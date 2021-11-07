@@ -437,8 +437,16 @@ fn cpx_cpy() {
 
             cpy 4
             php
+
+            lda #15
+            sta abs 0x1234
+            cpx abs 0x1234
+            php
+
+            cpy abs 0x1234
+            php
     };
-    cpu.ticks(8 + 5 + 7 + 13 + 6).unwrap();
+    cpu.ticks(8 + 5 + 7 + 13 + 6 + 13 + 7).unwrap();
     assert_eq!(
         reversed_stack(&cpu),
         [
@@ -446,6 +454,8 @@ fn cpx_cpy() {
             flags::UNUSED | flags::N,
             flags::UNUSED | flags::C,
             flags::UNUSED | flags::Z | flags::C,
+            flags::UNUSED | flags::C,
+            flags::UNUSED | flags::N,
         ]
     );
 }
@@ -635,12 +645,28 @@ fn adc_sbc_addressing_modes() {
             sec
             sbc abs 0x72C2,y
             pha
+
+            clc
+            adc (0x4C,x)
+            pha
+            sec
+            sbc (0x4E,x)
+            pha
+
+            clc
+            adc (0x54),y
+            pha
+            sec
+            sbc (0x56),y
+            pha
     };
-    cpu.mut_memory().bytes[0x72C4..=0x72C5].copy_from_slice(&[7, 6]);
-    cpu.ticks(18 + 18 + 20 + 18 + 20 + 20).unwrap();
+    cpu.mut_memory().bytes[0x50..=0x57]
+        .copy_from_slice(&[0xC6, 0x72, 0xC7, 0x72, 0xC5, 0x72, 0xC6, 0x72]);
+    cpu.mut_memory().bytes[0x72C4..=0x72C9].copy_from_slice(&[7, 6, 5, 9, 30, 3]);
+    cpu.ticks(18 + 18 + 20 + 18 + 20 + 20 + 22 + 20).unwrap();
     assert_eq!(
         reversed_stack(&cpu),
-        [35, 19, 34, 18, 25, 19, 26, 20, 27, 21]
+        [35, 19, 34, 18, 25, 19, 26, 20, 27, 21, 26, 17, 47, 44]
     );
 }
 
@@ -910,28 +936,41 @@ fn lsr() {
     let mut cpu = cpu_with_code! {
             sec
             lda #0b0000_1010
+            // 4 cycles
 
             lsr a
         stop1:
             bcs stop1
-            sta 0x05
+            sta 0x0D
+            // 7 cycles
 
-            lsr 0x05
+            lsr 0x0D
         stop2:
             bcc stop2
-            sta 0x06
+            sta 0x0E
+            // 10 cycles
 
-            ldx #2
+            ldx #0x0A
             lsr 0x04,x
         stop3:
             bcc stop3
+            // 10 cycles
 
             stx abs 0x0234
             lsr abs 0x0234
+            // 10 cycles
+
+            stx abs 0x0235
+            lsr abs 0x022B,x
+            // 11 cycles
+
+            ldx #0x80
+            lsr abs 0x01B5,x // Test cross-page indexing
+            // 9 cycles
     };
-    cpu.ticks(4 + 7 + 10 + 10 + 10).unwrap();
-    assert_eq!(cpu.memory.bytes[5..=6], [0b0000_0010, 0b0000_0010]);
-    assert_eq!(cpu.memory.bytes[0x0234], 1);
+    cpu.ticks(4 + 7 + 10 + 10 + 10 + 11 + 9).unwrap();
+    assert_eq!(cpu.memory.bytes[0x0D..=0x0E], [0b0000_0010, 0b0000_0010]);
+    assert_eq!(cpu.memory.bytes[0x0234..=0x0235], [0b0101, 0b0010]);
 }
 
 #[test]
@@ -939,28 +978,37 @@ fn rol() {
     let mut cpu = cpu_with_code! {
             clc
             lda #0b1010_0000
+            // 4 cycles
 
             rol a
         stop1:
             bcc stop1
             sta 0x01
+            // 7 cycles
 
             rol 0x01
         stop2:
             bcs stop2
             sta 0x02
+            // 10 cycles
 
             ldx #1
             rol 0x01,x
         stop3:
             bcs stop3
+            // 10 cycles
 
             stx abs 0x0234
             rol abs 0x0234
+            // 10 cycles
+
+            stx abs 0x0235
+            rol abs 0x0234,x
+            // 11 cycles
     };
-    cpu.ticks(4 + 7 + 10 + 10 + 10).unwrap();
+    cpu.ticks(4 + 7 + 10 + 10 + 10 + 11).unwrap();
     assert_eq!(cpu.memory.bytes[1..=2], [0b1000_0001, 0b1000_0000]);
-    assert_eq!(cpu.memory.bytes[0x0234], 2);
+    assert_eq!(cpu.memory.bytes[0x0234..=0x0235], [2, 2]);
 }
 
 #[test]
@@ -968,28 +1016,37 @@ fn ror() {
     let mut cpu = cpu_with_code! {
             clc
             lda #0b0000_0101
+            // 4 cycles
 
             ror a
         stop1:
             bcc stop1
             sta 0x05
+            // 7 cycles
 
             ror 0x05
         stop2:
             bcs stop2
             sta 0x06
+            // 10 cycles
 
             ldx #2
             ror 0x04,x
         stop3:
             bcs stop3
+            // 10 cycles
 
             stx abs 0x0234
             ror abs 0x0234
+            // 10 cycles
+
+            stx abs 0x0235
+            ror abs 0x0233,x
+            // 11 cycles
     };
-    cpu.ticks(4 + 7 + 10 + 10 + 10).unwrap();
+    cpu.ticks(4 + 7 + 10 + 10 + 10 + 11).unwrap();
     assert_eq!(cpu.memory.bytes[5..=6], [0b1000_0001, 0b0000_0001]);
-    assert_eq!(cpu.memory.bytes[0x0234], 1);
+    assert_eq!(cpu.memory.bytes[0x0234..=0x0235], [1, 1]);
 }
 
 #[test]
@@ -1006,12 +1063,15 @@ fn inc_dec() {
             inx
             dec 11,x
             // 16 cycles
+
+            inc abs 0x2345
+            inc abs 0x2343,x
+            dec abs 0x2346
+            dec abs 0x2344,x
     };
-    cpu.ticks(20 + 16).unwrap();
-    assert_eq!(
-        cpu.memory.bytes[10..=13],
-        [2, -2 as i8 as u8, 1, -1 as i8 as u8]
-    );
+    cpu.ticks(20 + 16 + 26).unwrap();
+    assert_eq!(cpu.memory.bytes[10..=13], [2, -2i8 as u8, 1, -1i8 as u8]);
+    assert_eq!(cpu.memory.bytes[0x2345..=0x2346], [2, -2i8 as u8]);
 }
 
 #[test]
@@ -1184,6 +1244,39 @@ fn jmp() {
 }
 
 #[test]
+fn jmp_indirect() {
+    let mut cpu = cpu_with_code! {
+            jmp start  // 0xF000
+            // 3 cycles
+            jmp store1 // 0xF003
+            jmp store2 // 0xF006
+
+        start:
+            lda #0xFF
+            jmp (0x1234) // Will point to 0xF003
+        stop1:
+            jmp stop1
+        store1:
+            sta 10
+            // 13 cycles (incl. jump at 0xF003)
+
+            jmp (0x12FF) // Will point to 0xF006
+        stop2:
+            jmp stop2
+        store2:
+            sta 11
+            // 11 cycles (incl. jump at 0xF006)
+    };
+    cpu.mut_memory().bytes[0x1234..=0x1235].copy_from_slice(&[0x03, 0xF0]);
+    // Cross-page indirect jump quirk
+    cpu.mut_memory().bytes[0x1200] = 0xF0;
+    cpu.mut_memory().bytes[0x12FF] = 0x06;
+
+    cpu.ticks(3 + 13 + 11).unwrap();
+    assert_eq!(cpu.memory.bytes[10..=11], [0xFF, 0xFF]);
+}
+
+#[test]
 fn subroutines_and_stack() {
     let mut cpu = cpu_with_code! {
         // Main program. Call subroutine A to store 6 at 25. Then call
@@ -1311,6 +1404,41 @@ fn pc_wrapping_during_branch() {
     reset(&mut cpu);
     cpu.ticks(9).unwrap();
     assert_eq!(cpu.memory.bytes[20], 10);
+}
+
+#[test]
+fn brk_rti() {
+    let mut cpu = cpu_with_code! {
+            jmp start     // 0xF000
+            // 3 cycles
+            jmp interrupt // 0xF003
+
+        start:
+            ldx #0xFE
+            txs
+            plp
+            sed
+            brk
+            // 17 cycles
+
+            php
+            // 3 cycles
+            nop  // 0xF00D (To be replaced with HLT)
+
+        interrupt:
+            stx 45
+            // Manipulate the flags; these should be reverted once we return.
+            sec
+            cld
+            sei
+            rti
+            // 18 cycles (including JMP in 0xF003)
+    };
+    cpu.mut_memory().bytes[0xFFFE..=0xFFFF].copy_from_slice(&[0x03, 0xF0]);
+    cpu.mut_memory().bytes[0xF00D] = opcodes::HLT1;
+    cpu.ticks(3 + 17 + 18 + 3).unwrap();
+    assert_eq!(cpu.memory.bytes[45], 0xFE);
+    assert_eq!(reversed_stack(&cpu), [flags::UNUSED | flags::D]);
 }
 
 #[bench]
