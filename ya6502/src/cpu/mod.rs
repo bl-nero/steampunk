@@ -142,7 +142,6 @@ impl<M: Memory + Debug> Cpu<M> {
 
     /// Performs a single CPU cycle.
     pub fn tick(&mut self) -> TickResult {
-        println!("{:04X}: {:?}", self.reg_pc, self.sequence_state);
         match self.sequence_state {
             // Fetching the opcode. A small trick: at first, we use 0 for
             // subcycle number, and it will later get increased to 1. Funny
