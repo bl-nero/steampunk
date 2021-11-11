@@ -1,6 +1,6 @@
-# Atari 2600 emulator
+# Steampunk
 
-Because what the world needs right now is yet another Atari 2600 emulator. So yeah, here it is. This started as a "father and son" hobby project. It's built with no particular agenda other than having fun (and learning Rust).
+Because what the world needs right now is yet another retro computing emulator. So yeah, here it is. This started as a "father and son" hobby project. It's built with no particular agenda other than having fun (and learning Rust). Currently, the project contains an Atari 2600 emulator based on a cycle-based 6502 implementation. The current direction of the project is extending it to emulate Commodore 64.
 
 # Building and running
 
