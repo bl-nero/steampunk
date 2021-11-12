@@ -24,7 +24,12 @@ fn main() {
     println!("Ready player ONE!");
 
     let args: Vec<String> = env::args().collect();
-    // Load an example ROM image.
+    // Load the ROM image.
+    if args.len() < 2 {
+        eprintln!("Usage: atari2600 <ROM_file>");
+        eprintln!("No ROM file given, exiting.");
+        return;
+    }
     let rom_bytes = std::fs::read(&args[1]).expect("Unable to read the ROM image file");
     // Create and initialize components of the emulated system.
     let address_space = Box::new(AtariAddressSpace {
