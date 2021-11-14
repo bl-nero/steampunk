@@ -1,6 +1,9 @@
 use ya6502::memory::Memory;
+use ya6502::memory::ReadError;
 use ya6502::memory::WriteError;
 
+/// VIC-II video chip emulator that outputs a stream of bytes. Each byte encodes
+/// a single pixel and has a value from a 0..=15 range.
 pub struct Vic {
     reg_border_color: u8,
     reg_background_color: u8,
@@ -19,6 +22,11 @@ impl Vic {
             x_counter: 0,
         }
     }
+
+    /// Emulates a single tick of the pixel clock and returns a pixel color. For
+    /// simplicity, we don't distinguish between blanking and visible pixels.
+    /// This is different from TIA, since TIA is controlled to much higher
+    /// degree by software.
     pub fn tick(&mut self) -> u8 {
         const DISPLAY_WINDOW_LAST_LINE: usize = BOTTOM_BORDER_FIRST_LINE - 1;
         const DISPLAY_WINDOW_END: usize = RIGHT_BORDER_START - 1;
@@ -33,15 +41,19 @@ impl Vic {
         if self.x_counter >= RASTER_LENGTH {
             self.x_counter = 0;
             self.raster_counter += 1;
+            if self.raster_counter >= TOTAL_HEIGHT {
+                self.raster_counter = 0;
+            }
         }
         return color;
     }
 }
 
 impl Memory for Vic {
-    fn read(&self, _: u16) -> std::result::Result<u8, ya6502::memory::ReadError> {
-        todo!()
+    fn read(&self, address: u16) -> Result<u8, ReadError> {
+        Err(ReadError { address })
     }
+
     fn write(&mut self, address: u16, value: u8) -> Result<(), WriteError> {
         match address {
             registers::BORDER_COLOR => self.reg_border_color = value,
@@ -89,6 +101,9 @@ mod tests {
     use super::*;
     use common::test_utils::as_single_hex_digit;
 
+    /// Grabs a single visible raster line, discarding the blanking area. Note
+    /// that the visible area is established by convention, as we don't have to
+    /// pay attention to details too much here.
     fn visible_raster_line<'a>(vic: &'a mut Vic) -> Vec<u8> {
         for _ in 0..LEFT_BORDER_START {
             vic.tick();
@@ -102,6 +117,7 @@ mod tests {
         return result;
     }
 
+    /// Skips a given number of full raster lines and discards results.
     fn skip_raster_lines(vic: &mut Vic, n: usize) {
         for _ in 0..n * RASTER_LENGTH {
             vic.tick();
@@ -135,9 +151,30 @@ mod tests {
             + &"A".repeat(DISPLAY_WINDOW_WIDTH)
             + &"8".repeat(RIGHT_BORDER_WIDTH);
 
+        // Expect a border line.
         assert_eq!(encode_video(visible_raster_line(&mut vic)), border_line);
 
+        // Expect the first line of the display window.
         skip_raster_lines(&mut vic, DISPLAY_WINDOW_FIRST_LINE - 1);
+        assert_eq!(
+            encode_video(visible_raster_line(&mut vic)),
+            border_and_display_line
+        );
+
+        // Last line of the display window and the first one of the bottom
+        // border.
+        skip_raster_lines(&mut vic, DISPLAY_WINDOW_HEIGHT - 2);
+        assert_eq!(
+            encode_video(visible_raster_line(&mut vic)),
+            border_and_display_line
+        );
+        assert_eq!(encode_video(visible_raster_line(&mut vic)), border_line);
+
+        // First line of the next frame's display window.
+        skip_raster_lines(
+            &mut vic,
+            BOTTOM_BORDER_HEIGHT - 1 + DISPLAY_WINDOW_FIRST_LINE,
+        );
         assert_eq!(
             encode_video(visible_raster_line(&mut vic)),
             border_and_display_line
