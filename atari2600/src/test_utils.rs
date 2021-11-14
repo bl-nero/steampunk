@@ -9,6 +9,7 @@ use crate::AtariRom;
 use crate::FrameRendererBuilder;
 use crate::Riot;
 use crate::Tia;
+use common::test_utils::as_single_hex_digit;
 use image::DynamicImage;
 use std::fs::create_dir_all;
 use std::iter;
@@ -99,17 +100,6 @@ pub fn encode_video_outputs<I: IntoIterator<Item = VideoOutput>>(outputs: I) -> 
 
 pub fn encode_audio<I: Iterator<Item = u8>>(outputs: I) -> String {
     outputs.map(as_single_hex_digit).collect()
-}
-
-fn as_single_hex_digit(n: u8) -> char {
-    if n <= 0x0f {
-        format!("{:X}", n)
-            .chars()
-            .last()
-            .expect("Hex formatting error")
-    } else {
-        '?'
-    }
 }
 
 pub fn atari_with_rom(file_name: &str) -> Atari {

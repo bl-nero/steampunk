@@ -71,6 +71,7 @@ checksum = "28b2cd92db5cbd74e8e5028f7e27dd7aa3090e89e4f2a197cc7c8dfb69c7063b"
 name = "atari2600"
 version = "0.1.0"
 dependencies = [
+ "common",
  "ctrlc",
  "enum-map",
  "image",
@@ -149,6 +150,7 @@ checksum = "c4872d67bab6358e59559027aa3b9157c53d9358c51423c17554809a8858e0f8"
 name = "c64"
 version = "0.1.0"
 dependencies = [
+ "common",
  "ctrlc",
  "enum-map",
  "image",
@@ -296,6 +298,10 @@ dependencies = [
  "bytes",
  "memchr",
 ]
+
+[[package]]
+name = "common"
+version = "0.1.0"
 
 [[package]]
 name = "core-foundation"
