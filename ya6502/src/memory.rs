@@ -2,17 +2,21 @@ use std::error;
 use std::fmt;
 use std::result::Result;
 
-pub trait Memory {
-    /// Writes a byte to given address. Returns error if the location is
-    /// unsupported. In a release build, the errors should be ignored and the
-    /// method should always return a successful result.
-    fn write(&mut self, address: u16, value: u8) -> WriteResult;
-
+pub trait Read {
     /// Reads a byte from given address. Returns the byte or error if the
     /// location is unsupported. In a release build, the errors should be
     /// ignored and the method should always return a successful result.
     fn read(&self, address: u16) -> ReadResult;
 }
+
+pub trait Write {
+    /// Writes a byte to given address. Returns error if the location is
+    /// unsupported. In a release build, the errors should be ignored and the
+    /// method should always return a successful result.
+    fn write(&mut self, address: u16, value: u8) -> WriteResult;
+}
+
+pub trait Memory: Read + Write {}
 
 pub type ReadResult = Result<u8, ReadError>;
 
@@ -86,17 +90,21 @@ impl SimpleRam {
     }
 }
 
-impl Memory for SimpleRam {
+impl Read for SimpleRam {
     fn read(&self, address: u16) -> ReadResult {
         // this arrow means we give u16 they return u8
         Ok(self.bytes[address as usize])
     }
+}
 
+impl Write for SimpleRam {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         self.bytes[address as usize] = value;
         Ok(())
     }
 }
+
+impl Memory for SimpleRam {}
 
 impl fmt::Debug for SimpleRam {
     /// Prints out only the zero page, because come on, who would scroll through
@@ -127,15 +135,20 @@ impl AtariRam {
     }
 }
 
-impl Memory for AtariRam {
+impl Read for AtariRam {
     fn read(&self, address: u16) -> ReadResult {
         Ok(self.bytes[address as usize & 0b0111_1111])
     }
+}
+
+impl Write for AtariRam {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         self.bytes[address as usize & 0b0111_1111] = value;
         Ok(())
     }
 }
+
+impl Memory for AtariRam {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RomSizeError {
@@ -172,12 +185,9 @@ impl AtariRom {
     }
 }
 
-impl Memory for AtariRom {
+impl Read for AtariRom {
     fn read(&self, address: u16) -> ReadResult {
         Ok(self.bytes[(address & self.address_mask) as usize])
-    }
-    fn write(&mut self, address: u16, value: u8) -> WriteResult {
-        Err(WriteError { address, value })
     }
 }
 

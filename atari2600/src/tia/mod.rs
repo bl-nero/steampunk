@@ -9,6 +9,8 @@ use audio_generator::AudioGenerator;
 use delay_buffer::DelayBuffer;
 use enum_map::{enum_map, Enum, EnumMap};
 use sprite::{missile_reset_delay_for_player, set_reg_nusiz, Sprite};
+use ya6502::memory::Read;
+use ya6502::memory::Write;
 use ya6502::memory::{Memory, ReadError, ReadResult, WriteResult};
 
 #[derive(Debug, Enum, Copy, Clone)]
@@ -375,7 +377,7 @@ impl Tia {
     }
 }
 
-impl Memory for Tia {
+impl Read for Tia {
     fn read(&self, address: u16) -> ReadResult {
         match address & 0b0000_1111 {
             registers::CXM0P => Ok(self.reg_cxm0p),
@@ -391,7 +393,9 @@ impl Memory for Tia {
             _ => Err(ReadError { address }),
         }
     }
+}
 
+impl Write for Tia {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match address & 0b0011_1111 {
             registers::VSYNC => self.reg_vsync = value,
@@ -484,6 +488,8 @@ impl Memory for Tia {
         Ok(())
     }
 }
+
+impl Memory for Tia {}
 
 /// TIA output structure. It indicates how a single TIA clock tick influences
 /// other parts of the system.

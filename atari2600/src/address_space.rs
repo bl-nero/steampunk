@@ -1,10 +1,12 @@
 use std::fmt;
+use ya6502::memory::Read;
+use ya6502::memory::Write;
 use ya6502::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 
 /// Dispatches read/write calls to various devices with memory-mapped interfaces:
 /// TIA, RAM, RIOT (not yet implemented), and ROM.
 #[derive(Debug)]
-pub struct AddressSpace<T: Memory, RA: Memory, RI: Memory, RO: Memory> {
+pub struct AddressSpace<T: Memory, RA: Memory, RI: Memory, RO: Read> {
     pub tia: T,
     pub ram: RA,
     pub riot: RI,
@@ -18,7 +20,7 @@ enum MemoryArea {
     Rom,
 }
 
-impl<T: Memory, RA: Memory, RI: Memory, RO: Memory> Memory for AddressSpace<T, RA, RI, RO> {
+impl<T: Memory, RA: Memory, RI: Memory, RO: Read> Read for AddressSpace<T, RA, RI, RO> {
     fn read(&self, address: u16) -> ReadResult {
         match map_address(address) {
             Some(MemoryArea::Tia) => self.tia.read(address),
@@ -28,20 +30,21 @@ impl<T: Memory, RA: Memory, RI: Memory, RO: Memory> Memory for AddressSpace<T, R
             None => Err(ReadError { address }),
         }
     }
+}
 
+impl<T: Memory, RA: Memory, RI: Memory, RO: Read> Write for AddressSpace<T, RA, RI, RO> {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match map_address(address) {
             Some(MemoryArea::Tia) => self.tia.write(address, value),
             Some(MemoryArea::Ram) => self.ram.write(address, value),
-            // Yeah, I know. Writing to ROM. But hey, it's not the
-            // AddressSpace's job to tell what you can or can't do with a given
-            // segment of memory.
-            Some(MemoryArea::Rom) => self.rom.write(address, value),
+            Some(MemoryArea::Rom) => Ok(()),
             Some(MemoryArea::Riot) => self.riot.write(address, value),
             None => Err(WriteError { address, value }),
         }
     }
 }
+
+impl<T: Memory, RA: Memory, RI: Memory, RO: Read> Memory for AddressSpace<T, RA, RI, RO> {}
 
 fn map_address(address: u16) -> Option<MemoryArea> {
     if address & 0b0001_0000_0000_0000 != 0 {
@@ -57,7 +60,7 @@ fn map_address(address: u16) -> Option<MemoryArea> {
     }
 }
 
-impl<T: Memory, RA: Memory, RI: Memory, RO: Memory> fmt::Display for AddressSpace<T, RA, RI, RO> {
+impl<T: Memory, RA: Memory, RI: Memory, RO: Read> fmt::Display for AddressSpace<T, RA, RI, RO> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut zero_page: [u8; 0x100] = [0; 0x100];
         for i in 0..0x100 {
@@ -103,8 +106,10 @@ mod tests {
         address_space.write(0xFF, 45)?; // End of RAM
         address_space.write(0x280, 67)?; // Start of RIOT
         address_space.write(0x29F, 68)?; // End of RIOT
-        address_space.write(0xF000, 15)?; // Start of ROM
-        address_space.write(0xFFFF, 25)?; // End of ROM
+
+        // Note: we can't "officially" write to ROM using an AddressSpace.
+        address_space.rom.bytes[0xF000] = 15; // Start of ROM
+        address_space.rom.bytes[0xFFFF] = 25; // End of ROM
 
         assert_eq!(address_space.tia.read(0)?, 8);
         assert_eq!(address_space.tia.read(0x7F)?, 5);
@@ -146,11 +151,9 @@ mod tests {
         address_space.write(0xA33F, 11).unwrap();
         address_space.write(0xC59A, 12).unwrap();
         address_space.write(0x86AB, 13).unwrap();
-        address_space.write(0x3A58, 14).unwrap();
 
         assert_eq!(address_space.tia.bytes[0xA33F], 11);
         assert_eq!(address_space.ram.bytes[0xC59A], 12);
         assert_eq!(address_space.riot.bytes[0x86AB], 13);
-        assert_eq!(address_space.rom.bytes[0x3A58], 14);
     }
 }

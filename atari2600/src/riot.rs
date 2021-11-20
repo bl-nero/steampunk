@@ -1,5 +1,7 @@
 use rand::Rng;
 use std::cell::Cell;
+use ya6502::memory::Read;
+use ya6502::memory::Write;
 use ya6502::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 
 /// A MOS Technology 6532 RIOT chip. Note that originally, this chip also
@@ -122,7 +124,7 @@ impl Riot {
     }
 }
 
-impl Memory for Riot {
+impl Read for Riot {
     fn read(&self, address: u16) -> ReadResult {
         match canonical_read_address(address) {
             registers::SWCHA => {
@@ -145,7 +147,9 @@ impl Memory for Riot {
             _ => Err(ReadError { address }),
         }
     }
+}
 
+impl Write for Riot {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match canonical_write_address(address) {
             registers::SWCHA => self.reg_swcha = value,
@@ -166,6 +170,8 @@ impl Memory for Riot {
         Ok(())
     }
 }
+
+impl Memory for Riot {}
 
 fn canonical_read_address(address: u16) -> u16 {
     if address & 0b0100 != 0 {
