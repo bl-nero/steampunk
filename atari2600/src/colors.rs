@@ -1,36 +1,23 @@
-use image::Pixel;
-use image::Rgba;
+pub use common::colors::Palette;
 
-/// A color palette that maps 8-bit TIA color codes (see
-/// [`tia::VideoOutput.pixel`](../tia/struct.VideoOutput.html#structfield.pixel))
-/// to RGBA pixels.
-pub type Palette = Vec<Rgba<u8>>;
-
-/// Creates a TIA palette of RGBA colors out of an `u32` array slice. Each number
-/// represents a 3-byte RGB color, where each channel is represented by 8 bits.
+/// Creates a TIA palette of RGBA colors out of an `u32` array slice. See
+/// [`common::colors::create_palette`] for the color representation details.
 ///
 /// Note: TIA only uses 7 bits for representing colors, and bit 0 is unused. For
-/// simplicity, we just store each color twice so that accessing the palette with
-/// bit 0 set either to 0 or 1 yields the same RGBA pixel.
-pub fn create_palette(colors: &[u32]) -> Palette {
-    let mut palette = Palette::with_capacity(colors.len() * 2);
-    for color in colors {
-        let color_rgba = Rgba::from_channels(
-            ((color & 0xFF0000) >> 16) as u8, // Red (most significant byte)
-            ((color & 0xFF00) >> 8) as u8,    // Blue
-            (color & 0xFF) as u8,             // Green (least significant byte)
-            0xFF,                             // Alpha: always set to 100% opacity
-        );
-        palette.push(color_rgba);
-        palette.push(color_rgba);
-    }
-    return palette;
+/// simplicity, we just store each color twice so that accessing the palette
+/// with bit 0 set either to 0 or 1 yields the same RGBA pixel. See
+/// [`tia::VideoOutput.pixel`](../tia/struct.VideoOutput.html#structfield.pixel)
+pub fn create_tia_palette(colors: &[u32]) -> Palette {
+    common::colors::create_palette(colors)
+        .iter()
+        .flat_map(|c| vec![*c, *c])
+        .collect()
 }
 
 /// Returns an NTSC palette. Source:
 /// http://www.qotile.net/minidig/docs/tia_color.html
 pub fn ntsc_palette() -> Palette {
-    create_palette(&[
+    create_tia_palette(&[
         0x000000, 0x404040, 0x6C6C6C, 0x909090, 0xB0B0B0, 0xC8C8C8, 0xDCDCDC, 0xECECEC, 0x444400,
         0x646410, 0x848424, 0xA0A034, 0xB8B840, 0xD0D050, 0xE8E85C, 0xFCFC68, 0x702800, 0x844414,
         0x985C28, 0xAC783C, 0xBC8C4C, 0xCCA05C, 0xDCB468, 0xECC878, 0x841800, 0x983418, 0xAC5030,
@@ -52,7 +39,7 @@ pub fn ntsc_palette() -> Palette {
 /// Returns an NTSC palette. Source:
 /// https://www.randomterrain.com/atari-2600-memories-tutorial-andrew-davie-11.html
 pub fn _ntsc_palette_alternative() -> Palette {
-    create_palette(&[
+    create_tia_palette(&[
         0x000000, 0x1A1A1A, 0x393939, 0x5B5B5B, 0x7E7E7E, 0xA2A2A2, 0xC7C7C7, 0xEDEDED, 0x190200,
         0x3A1F00, 0x5D4100, 0x826400, 0xA78800, 0xCCAD00, 0xF2D219, 0xFEFA40, 0x370000, 0x5E0800,
         0x832700, 0xA94900, 0xCF6C00, 0xF58F17, 0xFEB438, 0xFEDF6F, 0x470000, 0x730000, 0x981300,
@@ -71,23 +58,24 @@ pub fn _ntsc_palette_alternative() -> Palette {
     ])
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::Pixel;
+    use image::Rgba;
 
     #[test]
     fn creating_palette() {
-        assert_eq!(create_palette(&[]), Palette::new());
+        assert_eq!(create_tia_palette(&[]), Palette::new());
         assert_eq!(
-            create_palette(&[0x123456]),
+            create_tia_palette(&[0x123456]),
             vec![
                 *Rgba::from_slice(&[0x12, 0x34, 0x56, 0xFF]),
                 *Rgba::from_slice(&[0x12, 0x34, 0x56, 0xFF]),
             ]
         );
 
-        let three_color_palette = create_palette(&[0xFEDCBA, 0x5A0345, 0x12A5E4]);
+        let three_color_palette = create_tia_palette(&[0xFEDCBA, 0x5A0345, 0x12A5E4]);
         assert_eq!(
             three_color_palette,
             vec![

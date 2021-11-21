@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::error::Error;
 use std::rc::Rc;
 use ya6502::memory::Read;
 use ya6502::memory::ReadError;
@@ -8,7 +7,7 @@ use ya6502::memory::Write;
 use ya6502::memory::WriteError;
 use ya6502::memory::WriteResult;
 
-type Color = u8;
+pub type Color = u8;
 
 /// VIC-II video chip emulator that outputs a stream of bytes. Each byte encodes
 /// a single pixel and has a value from a 0..=15 range.
@@ -44,14 +43,12 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
             graphics_mask: 0b1000_0000,
         }
     }
-}
 
-impl<GM: Read, CM: Read> Vic<GM, CM> {
     /// Emulates a single tick of the pixel clock and returns a pixel color. For
     /// simplicity, we don't distinguish between blanking and visible pixels.
     /// This is different from TIA, since TIA is controlled to much higher
     /// degree by software.
-    pub fn tick(&mut self) -> Result<Color, Box<dyn Error>> {
+    pub fn tick(&mut self) -> TickResult {
         const DISPLAY_WINDOW_LAST_LINE: usize = BOTTOM_BORDER_FIRST_LINE - 1;
         const DISPLAY_WINDOW_END: usize = RIGHT_BORDER_START - 1;
         let color = match self.raster_counter {
@@ -61,6 +58,13 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
             },
             _ => self.reg_border_color,
         };
+
+        let output = VicOutput {
+            x: self.x_counter,
+            y: self.raster_counter,
+            color,
+        };
+
         self.x_counter += 1;
         if self.x_counter >= RASTER_LENGTH {
             self.x_counter = 0;
@@ -69,10 +73,11 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
                 self.raster_counter = 0;
             }
         }
-        return Ok(color);
+
+        return Ok(output);
     }
 
-    fn background_tick(&mut self) -> Result<Color, Box<dyn Error>> {
+    fn background_tick(&mut self) -> Result<Color, ReadError> {
         let character_index = self
             .graphics_memory
             .read(0x0400 + self.graphics_row + self.graphics_column)?;
@@ -106,6 +111,19 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
         return Ok(color);
     }
 }
+
+/// The video output of [`Vic::tick`]. Note that the coordinates are raw and
+/// include horizontal and vertical blanking areas; it's u to the consumer to
+/// crop pixels to the viewport.
+pub struct VicOutput {
+    pub color: Color,
+    /// Raw X coordinate (including horizontal blanking area).
+    pub x: usize,
+    /// Raw Y coordinate (including vertical blanking area).
+    pub y: usize,
+}
+
+pub type TickResult = Result<VicOutput, ReadError>;
 
 impl<GM: Read, CM: Read> Read for Vic<GM, CM> {
     fn read(&self, address: u16) -> ReadResult {
@@ -173,14 +191,14 @@ mod tests {
     /// that the visible area is established by convention, as we don't have to
     /// pay attention to details too much here.
     fn visible_raster_line<GM: Read, CM: Read>(vic: &mut Vic<GM, CM>) -> Vec<Color> {
-        for _ in 0..LEFT_BORDER_START {
-            vic.tick().unwrap();
-        }
-        let result: Vec<Color> = std::iter::from_fn(|| Some(vic.tick().unwrap()))
-            .take(VISIBLE_PIXELS as usize)
-            .collect();
-        for _ in BORDER_END..RASTER_LENGTH {
-            vic.tick().unwrap();
+        // Initialize to an illegal color to make sure that all pixels are
+        // covered.
+        let mut result = vec![0xFF; VISIBLE_PIXELS];
+        for _ in 0..RASTER_LENGTH {
+            let vic_output = vic.tick().unwrap();
+            if (LEFT_BORDER_START..BORDER_END).contains(&vic_output.x) {
+                result[vic_output.x - LEFT_BORDER_START] = vic_output.color;
+            }
         }
         return result;
     }
@@ -204,22 +222,16 @@ mod tests {
     ) -> Vec<Vec<Color>> {
         let top = (DISPLAY_WINDOW_FIRST_LINE as isize + top) as usize;
         let left = (DISPLAY_WINDOW_START as isize + left) as usize;
-        skip_raster_lines(vic, top);
-        let result = std::iter::from_fn(|| {
-            for _ in 0..left {
-                vic.tick().unwrap();
+        let bottom = top + width;
+        let right = left + height;
+        let mut result: Vec<Vec<Color>> =
+            std::iter::repeat(vec![0xFF; width]).take(height).collect();
+        for _ in 0..RASTER_LENGTH * TOTAL_HEIGHT {
+            let vic_output = vic.tick().unwrap();
+            if (left..right).contains(&vic_output.x) && (top..bottom).contains(&vic_output.y) {
+                result[vic_output.y - top][vic_output.x - left] = vic_output.color;
             }
-            let line_result = std::iter::from_fn(|| Some(vic.tick().unwrap()))
-                .take(width)
-                .collect();
-            for _ in left + width..RASTER_LENGTH {
-                vic.tick().unwrap();
-            }
-            Some(line_result)
-        })
-        .take(height)
-        .collect();
-        skip_raster_lines(vic, TOTAL_HEIGHT - top - height);
+        }
         return result;
     }
 
@@ -248,13 +260,13 @@ mod tests {
     fn draws_border() {
         let mut vic = vic_for_testing();
         vic.write(registers::BORDER_COLOR, 0x00).unwrap();
-        assert_eq!(vic.tick().unwrap(), 0x00);
+        assert_eq!(vic.tick().unwrap().color, 0x00);
 
         vic.write(registers::BORDER_COLOR, 0x01).unwrap();
-        assert_eq!(vic.tick().unwrap(), 0x01);
+        assert_eq!(vic.tick().unwrap().color, 0x01);
 
         vic.write(registers::BORDER_COLOR, 0x0F).unwrap();
-        assert_eq!(vic.tick().unwrap(), 0x0F);
+        assert_eq!(vic.tick().unwrap().color, 0x0F);
     }
 
     #[test]

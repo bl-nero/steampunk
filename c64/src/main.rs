@@ -1,5 +1,6 @@
 #![feature(test)]
 
+mod frame_renderer;
 mod vic;
 
 use std::cell::RefCell;

@@ -176,7 +176,7 @@ mod tests {
     /// Returns a simple, 3-color palette that is nowhere near the actual palette
     /// of Atari, but is very convenient for testing.
     fn simple_palette() -> Palette {
-        colors::create_palette(&[0xFF1111, 0x22FF22, 0x3333FF])
+        colors::create_tia_palette(&[0xFF1111, 0x22FF22, 0x3333FF])
     }
 
     /// Decodes a character-based representation of TIA video output signal and
