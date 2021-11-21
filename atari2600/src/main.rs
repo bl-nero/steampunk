@@ -6,19 +6,21 @@ mod atari;
 mod audio;
 mod colors;
 mod frame_renderer;
+mod memory;
 mod riot;
 mod tia;
 
 mod test_utils;
 
+use crate::memory::AtariRam;
 use app::Application;
 use atari::{Atari, AtariAddressSpace};
 use frame_renderer::FrameRendererBuilder;
+use memory::new_rom;
 use riot::Riot;
 use std::env;
 use std::sync::atomic::Ordering;
 use tia::Tia;
-use ya6502::memory::{AtariRam, AtariRom};
 
 fn main() {
     println!("Ready player ONE!");
@@ -36,7 +38,7 @@ fn main() {
         tia: Tia::new(),
         ram: AtariRam::new(),
         riot: Riot::new(),
-        rom: AtariRom::new(&rom_bytes[..]).expect("Unable to load the ROM into Atari"),
+        rom: new_rom(&rom_bytes[..]).expect("Unable to load the ROM into Atari"),
     });
     let (audio_consumer, stream, _sink) = audio::initialize();
     let mut atari = Atari::new(

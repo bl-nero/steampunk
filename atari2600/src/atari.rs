@@ -1,6 +1,7 @@
 use crate::address_space::AddressSpace;
 use crate::audio::AudioConsumer;
 use crate::frame_renderer::FrameRenderer;
+use crate::memory::AtariRam;
 use crate::riot;
 use crate::riot::Riot;
 use crate::tia;
@@ -10,9 +11,9 @@ use image;
 use image::RgbaImage;
 use std::error;
 use ya6502::cpu::Cpu;
-use ya6502::memory::{AtariRam, AtariRom};
+use ya6502::memory::Rom;
 
-pub type AtariAddressSpace = AddressSpace<Tia, AtariRam, Riot, AtariRom>;
+pub type AtariAddressSpace = AddressSpace<Tia, AtariRam, Riot, Rom>;
 
 pub struct Atari {
     cpu: Cpu<AtariAddressSpace>,
@@ -247,6 +248,7 @@ mod tests {
     use crate::audio::create_consumer_and_source;
     use crate::colors;
     use crate::frame_renderer::FrameRendererBuilder;
+    use crate::memory::new_rom;
     use crate::test_utils::assert_images_equal;
     use crate::test_utils::atari_with_rom;
     use crate::test_utils::read_test_image;
@@ -468,7 +470,7 @@ mod tests {
                 tia: Tia::new(),
                 ram: AtariRam::new(),
                 riot: Riot::new(),
-                rom: AtariRom::new(&rom).unwrap(),
+                rom: new_rom(&rom).unwrap(),
             });
             let (consumer, _) = create_consumer_and_source();
             let mut atari = Atari::new(
