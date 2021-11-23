@@ -6,21 +6,20 @@ mod atari;
 mod audio;
 mod colors;
 mod frame_renderer;
-mod memory;
 mod riot;
 mod tia;
 
 mod test_utils;
 
-use crate::memory::AtariRam;
 use app::Application;
 use atari::{Atari, AtariAddressSpace};
 use frame_renderer::FrameRendererBuilder;
-use memory::new_rom;
 use riot::Riot;
 use std::env;
 use std::sync::atomic::Ordering;
 use tia::Tia;
+use ya6502::memory::Ram;
+use ya6502::memory::Rom;
 
 fn main() {
     println!("Ready player ONE!");
@@ -34,12 +33,9 @@ fn main() {
     }
     let rom_bytes = std::fs::read(&args[1]).expect("Unable to read the ROM image file");
     // Create and initialize components of the emulated system.
-    let address_space = Box::new(AtariAddressSpace {
-        tia: Tia::new(),
-        ram: AtariRam::new(),
-        riot: Riot::new(),
-        rom: new_rom(&rom_bytes[..]).expect("Unable to load the ROM into Atari"),
-    });
+    let address_space = Box::new(AtariAddressSpace::new(
+        Rom::new(&rom_bytes[..]).expect("Unable to load the ROM into Atari"),
+    ));
     let (audio_consumer, stream, _sink) = audio::initialize();
     let mut atari = Atari::new(
         address_space,

@@ -1,7 +1,6 @@
 use crate::address_space::AddressSpace;
 use crate::audio::AudioConsumer;
 use crate::frame_renderer::FrameRenderer;
-use crate::memory::AtariRam;
 use crate::riot;
 use crate::riot::Riot;
 use crate::tia;
@@ -11,9 +10,21 @@ use image;
 use image::RgbaImage;
 use std::error;
 use ya6502::cpu::Cpu;
+use ya6502::memory::Ram;
 use ya6502::memory::Rom;
 
-pub type AtariAddressSpace = AddressSpace<Tia, AtariRam, Riot, Rom>;
+pub type AtariAddressSpace = AddressSpace<Tia, Ram, Riot, Rom>;
+
+impl AtariAddressSpace {
+    pub fn new(rom: Rom) -> Self {
+        Self {
+            tia: Tia::new(),
+            ram: Ram::new(7),
+            riot: Riot::new(),
+            rom,
+        }
+    }
+}
 
 pub struct Atari {
     cpu: Cpu<AtariAddressSpace>,
@@ -248,7 +259,6 @@ mod tests {
     use crate::audio::create_consumer_and_source;
     use crate::colors;
     use crate::frame_renderer::FrameRendererBuilder;
-    use crate::memory::new_rom;
     use crate::test_utils::assert_images_equal;
     use crate::test_utils::atari_with_rom;
     use crate::test_utils::read_test_image;
@@ -256,6 +266,7 @@ mod tests {
     use image::DynamicImage;
     use test::Bencher;
     use ya6502::cpu::{opcodes, CpuHaltedError};
+    use ya6502::memory::Ram;
 
     fn next_frame(atari: &mut Atari) -> Result<RgbaImage, Box<dyn error::Error>> {
         loop {
@@ -466,12 +477,7 @@ mod tests {
     fn benchmark(b: &mut Bencher) {
         let rom = read_test_rom("horizontal_stripes.bin");
         b.iter(|| {
-            let address_space = Box::new(AtariAddressSpace {
-                tia: Tia::new(),
-                ram: AtariRam::new(),
-                riot: Riot::new(),
-                rom: new_rom(&rom).unwrap(),
-            });
+            let address_space = Box::new(AtariAddressSpace::new(Rom::new(&rom).unwrap()));
             let (consumer, _) = create_consumer_and_source();
             let mut atari = Atari::new(
                 address_space,

@@ -90,15 +90,15 @@ fn hexdump(f: &mut fmt::Formatter, offset: u16, bytes: &[u8]) -> fmt::Result {
 mod tests {
     use super::*;
     use std::error;
-    use ya6502::memory::SimpleRam;
+    use ya6502::memory::Ram;
 
     #[test]
     fn reads_and_writes() -> Result<(), Box<dyn error::Error>> {
         let mut address_space = AddressSpace {
-            tia: SimpleRam::new(),
-            ram: SimpleRam::new(),
-            riot: SimpleRam::new(),
-            rom: SimpleRam::new(),
+            tia: Ram::new(16),
+            ram: Ram::new(16),
+            riot: Ram::new(16),
+            rom: Ram::new(16),
         };
         address_space.write(0, 8)?; // Start of TIA
         address_space.write(0x7F, 5)?; // End of TIA
@@ -137,10 +137,10 @@ mod tests {
     #[test]
     fn address_mapping() {
         let mut address_space = AddressSpace {
-            tia: SimpleRam::initialized_with(1),
-            ram: SimpleRam::initialized_with(2),
-            riot: SimpleRam::initialized_with(3),
-            rom: SimpleRam::initialized_with(4),
+            tia: Ram::initialized_with(1, 16),
+            ram: Ram::initialized_with(2, 16),
+            riot: Ram::initialized_with(3, 16),
+            rom: Ram::initialized_with(4, 16),
         };
 
         assert_eq!(address_space.read(0x8F45).unwrap(), 1);

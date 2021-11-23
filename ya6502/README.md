@@ -4,13 +4,13 @@ YA6502 is a straightforward implementation of a 6502 CPU emulator, built as a pl
 
 # Getting started
 
-To use the 6502 CPU in your project, you need to provide an implementation of the `Memory` trait that represents an address space of your emulated hardware. To get started quickly, you can use `ya6502::memory::SimpleRam`. Having that, instantiate your CPU and make it run:
+To use the 6502 CPU in your project, you need to provide an implementation of the `Memory` trait that represents an address space of your emulated hardware. To get started quickly, you can just use `ya6502::memory::Ram`. Having that, instantiate your CPU and make it run:
 
 ```
 use ya6502::Cpu;
-use ya6502::memory::SimpleRam;
+use ya6502::memory::Ram;
 
-let memory = Box::new(SimpleRam::new());
+let memory = Box::new(Ram::new(16)); // 2^16 bytes
 
 // (Populate the memory here.)
 

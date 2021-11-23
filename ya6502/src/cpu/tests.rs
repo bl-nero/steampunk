@@ -3,7 +3,7 @@
 extern crate test;
 
 use super::*;
-use crate::memory::SimpleRam;
+use crate::memory::Ram;
 use test::Bencher;
 
 fn reset<M: Memory + Debug>(cpu: &mut Cpu<M>) {
@@ -11,8 +11,8 @@ fn reset<M: Memory + Debug>(cpu: &mut Cpu<M>) {
     cpu.ticks(8).unwrap();
 }
 
-fn cpu_with_program(program: &[u8]) -> Cpu<SimpleRam> {
-    let memory = Box::new(SimpleRam::with_test_program(program));
+fn cpu_with_program(program: &[u8]) -> Cpu<Ram> {
+    let memory = Box::new(Ram::with_test_program(program));
     let mut cpu = Cpu::new(memory);
     reset(&mut cpu);
     return cpu;
@@ -27,7 +27,7 @@ macro_rules! cpu_with_code {
     };
 }
 
-fn reversed_stack(cpu: &Cpu<SimpleRam>) -> Vec<u8> {
+fn reversed_stack(cpu: &Cpu<Ram>) -> Vec<u8> {
     cpu.memory.bytes[(cpu.stack_pointer() as usize + 1)..=0x1FF]
         .iter()
         .copied()
@@ -1207,7 +1207,7 @@ fn bne() {
 
 #[test]
 fn branching_across_pages_adds_one_cpu_cycle() {
-    let memory = Box::new(SimpleRam::with_test_program_at(
+    let memory = Box::new(Ram::with_test_program_at(
         0xF0FB,
         &[
             opcodes::LDA_IMM,
@@ -1366,7 +1366,7 @@ fn stack_wrapping_with_subroutines() {
 
 #[test]
 fn pc_wrapping() {
-    let mut memory = Box::new(SimpleRam::with_test_program_at(
+    let mut memory = Box::new(Ram::with_test_program_at(
         0xFFF9,
         &[
             opcodes::JMP_ABS,
@@ -1387,7 +1387,7 @@ fn pc_wrapping() {
 
 #[test]
 fn pc_wrapping_during_branch() {
-    let mut memory = Box::new(SimpleRam::with_test_program_at(
+    let mut memory = Box::new(Ram::with_test_program_at(
         0xFFF8,
         &[
             opcodes::LDA_IMM,

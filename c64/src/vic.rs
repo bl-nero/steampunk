@@ -178,13 +178,10 @@ mod registers {
 mod tests {
     use super::*;
     use common::test_utils::as_single_hex_digit;
-    use ya6502::memory::SimpleRam;
+    use ya6502::memory::Ram;
 
-    fn vic_for_testing() -> Vic<SimpleRam, SimpleRam> {
-        Vic::new(
-            Box::new(SimpleRam::new()),
-            Rc::new(RefCell::new(SimpleRam::new())),
-        )
+    fn vic_for_testing() -> Vic<Ram, Ram> {
+        Vic::new(Box::new(Ram::new(16)), Rc::new(RefCell::new(Ram::new(16))))
     }
 
     /// Grabs a single visible raster line, discarding the blanking area. Note

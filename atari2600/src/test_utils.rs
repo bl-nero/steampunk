@@ -1,11 +1,9 @@
 #![cfg(test)]
 use crate::audio::create_consumer_and_source;
 use crate::colors;
-use crate::memory::new_rom;
 use crate::tia::VideoOutput;
 use crate::Atari;
 use crate::AtariAddressSpace;
-use crate::AtariRam;
 use crate::FrameRendererBuilder;
 use crate::Riot;
 use crate::Tia;
@@ -14,6 +12,8 @@ use image::DynamicImage;
 use std::fs::create_dir_all;
 use std::iter;
 use std::path::Path;
+use ya6502::memory::Ram;
+use ya6502::memory::Rom;
 
 /// Decodes a convenient, character-based representation of a TIA video output to
 /// an iterator over a `VideoOutput` structure. Useful for representing test
@@ -104,12 +104,7 @@ pub fn encode_audio<I: Iterator<Item = u8>>(outputs: I) -> String {
 
 pub fn atari_with_rom(file_name: &str) -> Atari {
     let rom = read_test_rom(file_name);
-    let address_space = Box::new(AtariAddressSpace {
-        tia: Tia::new(),
-        ram: AtariRam::new(),
-        riot: Riot::new(),
-        rom: new_rom(&rom).unwrap(),
-    });
+    let address_space = Box::new(AtariAddressSpace::new(Rom::new(&rom).unwrap()));
     let (consumer, _) = create_consumer_and_source();
     let mut atari = Atari::new(
         address_space,

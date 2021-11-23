@@ -53,36 +53,41 @@ impl fmt::Display for WriteError {
     }
 }
 
-/// A very simple memory structure: just a 64-kilobyte chunk of RAM.
-pub struct SimpleRam {
-    pub bytes: [u8; Self::SIZE],
+/// Random access memory.
+pub struct Ram {
+    pub bytes: Vec<u8>,
+    /// Address mask used to access the underlying bytes. The byte index will be
+    /// computed by using AND on address and the mask.
+    address_mask: u16,
 }
 
-impl SimpleRam {
-    const SIZE: usize = 0x10000; // 64 kB (64 * 1024)
+impl Ram {
+    /// Creates a new RAM with an address bus of a given width (in bits). The
+    /// total size of the RAM will be 2^address_width.
+    pub fn new(address_width: u32) -> Ram {
+        Self::initialized_with(0, address_width)
+    }
 
-    pub fn new() -> SimpleRam {
-        SimpleRam {
-            bytes: [0; Self::SIZE], // Fill the entire RAM with 0x00.
+    /// Creates a new RAM with an address bus of a given width (in bits),
+    /// initialized with a given value. The total size of the RAM will be
+    /// 2^address_width.
+    pub fn initialized_with(value: u8, address_width: u32) -> Ram {
+        Ram {
+            bytes: vec![value; 1 << address_width],
+            address_mask: ((1u32 << address_width) - 1) as u16,
         }
     }
 
-    pub fn initialized_with(value: u8) -> SimpleRam {
-        SimpleRam {
-            bytes: [value; Self::SIZE],
-        }
-    }
-
-    /// Creates a new `RAM`, putting given `program` at address 0xF000. It also
-    /// sets the reset pointer to 0xF000.
-    pub fn with_test_program(program: &[u8]) -> SimpleRam {
+    /// Creates 64KiB of `RAM`, putting given `program` at address 0xF000. It
+    /// also sets the reset pointer to 0xF000.
+    pub fn with_test_program(program: &[u8]) -> Ram {
         Self::with_test_program_at(0xF000, program)
     }
 
-    /// Creates a new `RAM`, putting given `program` at a given address. It also
-    /// sets the reset pointer to this address.
-    pub fn with_test_program_at(address: u16, program: &[u8]) -> SimpleRam {
-        let mut ram = SimpleRam::new();
+    /// Creates 64KiB of `RAM`, putting given `program` at a given address. It
+    /// also sets the reset pointer to this address.
+    pub fn with_test_program_at(address: u16, program: &[u8]) -> Ram {
+        let mut ram = Ram::new(16);
         ram.bytes[address as usize..address as usize + program.len()].copy_from_slice(program);
         ram.bytes[0xFFFC] = address as u8; // least-significant byte
         ram.bytes[0xFFFD] = (address >> 8) as u8; // most-significant byte
@@ -90,46 +95,56 @@ impl SimpleRam {
     }
 }
 
-impl Read for SimpleRam {
+impl Read for Ram {
     fn read(&self, address: u16) -> ReadResult {
         // this arrow means we give u16 they return u8
-        Ok(self.bytes[address as usize])
+        Ok(self.bytes[(address & self.address_mask) as usize])
     }
 }
 
-impl Write for SimpleRam {
+impl Write for Ram {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
-        self.bytes[address as usize] = value;
+        self.bytes[(address & self.address_mask) as usize] = value;
         Ok(())
     }
 }
 
-impl Memory for SimpleRam {}
+impl Memory for Ram {}
 
-impl fmt::Debug for SimpleRam {
+impl fmt::Debug for Ram {
     /// Prints out only the zero page, because come on, who would scroll through
     /// a dump of entire 64 kibibytes...
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use std::convert::TryInto;
         let zero_page: [u8; 255] = (&self.bytes[..255]).try_into().unwrap();
         return f
-            .debug_struct("SimpleRam")
+            .debug_struct("Ram")
             .field("zero page", &zero_page)
             .finish();
     }
 }
 
+/// Read-only memory.
 pub struct Rom {
     bytes: Vec<u8>,
+    /// Address mask used to access the underlying bytes. The byte index will be
+    /// computed by using AND on address and the mask.
     address_mask: u16,
 }
 
 impl Rom {
-    pub fn new(bytes: &[u8], address_mask: u16) -> Self {
-        Self {
-            bytes: bytes.to_vec(),
-            address_mask,
-        }
+    pub fn new(bytes: &[u8]) -> Result<Rom, MemorySizeError> {
+        // Use the famous n & (n-1) trick to verify that the length of the bytes
+        // array is a power of 2, and at the same time compute the address mask.
+        let address_mask = bytes.len() - 1;
+        return if address_mask > u16::MAX as usize || address_mask & bytes.len() != 0 {
+            Err(MemorySizeError { size: bytes.len() })
+        } else {
+            Ok(Self {
+                bytes: bytes.to_vec(),
+                address_mask: address_mask as u16,
+            })
+        };
     }
 }
 
@@ -148,19 +163,56 @@ impl fmt::Debug for Rom {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemorySizeError {
+    size: usize,
+}
+
+impl error::Error for MemorySizeError {}
+
+impl fmt::Display for MemorySizeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Illegal ROM size: {} bytes. Valid sizes: 2048, 4096",
+            self.size
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn creating_empty_simple_ram() {
-        let ram = SimpleRam::with_test_program(&[]);
+    fn creating_empty_ram() {
+        let ram = Ram::with_test_program(&[]);
         assert_eq!(ram.bytes[..0xFFFC], [0u8; 0xFFFC][..]);
     }
 
     #[test]
-    fn simple_ram_with_test_program() {
-        let ram = SimpleRam::with_test_program(&[10, 56, 72, 255]);
+    fn ram_read_write() {
+        let mut ram = Ram::new(16);
+        ram.write(0x00AB, 123).unwrap();
+        ram.write(0x00AC, 234).unwrap();
+        ram.write(0xE456, 34).unwrap();
+        assert_eq!(ram.read(0x00AB).unwrap(), 123);
+        assert_eq!(ram.read(0x00AC).unwrap(), 234);
+        assert_eq!(ram.read(0xE456).unwrap(), 34);
+    }
+
+    #[test]
+    fn ram_mirroring() {
+        let mut ram = Ram::new(7);
+        ram.write(0x0080, 1).unwrap();
+        assert_eq!(ram.read(0x0080).unwrap(), 1);
+        assert_eq!(ram.read(0x2880).unwrap(), 1);
+        assert_eq!(ram.read(0xCD80).unwrap(), 1);
+    }
+
+    #[test]
+    fn ram_with_test_program() {
+        let ram = Ram::with_test_program(&[10, 56, 72, 255]);
         // Bytes until 0xF000 (exclusively) should have been zeroed.
         assert_eq!(ram.bytes[..0xF000], [0u8; 0xF000][..]);
         // Next, there should be our program.
@@ -172,8 +224,8 @@ mod tests {
     }
 
     #[test]
-    fn simple_ram_with_test_program_at() {
-        let ram = SimpleRam::with_test_program_at(0xF110, &[10, 56, 72, 255]);
+    fn ram_with_test_program_at() {
+        let ram = Ram::with_test_program_at(0xF110, &[10, 56, 72, 255]);
         assert_eq!(ram.bytes[..0xF110], [0u8; 0xF110][..]);
         assert_eq!(ram.bytes[0xF110..0xF114], [10, 56, 72, 255][..]);
         assert_eq!(ram.bytes[0xF114..0xFFFC], [0u8; 0xFFFC - 0xF114][..]);
@@ -181,8 +233,45 @@ mod tests {
     }
 
     #[test]
-    fn simple_ram_with_test_program_sets_reset_address() {
-        let ram = SimpleRam::with_test_program(&[0xFF; 0x1000]);
+    fn ram_with_test_program_sets_reset_address() {
+        let ram = Ram::with_test_program(&[0xFF; 0x1000]);
         assert_eq!(ram.bytes[0xFFFC..0xFFFE], [0x00, 0xF0]); // 0xF000
+    }
+
+    #[test]
+    fn rom_mirroring() {
+        let mut program = [0u8; 0x1000];
+        program[5] = 1;
+        let rom = Rom::new(&program).unwrap();
+        assert_eq!(rom.read(0x1000).unwrap(), 0);
+        assert_eq!(rom.read(0x1005).unwrap(), 1);
+        assert_eq!(rom.read(0x3005).unwrap(), 1);
+        assert_eq!(rom.read(0xF005).unwrap(), 1);
+
+        let mut program = [0u8; 0x0800];
+        program[5] = 1;
+        let rom = Rom::new(&program).unwrap();
+        assert_eq!(rom.read(0x1000).unwrap(), 0);
+        assert_eq!(rom.read(0x1005).unwrap(), 1);
+        assert_eq!(rom.read(0x3005).unwrap(), 1);
+        assert_eq!(rom.read(0xF005).unwrap(), 1);
+        assert_eq!(rom.read(0xF805).unwrap(), 1);
+
+        let rom = Rom::new(&[1, 2, 3, 4]).unwrap();
+        assert_eq!(rom.read(0x01234).unwrap(), 1);
+        assert_eq!(rom.read(0x01235).unwrap(), 2);
+        assert_eq!(rom.read(0x01236).unwrap(), 3);
+        assert_eq!(rom.read(0x01237).unwrap(), 4);
+    }
+
+    #[test]
+    fn rom_illegal_sizes() {
+        // Not a power of 2
+        let rom = Rom::new(&[0u8; 0x09AB]);
+        assert_eq!(rom.err(), Some(MemorySizeError { size: 0x9AB }));
+
+        // Too large
+        let rom = Rom::new(&[0u8; 0x20000]);
+        assert_eq!(rom.err(), Some(MemorySizeError { size: 0x20000 }));
     }
 }
