@@ -75,7 +75,6 @@ dependencies = [
  "ctrlc",
  "enum-map",
  "image",
- "image-diff",
  "itertools",
  "piston",
  "piston2d-graphics",
@@ -304,6 +303,8 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "image",
+ "image-diff",
+ "itertools",
 ]
 
 [[package]]

@@ -20,7 +20,7 @@ pub trait Memory: Read + Write {}
 
 pub type ReadResult = Result<u8, ReadError>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ReadError {
     pub address: u16,
 }
@@ -33,9 +33,17 @@ impl fmt::Display for ReadError {
     }
 }
 
+impl fmt::Debug for ReadError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("WriteError")
+            .field("address", &format_args!("{:#06X}", self.address))
+            .finish()
+    }
+}
+
 pub type WriteResult = Result<(), WriteError>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct WriteError {
     pub address: u16,
     pub value: u8,
@@ -50,6 +58,15 @@ impl fmt::Display for WriteError {
             "Unable to write ${:02X} to address ${:04X}",
             self.value, self.address
         )
+    }
+}
+
+impl fmt::Debug for WriteError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("WriteError")
+            .field("address", &format_args!("{:#06X}", self.address))
+            .field("value", &format_args!("{:#04X}", self.value))
+            .finish()
     }
 }
 

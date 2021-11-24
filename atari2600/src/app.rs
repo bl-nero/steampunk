@@ -223,7 +223,7 @@ mod tests {
     use super::*;
     use crate::test_utils::assert_images_equal;
     use crate::test_utils::atari_with_rom;
-    use crate::test_utils::read_test_image;
+    use common::test_utils::read_test_image;
     use image::DynamicImage;
     use piston_window::ButtonArgs;
     use piston_window::UpdateArgs;

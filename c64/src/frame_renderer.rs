@@ -1,4 +1,6 @@
 use crate::vic::VicOutput;
+use crate::vic::{LEFT_BORDER_START, TOP_BORDER_FIRST_LINE, VISIBLE_LINES, VISIBLE_PIXELS};
+use common::colors::create_palette;
 use common::colors::Palette;
 use graphics::types::Rectangle;
 use image::{Pixel, Rgba, RgbaImage};
@@ -17,7 +19,11 @@ impl FrameRenderer {
         Self {
             palette,
             viewport,
-            frame: RgbaImage::from_pixel(10, 10, Rgba::from_channels(0x00, 0x00, 0x00, 0xFF)),
+            frame: RgbaImage::from_pixel(
+                viewport[2] as u32,
+                viewport[3] as u32,
+                Rgba::from_channels(0x00, 0x00, 0x00, 0xFF),
+            ),
         }
     }
 
@@ -35,6 +41,24 @@ impl FrameRenderer {
 
     pub fn frame_image(&self) -> &RgbaImage {
         &self.frame
+    }
+}
+
+impl Default for FrameRenderer {
+    fn default() -> Self {
+        // Colors generated using the Colodore algorithm described on
+        // https://www.pepto.de/projects/colorvic/.
+        let palette = create_palette(&[
+            0x000000, 0xffffff, 0x813338, 0x75cec8, 0x8e3c97, 0x56ac4d, 0x2e2c9b, 0xedf171,
+            0x8e5029, 0x553800, 0xc46c71, 0x4a4a4a, 0x7b7b7b, 0xa9ff9f, 0x706deb, 0xb2b2b2,
+        ]);
+        let viewport = [
+            LEFT_BORDER_START,
+            TOP_BORDER_FIRST_LINE,
+            VISIBLE_PIXELS,
+            VISIBLE_LINES,
+        ];
+        Self::new(palette, viewport)
     }
 }
 

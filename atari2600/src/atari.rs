@@ -261,12 +261,11 @@ mod tests {
     use crate::frame_renderer::FrameRendererBuilder;
     use crate::test_utils::assert_images_equal;
     use crate::test_utils::atari_with_rom;
-    use crate::test_utils::read_test_image;
     use crate::test_utils::read_test_rom;
+    use common::test_utils::read_test_image;
     use image::DynamicImage;
     use test::Bencher;
     use ya6502::cpu::{opcodes, CpuHaltedError};
-    use ya6502::memory::Ram;
 
     fn next_frame(atari: &mut Atari) -> Result<RgbaImage, Box<dyn error::Error>> {
         loop {

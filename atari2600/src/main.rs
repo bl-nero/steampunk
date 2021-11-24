@@ -14,11 +14,8 @@ mod test_utils;
 use app::Application;
 use atari::{Atari, AtariAddressSpace};
 use frame_renderer::FrameRendererBuilder;
-use riot::Riot;
 use std::env;
 use std::sync::atomic::Ordering;
-use tia::Tia;
-use ya6502::memory::Ram;
 use ya6502::memory::Rom;
 
 fn main() {

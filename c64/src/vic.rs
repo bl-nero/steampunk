@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use ya6502::memory::Memory;
 use ya6502::memory::Read;
 use ya6502::memory::ReadError;
 use ya6502::memory::ReadResult;
@@ -11,6 +12,7 @@ pub type Color = u8;
 
 /// VIC-II video chip emulator that outputs a stream of bytes. Each byte encodes
 /// a single pixel and has a value from a 0..=15 range.
+#[derive(Debug)]
 pub struct Vic<GM: Read, CM: Read> {
     graphics_memory: Box<GM>,
     color_memory: Rc<RefCell<CM>>,
@@ -142,32 +144,29 @@ impl<GM: Read, CM: Read> Write for Vic<GM, CM> {
     }
 }
 
-const LEFT_BORDER_START: usize = 77;
-const LEFT_BORDER_WIDTH: usize = 47;
-const DISPLAY_WINDOW_START: usize = LEFT_BORDER_START + LEFT_BORDER_WIDTH;
-const DISPLAY_WINDOW_WIDTH: usize = 320;
-const RIGHT_BORDER_START: usize = DISPLAY_WINDOW_START + DISPLAY_WINDOW_WIDTH;
-#[allow(dead_code)]
-const RIGHT_BORDER_WIDTH: usize = 48;
-#[allow(dead_code)]
-const BORDER_END: usize = RIGHT_BORDER_START + RIGHT_BORDER_WIDTH;
-#[allow(dead_code)]
-const VISIBLE_PIXELS: usize = LEFT_BORDER_WIDTH + DISPLAY_WINDOW_WIDTH + RIGHT_BORDER_WIDTH;
-const RASTER_LENGTH: usize = 65 * 8;
-#[allow(dead_code)]
-const RIGHT_BLANK_WIDTH: usize = RASTER_LENGTH - BORDER_END;
+impl<GM: Read, CM: Read> Memory for Vic<GM, CM> {}
 
+pub const LEFT_BORDER_START: usize = 77;
+pub const LEFT_BORDER_WIDTH: usize = 47;
+pub const DISPLAY_WINDOW_START: usize = LEFT_BORDER_START + LEFT_BORDER_WIDTH;
+pub const DISPLAY_WINDOW_WIDTH: usize = 320;
+pub const RIGHT_BORDER_START: usize = DISPLAY_WINDOW_START + DISPLAY_WINDOW_WIDTH;
+pub const RIGHT_BORDER_WIDTH: usize = 48;
 #[allow(dead_code)]
-const TOP_BORDER_FIRST_LINE: usize = 20;
+pub const BORDER_END: usize = RIGHT_BORDER_START + RIGHT_BORDER_WIDTH;
+pub const VISIBLE_PIXELS: usize = LEFT_BORDER_WIDTH + DISPLAY_WINDOW_WIDTH + RIGHT_BORDER_WIDTH;
+pub const RASTER_LENGTH: usize = 65 * 8;
 #[allow(dead_code)]
-const TOP_BORDER_HEIGHT: usize = DISPLAY_WINDOW_FIRST_LINE - TOP_BORDER_FIRST_LINE;
-const DISPLAY_WINDOW_FIRST_LINE: usize = 51;
-const DISPLAY_WINDOW_HEIGHT: usize = 200;
-const BOTTOM_BORDER_FIRST_LINE: usize = DISPLAY_WINDOW_FIRST_LINE + DISPLAY_WINDOW_HEIGHT;
-#[allow(dead_code)]
-const BOTTOM_BORDER_HEIGHT: usize = TOTAL_HEIGHT - BOTTOM_BORDER_FIRST_LINE;
-#[allow(dead_code)]
-const TOTAL_HEIGHT: usize = 262;
+pub const RIGHT_BLANK_WIDTH: usize = RASTER_LENGTH - BORDER_END;
+
+pub const TOP_BORDER_FIRST_LINE: usize = 20;
+pub const TOP_BORDER_HEIGHT: usize = DISPLAY_WINDOW_FIRST_LINE - TOP_BORDER_FIRST_LINE;
+pub const DISPLAY_WINDOW_FIRST_LINE: usize = 51;
+pub const DISPLAY_WINDOW_HEIGHT: usize = 200;
+pub const BOTTOM_BORDER_FIRST_LINE: usize = DISPLAY_WINDOW_FIRST_LINE + DISPLAY_WINDOW_HEIGHT;
+pub const BOTTOM_BORDER_HEIGHT: usize = TOTAL_HEIGHT - BOTTOM_BORDER_FIRST_LINE;
+pub const VISIBLE_LINES: usize = TOP_BORDER_HEIGHT + DISPLAY_WINDOW_HEIGHT + BOTTOM_BORDER_HEIGHT;
+pub const TOTAL_HEIGHT: usize = 262;
 
 mod registers {
     pub const BORDER_COLOR: u16 = 0xD020;

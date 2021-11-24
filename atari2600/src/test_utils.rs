@@ -5,14 +5,10 @@ use crate::tia::VideoOutput;
 use crate::Atari;
 use crate::AtariAddressSpace;
 use crate::FrameRendererBuilder;
-use crate::Riot;
-use crate::Tia;
 use common::test_utils::as_single_hex_digit;
 use image::DynamicImage;
-use std::fs::create_dir_all;
 use std::iter;
 use std::path::Path;
-use ya6502::memory::Ram;
 use ya6502::memory::Rom;
 
 /// Decodes a convenient, character-based representation of a TIA video output to
@@ -118,49 +114,16 @@ pub fn atari_with_rom(file_name: &str) -> Atari {
 }
 
 pub fn read_test_rom(name: &str) -> Vec<u8> {
-    std::fs::read(Path::new(env!("OUT_DIR")).join("roms").join(name)).unwrap()
-}
-
-pub fn read_test_image(name: &str) -> DynamicImage {
-    image::open(Path::new("src").join("test_data").join(name)).unwrap()
+    std::fs::read(Path::new(env!("OUT_DIR")).join("test_roms").join(name)).unwrap()
 }
 
 pub fn assert_images_equal(actual: DynamicImage, expected: DynamicImage, test_name: &str) {
-    use image::GenericImageView;
-    let equal = itertools::equal(actual.pixels(), expected.pixels());
-    if equal {
-        return;
-    }
-
-    let dir_path = Path::new(env!("OUT_DIR")).join("test_results");
-    create_dir_all(&dir_path).unwrap();
-    let actual_path = dir_path
-        .join(String::from(test_name) + "-actual")
-        .with_extension("png");
-    let expected_path = dir_path
-        .join(String::from(test_name) + "-expected")
-        .with_extension("png");
-    let diff_path = dir_path
-        .join(String::from(test_name) + "-diff")
-        .with_extension("png");
-    let new_golden_path = dir_path
-        .join(String::from(test_name) + "-new-golden")
-        .with_extension("png");
-    actual.save(&new_golden_path).unwrap();
-
-    let diff = image_diff::diff(&expected, &actual).unwrap();
-
-    actual.save(&actual_path).unwrap();
-    expected.save(&expected_path).unwrap();
-    diff.save(&diff_path).unwrap();
-    panic!(
-        "Images differ for test {}\nActual: {}\nExpected: {}\nDiff: {}\nNew golden: {}",
+    common::test_utils::assert_images_equal(
+        actual,
+        expected,
         test_name,
-        actual_path.display(),
-        expected_path.display(),
-        diff_path.display(),
-        new_golden_path.display(),
-    );
+        &Path::new(env!("OUT_DIR")).join("test_results"),
+    )
 }
 
 mod tests {
