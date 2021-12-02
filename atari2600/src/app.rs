@@ -1,82 +1,39 @@
+use common::app::Controller;
 use image::RgbaImage;
-use piston_window::{
-    Button, ButtonState, Event, EventLoop, Filter, G2d, G2dTexture, G2dTextureContext, GfxDevice,
-    Input, Key, Loop, PistonWindow, Texture, TextureSettings, WindowSettings,
-};
+use piston_window::{Button, ButtonState, Event, Input, Key, Loop};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::atari::{Atari, FrameStatus, JoystickInput, JoystickPort, Switch, SwitchPosition};
 
-pub struct Application<'a> {
-    window: PistonWindow,
-    controller: Controller<'a>,
-    view: View,
-}
-
-impl<'a> Application<'a> {
-    /// Creates an Atari emulator application that runs given virtual Atari
-    /// device.
-    pub fn new(atari: &'a mut Atari) -> Self {
-        let window_width = atari.frame_image().width() * 5;
-        let window_height = atari.frame_image().height() * 3;
-        let window_settings =
-            WindowSettings::new("Atari 2600", [window_width, window_height]).exit_on_esc(true);
-        let mut window: PistonWindow = window_settings.build().expect("Could not build a window");
-        window.set_ups(60);
-        let texture_context = window.create_texture_context();
-        let view = View::new(texture_context, &atari);
-
-        Self {
-            window,
-            view,
-            controller: Controller::new(atari),
-        }
-    }
-
-    /// Starts Atari and runs the event loop until the user decides to quit.
-    pub fn run(&mut self) {
-        self.controller.reset();
-        while let Some(e) = self.window.next() {
-            self.controller.event(&e);
-            let view = &mut self.view;
-            let frame_image = self.controller.frame_image();
-            self.window.draw_2d(&e, |ctx, graphics, device| {
-                view.draw(frame_image, ctx, graphics, device);
-            });
-            self.window.event(&e);
-            if self.controller.interrupted.load(Ordering::Relaxed) {
-                eprintln!("Interrupted!");
-                eprintln!("{}", self.controller.atari.cpu());
-                eprintln!("{}", self.controller.atari.cpu().memory());
-                return;
-            }
-        }
-    }
-
-    /// Exposes a pointer to a thread-safe interruption flag. Once it's set to
-    /// `true`, the main event loop finishes, allowing the program to quit
-    /// gracefully.
-    pub fn interrupted(&self) -> Arc<AtomicBool> {
-        return self.controller.interrupted.clone();
-    }
-}
-
-struct Controller<'a> {
+pub struct AtariController<'a> {
     atari: &'a mut Atari,
     running: bool,
     interrupted: Arc<AtomicBool>,
 }
 
-impl<'a> Controller<'a> {
-    fn new(atari: &'a mut Atari) -> Self {
-        return Controller {
+impl<'a> AtariController<'a> {
+    pub fn new(atari: &'a mut Atari) -> Self {
+        return AtariController {
             atari,
             running: false,
             interrupted: Arc::new(AtomicBool::new(false)),
         };
     }
 
+    fn run_until_end_of_frame(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        while self.running && !self.interrupted.load(Ordering::Relaxed) {
+            match self.atari.tick() {
+                Ok(FrameStatus::Pending) => {}
+                Ok(FrameStatus::Complete) => return Ok(()),
+                Err(e) => return Err(e),
+            }
+        }
+        return Ok(());
+    }
+}
+
+impl<'a> Controller for AtariController<'a> {
     fn frame_image(&self) -> &RgbaImage {
         self.atari.frame_image()
     }
@@ -159,62 +116,19 @@ impl<'a> Controller<'a> {
                 if let Err(e) = self.run_until_end_of_frame() {
                     self.running = false;
                     eprintln!("ERROR: {}. Atari halted.", e);
-                    eprintln!("{}", self.atari.cpu());
-                    eprintln!("{}", self.atari.cpu().memory());
+                    eprintln!("{}", self.display_machine_state());
                 };
             }
             _ => {}
         }
     }
 
-    fn run_until_end_of_frame(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        while self.running && !self.interrupted.load(Ordering::Relaxed) {
-            match self.atari.tick() {
-                Ok(FrameStatus::Pending) => {}
-                Ok(FrameStatus::Complete) => return Ok(()),
-                Err(e) => return Err(e),
-            }
-        }
-        return Ok(());
-    }
-}
-
-struct View {
-    texture_context: G2dTextureContext,
-    texture: G2dTexture,
-}
-
-impl View {
-    fn new(mut texture_context: G2dTextureContext, atari: &Atari) -> Self {
-        let texture_settings = TextureSettings::new().mag(Filter::Nearest);
-        let texture =
-            Texture::from_image(&mut texture_context, atari.frame_image(), &texture_settings)
-                .expect("Could not create a texture");
-        return Self {
-            texture_context,
-            texture,
-        };
+    fn interrupted(&self) -> Arc<AtomicBool> {
+        self.interrupted.clone()
     }
 
-    fn draw(
-        &mut self,
-        frame_image: &RgbaImage,
-        ctx: piston_window::Context,
-        g: &mut G2d,
-        device: &mut GfxDevice,
-    ) {
-        let texture_context = &mut self.texture_context;
-        let texture = &mut self.texture;
-        let frame_image = frame_image;
-        texture
-            .update(texture_context, frame_image)
-            .expect("Unable to update texture");
-        graphics::clear([0.0, 0.0, 0.0, 1.0], g);
-        let view_size = ctx.get_view_size();
-        graphics::Image::new()
-            .rect([0.0, 0.0, view_size[0], view_size[1]])
-            .draw(texture, &ctx.draw_state, ctx.transform, g);
-        texture_context.encoder.flush(device);
+    fn display_machine_state(&self) -> String {
+        format!("{}\n{}", self.atari.cpu(), self.atari.cpu().memory())
     }
 }
 
@@ -228,7 +142,11 @@ mod tests {
     use piston_window::ButtonArgs;
     use piston_window::UpdateArgs;
 
-    fn assert_current_frame(controller: &mut Controller, test_image_name: &str, test_name: &str) {
+    fn assert_current_frame(
+        controller: &mut AtariController,
+        test_image_name: &str,
+        test_name: &str,
+    ) {
         let actual_image = DynamicImage::ImageRgba8(controller.frame_image().clone());
         let expected_image = read_test_image(test_image_name);
         assert_images_equal(actual_image, expected_image, test_name);
@@ -237,7 +155,7 @@ mod tests {
     #[test]
     fn controller_produces_images_until_interrupted() {
         let mut atari = atari_with_rom("horizontal_stripes_animated.bin");
-        let mut controller = Controller::new(&mut atari);
+        let mut controller = AtariController::new(&mut atari);
         controller.reset();
 
         controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
@@ -263,7 +181,7 @@ mod tests {
         );
     }
 
-    fn send_key(controller: &mut Controller, key: Key, state: ButtonState) {
+    fn send_key(controller: &mut AtariController, key: Key, state: ButtonState) {
         controller.event(&Event::from(ButtonArgs {
             button: Button::Keyboard(key),
             state,
@@ -274,7 +192,7 @@ mod tests {
     #[test]
     fn console_switches() {
         let mut atari = atari_with_rom("io_monitor.bin");
-        let mut controller = Controller::new(&mut atari);
+        let mut controller = AtariController::new(&mut atari);
         controller.reset();
         controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
         assert_current_frame(
@@ -335,7 +253,7 @@ mod tests {
     #[test]
     fn joysticks() {
         let mut atari = atari_with_rom("io_monitor.bin");
-        let mut controller = Controller::new(&mut atari);
+        let mut controller = AtariController::new(&mut atari);
         controller.reset();
         controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
 

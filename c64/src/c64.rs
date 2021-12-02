@@ -49,6 +49,14 @@ impl C64 {
         self.frame_renderer.frame_image()
     }
 
+    pub fn cpu(&self) -> &Cpu<C64AddressSpace> {
+        &self.cpu
+    }
+
+    pub fn reset(&mut self) {
+        self.cpu.reset();
+    }
+
     pub fn tick(&mut self) -> Result<(), Box<dyn Error>> {
         self.frame_renderer
             .consume(self.cpu.mut_memory().mut_vic().tick()?);
@@ -99,14 +107,20 @@ mod tests {
         std::fs::read(Path::new(env!("OUT_DIR")).join("test_roms").join(name)).unwrap()
     }
 
-    #[test]
-    fn shows_hello_world() {
+    pub fn c64_with_cartridge(file_name: &str) -> C64 {
         let mut c64 = C64::new().unwrap();
         c64.set_cartridge(Some(Cartridge {
             mode: CartridgeMode::Ultimax,
-            rom: Rom::new(&read_test_rom("hello_world.bin")).unwrap(),
+            rom: Rom::new(&read_test_rom(file_name)).unwrap(),
         }));
+        c64.reset();
+        return c64;
+    }
+
+    #[test]
+    fn shows_hello_world() {
         // Note: Once 6502 runs with its actual speed, we'll probably need to wait for a frame or two.
+        let mut c64 = c64_with_cartridge("hello_world.bin");
         assert_produces_frame(&mut c64, "hello_world.png", "shows_hello_world");
     }
 }

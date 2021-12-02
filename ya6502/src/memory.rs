@@ -197,6 +197,30 @@ impl fmt::Display for MemorySizeError {
     }
 }
 
+pub fn dump_zero_page(memory: &impl Read, f: &mut fmt::Formatter) -> fmt::Result {
+    let mut zero_page: [u8; 0x100] = [0; 0x100];
+    for i in 0..0x100 {
+        zero_page[i] = memory.read(i as u16).unwrap_or(0);
+    }
+    writeln!(f, "Zero page:")?;
+    hexdump(f, 0x0000, &zero_page)
+}
+
+/// Prints out a sequence of bytes on a given formatter in a hex dump format.
+fn hexdump(f: &mut fmt::Formatter, offset: u16, bytes: &[u8]) -> fmt::Result {
+    const LINE_WIDTH: usize = 16;
+    use itertools::Itertools;
+    for (line_num, line) in bytes.chunks(LINE_WIDTH).enumerate() {
+        writeln!(
+            f,
+            "{:04X}: {:02X}",
+            offset as usize + line_num * LINE_WIDTH,
+            line.iter().format(" ")
+        )?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

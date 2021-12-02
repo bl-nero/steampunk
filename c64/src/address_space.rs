@@ -1,5 +1,7 @@
 use std::cell::RefCell;
+use std::fmt;
 use std::rc::Rc;
+use ya6502::memory::dump_zero_page;
 use ya6502::memory::Memory;
 use ya6502::memory::Ram;
 use ya6502::memory::Read;
@@ -93,6 +95,12 @@ impl<VIC: Memory> Write for AddressSpace<VIC> {
 }
 
 impl<VIC: Memory> Memory for AddressSpace<VIC> {}
+
+impl<VIC: Memory> fmt::Display for AddressSpace<VIC> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        dump_zero_page(self, f)
+    }
+}
 
 #[derive(Debug)]
 pub struct Cartridge {

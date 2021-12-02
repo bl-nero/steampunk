@@ -1,4 +1,5 @@
 use std::fmt;
+use ya6502::memory::dump_zero_page;
 use ya6502::memory::Read;
 use ya6502::memory::Write;
 use ya6502::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
@@ -62,28 +63,8 @@ fn map_address(address: u16) -> Option<MemoryArea> {
 
 impl<T: Memory, RA: Memory, RI: Memory, RO: Read> fmt::Display for AddressSpace<T, RA, RI, RO> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut zero_page: [u8; 0x100] = [0; 0x100];
-        for i in 0..0x100 {
-            zero_page[i] = self.read(i as u16).unwrap_or(0);
-        }
-        writeln!(f, "Zero page:")?;
-        hexdump(f, 0x0000, &zero_page)
+        dump_zero_page(self, f)
     }
-}
-
-/// Prints out a sequence of bytes on a given formatter in a hex dump format.
-fn hexdump(f: &mut fmt::Formatter, offset: u16, bytes: &[u8]) -> fmt::Result {
-    const LINE_WIDTH: usize = 16;
-    use itertools::Itertools;
-    for (line_num, line) in bytes.chunks(LINE_WIDTH).enumerate() {
-        writeln!(
-            f,
-            "{:04X}: {:02X}",
-            offset as usize + line_num * LINE_WIDTH,
-            line.iter().format(" ")
-        )?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]
