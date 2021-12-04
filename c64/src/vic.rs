@@ -146,10 +146,12 @@ impl<GM: Read, CM: Read> Write for Vic<GM, CM> {
 
 impl<GM: Read, CM: Read> Memory for Vic<GM, CM> {}
 
+/// Converts raster line number to Y position on the rendered screen.
 pub fn raster_line_to_screen_y(index: usize) -> usize {
     (index + TOTAL_HEIGHT - TOP_BORDER_FIRST_LINE) % TOTAL_HEIGHT
 }
 
+/// Converts Y position on the rendered screen to raster line number.
 #[cfg(test)]
 pub fn screen_y_to_raster_line(screen_y: usize) -> usize {
     (screen_y + TOP_BORDER_FIRST_LINE) % TOTAL_HEIGHT
