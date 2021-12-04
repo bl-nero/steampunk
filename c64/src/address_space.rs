@@ -112,8 +112,10 @@ pub struct Cartridge {
 #[derive(Debug)]
 pub enum CartridgeMode {
     /// Standard 8KiB cartridge ($8000-$9FFF)
+    #[allow(dead_code)]
     Standard8k,
     /// Standard 16KiB cartridge ($8000-$BFFF)
+    #[allow(dead_code)]
     Standard16k,
     /// Ultimax 16KiB cartridge ($8000-$9FFF, $E000-$FFFF).
     Ultimax,

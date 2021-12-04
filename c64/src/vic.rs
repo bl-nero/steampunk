@@ -63,7 +63,7 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
 
         let output = VicOutput {
             x: self.x_counter,
-            y: self.raster_counter,
+            raster_line: self.raster_counter,
             color,
         };
 
@@ -122,7 +122,7 @@ pub struct VicOutput {
     /// Raw X coordinate (including horizontal blanking area).
     pub x: usize,
     /// Raw Y coordinate (including vertical blanking area).
-    pub y: usize,
+    pub raster_line: usize,
 }
 
 pub type TickResult = Result<VicOutput, ReadError>;
@@ -146,27 +146,42 @@ impl<GM: Read, CM: Read> Write for Vic<GM, CM> {
 
 impl<GM: Read, CM: Read> Memory for Vic<GM, CM> {}
 
+pub fn raster_line_to_screen_y(index: usize) -> usize {
+    (index + TOTAL_HEIGHT - TOP_BORDER_FIRST_LINE) % TOTAL_HEIGHT
+}
+
+#[cfg(test)]
+pub fn screen_y_to_raster_line(screen_y: usize) -> usize {
+    (screen_y + TOP_BORDER_FIRST_LINE) % TOTAL_HEIGHT
+}
+
 pub const LEFT_BORDER_START: usize = 77;
 pub const LEFT_BORDER_WIDTH: usize = 47;
 pub const DISPLAY_WINDOW_START: usize = LEFT_BORDER_START + LEFT_BORDER_WIDTH;
 pub const DISPLAY_WINDOW_WIDTH: usize = 320;
 pub const RIGHT_BORDER_START: usize = DISPLAY_WINDOW_START + DISPLAY_WINDOW_WIDTH;
 pub const RIGHT_BORDER_WIDTH: usize = 48;
-#[allow(dead_code)]
 pub const BORDER_END: usize = RIGHT_BORDER_START + RIGHT_BORDER_WIDTH;
 pub const VISIBLE_PIXELS: usize = LEFT_BORDER_WIDTH + DISPLAY_WINDOW_WIDTH + RIGHT_BORDER_WIDTH;
 pub const RASTER_LENGTH: usize = 65 * 8;
 #[allow(dead_code)]
 pub const RIGHT_BLANK_WIDTH: usize = RASTER_LENGTH - BORDER_END;
 
-pub const TOP_BORDER_FIRST_LINE: usize = 20;
+pub const TOP_BORDER_FIRST_LINE: usize = 41;
 pub const TOP_BORDER_HEIGHT: usize = DISPLAY_WINDOW_FIRST_LINE - TOP_BORDER_FIRST_LINE;
 pub const DISPLAY_WINDOW_FIRST_LINE: usize = 51;
 pub const DISPLAY_WINDOW_HEIGHT: usize = 200;
 pub const BOTTOM_BORDER_FIRST_LINE: usize = DISPLAY_WINDOW_FIRST_LINE + DISPLAY_WINDOW_HEIGHT;
-pub const BOTTOM_BORDER_HEIGHT: usize = TOTAL_HEIGHT - BOTTOM_BORDER_FIRST_LINE;
+pub const BLANK_AREA_FIRST_LINE: usize = 13;
+#[allow(dead_code)]
+pub const BLANK_AREA_HEIGHT: usize = TOP_BORDER_FIRST_LINE - BLANK_AREA_FIRST_LINE;
+// This strange formula stems from the fact that the blank area first line
+// actually comes after the raster line counter rolls back to 0. That's why we
+// add TOTAL_HEIGHT.
+pub const BOTTOM_BORDER_HEIGHT: usize =
+    BLANK_AREA_FIRST_LINE + TOTAL_HEIGHT - BOTTOM_BORDER_FIRST_LINE;
 pub const VISIBLE_LINES: usize = TOP_BORDER_HEIGHT + DISPLAY_WINDOW_HEIGHT + BOTTOM_BORDER_HEIGHT;
-pub const TOTAL_HEIGHT: usize = 262;
+pub const TOTAL_HEIGHT: usize = 262; // Including vertical blank
 
 mod registers {
     pub const BORDER_COLOR: u16 = 0xD020;
@@ -179,8 +194,14 @@ mod tests {
     use common::test_utils::as_single_hex_digit;
     use ya6502::memory::Ram;
 
+    /// Creates a VIC backed by a simple RAM architecture and runs enough raster
+    /// lines to end up at the beginning of the first visible border line.
     fn vic_for_testing() -> Vic<Ram, Ram> {
-        Vic::new(Box::new(Ram::new(16)), Rc::new(RefCell::new(Ram::new(16))))
+        let mut vic = Vic::new(Box::new(Ram::new(16)), Rc::new(RefCell::new(Ram::new(16))));
+        for _ in 0..RASTER_LENGTH * TOP_BORDER_FIRST_LINE {
+            vic.tick().unwrap();
+        }
+        return vic;
     }
 
     /// Grabs a single visible raster line, discarding the blanking area. Note
@@ -216,16 +237,22 @@ mod tests {
         width: usize,
         height: usize,
     ) -> Vec<Vec<Color>> {
-        let top = (DISPLAY_WINDOW_FIRST_LINE as isize + top) as usize;
+        // We convert the raster line number to screen Y in order to create a
+        // continuous range against which a screen Y coordinate can be tested.
+        let top = raster_line_to_screen_y((DISPLAY_WINDOW_FIRST_LINE as isize + top) as usize);
         let left = (DISPLAY_WINDOW_START as isize + left) as usize;
-        let bottom = top + width;
-        let right = left + height;
+        let bottom = top + height;
+        let right = left + width;
         let mut result: Vec<Vec<Color>> =
             std::iter::repeat(vec![0xFF; width]).take(height).collect();
         for _ in 0..RASTER_LENGTH * TOTAL_HEIGHT {
             let vic_output = vic.tick().unwrap();
-            if (left..right).contains(&vic_output.x) && (top..bottom).contains(&vic_output.y) {
-                result[vic_output.y - top][vic_output.x - left] = vic_output.color;
+            let (x, y) = (
+                vic_output.x,
+                raster_line_to_screen_y(vic_output.raster_line),
+            );
+            if (left..right).contains(&x) && (top..bottom).contains(&y) {
+                result[y - top][x - left] = vic_output.color;
             }
         }
         return result;
@@ -275,11 +302,13 @@ mod tests {
             + &"A".repeat(DISPLAY_WINDOW_WIDTH)
             + &"8".repeat(RIGHT_BORDER_WIDTH);
 
-        // Expect a border line.
+        // Expect the first line of top border.
+        assert_eq!(encode_video(visible_raster_line(&mut vic)), border_line);
+        // Expect the last line of top border.
+        skip_raster_lines(&mut vic, TOP_BORDER_HEIGHT - 2);
         assert_eq!(encode_video(visible_raster_line(&mut vic)), border_line);
 
         // Expect the first line of the display window.
-        skip_raster_lines(&mut vic, DISPLAY_WINDOW_FIRST_LINE - 1);
         assert_eq!(
             encode_video(visible_raster_line(&mut vic)),
             border_and_display_line
@@ -294,11 +323,13 @@ mod tests {
         );
         assert_eq!(encode_video(visible_raster_line(&mut vic)), border_line);
 
-        // First line of the next frame's display window.
+        // Last line of next frame's top border and first line of its display
+        // window.
         skip_raster_lines(
             &mut vic,
-            BOTTOM_BORDER_HEIGHT - 1 + DISPLAY_WINDOW_FIRST_LINE,
+            BOTTOM_BORDER_HEIGHT + BLANK_AREA_HEIGHT + TOP_BORDER_HEIGHT - 2,
         );
+        assert_eq!(encode_video(visible_raster_line(&mut vic)), border_line);
         assert_eq!(
             encode_video(visible_raster_line(&mut vic)),
             border_and_display_line

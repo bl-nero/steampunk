@@ -1,3 +1,4 @@
+use crate::vic::raster_line_to_screen_y;
 use crate::vic::VicOutput;
 use crate::vic::{LEFT_BORDER_START, TOP_BORDER_FIRST_LINE, VISIBLE_LINES, VISIBLE_PIXELS};
 use common::colors::create_palette;
@@ -28,12 +29,18 @@ impl FrameRenderer {
     }
 
     pub fn consume(&mut self, vic_output: VicOutput) {
+        // We convert the raster line number to screen Y in order to create a
+        // continuous range against which a screen Y coordinate can be tested.
         let x_range = self.viewport[0]..self.viewport[0] + self.viewport[2];
         let y_range = self.viewport[1]..self.viewport[1] + self.viewport[3];
-        if x_range.contains(&vic_output.x) && y_range.contains(&vic_output.y) {
+        let (x, y) = (
+            vic_output.x,
+            raster_line_to_screen_y(vic_output.raster_line),
+        );
+        if x_range.contains(&x) && y_range.contains(&y) {
             self.frame.put_pixel(
-                (vic_output.x - x_range.start) as u32,
-                (vic_output.y - y_range.start) as u32,
+                (x - x_range.start) as u32,
+                (y - y_range.start) as u32,
                 self.palette[vic_output.color as usize],
             );
         }
@@ -54,10 +61,11 @@ impl Default for FrameRenderer {
         ]);
         let viewport = [
             LEFT_BORDER_START,
-            TOP_BORDER_FIRST_LINE,
+            raster_line_to_screen_y(TOP_BORDER_FIRST_LINE),
             VISIBLE_PIXELS,
             VISIBLE_LINES,
         ];
+        println!("VIEWPORT: {:?}", &viewport);
         Self::new(palette, viewport)
     }
 }
@@ -65,6 +73,7 @@ impl Default for FrameRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vic::screen_y_to_raster_line;
     use crate::vic::Color;
     use common::colors::create_palette;
 
@@ -74,7 +83,11 @@ mod tests {
     }
 
     fn vic_output(x: usize, y: usize, color: Color) -> VicOutput {
-        VicOutput { x, y, color }
+        VicOutput {
+            x,
+            raster_line: screen_y_to_raster_line(y),
+            color,
+        }
     }
 
     #[test]
