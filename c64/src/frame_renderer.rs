@@ -65,7 +65,6 @@ impl Default for FrameRenderer {
             VISIBLE_PIXELS,
             VISIBLE_LINES,
         ];
-        println!("VIEWPORT: {:?}", &viewport);
         Self::new(palette, viewport)
     }
 }
