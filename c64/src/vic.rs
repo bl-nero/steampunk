@@ -17,15 +17,26 @@ pub struct Vic<GM: Read, CM: Read> {
     graphics_memory: Box<GM>,
     color_memory: Rc<RefCell<CM>>,
 
+    // Registers
+    reg_control_2: u8,
     reg_border_color: Color,
     reg_background_color: Color,
 
+    // Internal state
+    //
+    /// Counts the raster lines. Note that these are not the same as Y
+    /// coordinates in any space; in particular, on NTSC, raster line 0 is
+    /// actually near the bottom of the screen. See [`raster_line_to_screen_y`].
     raster_counter: usize,
     x_counter: usize,
-    graphics_column: u16,
-    graphics_row: u16,
-    character_offset: u16,
-    graphics_mask: u8,
+
+    /// A buffer for graphics byte to be displayed next.
+    graphics_buffer: u8,
+    /// A buffer for graphics foreground color to be displayed.
+    color_buffer: Color,
+    /// A shift register for graphics byte, responsible for generating the
+    /// graphics pixel by pixel.
+    graphics_shifter: u8,
 }
 
 impl<GM: Read, CM: Read> Vic<GM, CM> {
@@ -34,15 +45,16 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
             graphics_memory,
             color_memory,
 
+            reg_control_2: 0,
             reg_border_color: 0,
             reg_background_color: 0,
 
             raster_counter: 0,
             x_counter: 0,
-            graphics_column: 0,
-            graphics_row: 0,
-            character_offset: 0,
-            graphics_mask: 0b1000_0000,
+
+            graphics_buffer: 0,
+            color_buffer: 0,
+            graphics_shifter: 0,
         }
     }
 
@@ -53,11 +65,20 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
     pub fn tick(&mut self) -> TickResult {
         const DISPLAY_WINDOW_LAST_LINE: usize = BOTTOM_BORDER_FIRST_LINE - 1;
         const DISPLAY_WINDOW_END: usize = RIGHT_BORDER_START - 1;
+        const NARROW_DISPLAY_WINDOW_START: usize = DISPLAY_WINDOW_START + 8;
+        const NARROW_DISPLAY_WINDOW_END: usize = DISPLAY_WINDOW_END - 8;
+        let graphics_color = self.graphics_tick()?;
+
         let color = match self.raster_counter {
-            DISPLAY_WINDOW_FIRST_LINE..=DISPLAY_WINDOW_LAST_LINE => match self.x_counter {
-                DISPLAY_WINDOW_START..=DISPLAY_WINDOW_END => self.background_tick()?,
-                _ => self.reg_border_color,
-            },
+            DISPLAY_WINDOW_FIRST_LINE..=DISPLAY_WINDOW_LAST_LINE => {
+                match (self.reg_control_2 & flags::CONTROL_2_CSEL, self.x_counter) {
+                    (flags::CONTROL_2_CSEL, DISPLAY_WINDOW_START..=DISPLAY_WINDOW_END) => {
+                        graphics_color
+                    }
+                    (0, NARROW_DISPLAY_WINDOW_START..=NARROW_DISPLAY_WINDOW_END) => graphics_color,
+                    _ => self.reg_border_color,
+                }
+            }
             _ => self.reg_border_color,
         };
 
@@ -79,38 +100,73 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
         return Ok(output);
     }
 
-    fn background_tick(&mut self) -> Result<Color, ReadError> {
-        let character_index = self
-            .graphics_memory
-            .read(0x0400 + self.graphics_row + self.graphics_column)?;
-        let character_pixel_row = self
-            .graphics_memory
-            .read(0x1000 + character_index as u16 * 8 + self.character_offset)?;
-        let draws_graphics_pixel = character_pixel_row & self.graphics_mask != 0;
+    /// Computes the color currently produced by the character graphics layer.
+    fn graphics_tick(&mut self) -> Result<Color, ReadError> {
+        const DISPLAY_WINDOW_LAST_LINE: usize = BOTTOM_BORDER_FIRST_LINE - 1;
+        const DISPLAY_WINDOW_END: usize = RIGHT_BORDER_START - 1;
+
+        if !(DISPLAY_WINDOW_FIRST_LINE..=DISPLAY_WINDOW_LAST_LINE).contains(&self.raster_counter) {
+            return Ok(self.reg_background_color);
+        }
+
+        let x_inside_display_window =
+            (DISPLAY_WINDOW_START..=DISPLAY_WINDOW_END).contains(&self.x_counter);
+
+        if x_inside_display_window {
+            let subcolumn = (self.x_counter - DISPLAY_WINDOW_START) % 8;
+            // Note: Using the XSCROLL value for comparison enables horizontal
+            // scrolling by up to 7 pixels.
+            if subcolumn == (self.reg_control_2 & flags::CONTROL_2_XSCROLL) as usize {
+                self.graphics_shifter = self.graphics_buffer;
+                // TODO: Move the screen and color memory access to a separate
+                // procedure, to be executed during bad lines.
+                self.color_buffer = self.read_color_memory()?;
+            }
+        }
+
+        if (DISPLAY_WINDOW_START - 1..=DISPLAY_WINDOW_END - 1).contains(&self.x_counter)
+            && self.x_counter % 8 == (DISPLAY_WINDOW_START - 1) % 8
+        {
+            self.graphics_buffer = self.read_bitmap_memory()?;
+        }
+        let draws_graphics_pixel = self.graphics_shifter & (1 << 7) != 0;
+        self.graphics_shifter <<= 1;
+
+        if !x_inside_display_window {
+            return Ok(self.reg_background_color);
+        }
+
         let color = if draws_graphics_pixel {
-            self.color_memory
-                .borrow_mut()
-                .read(0xD800 + self.graphics_row + self.graphics_column)?
+            self.color_buffer
         } else {
             self.reg_background_color
         };
 
-        self.graphics_mask = self.graphics_mask.rotate_right(1);
-        if self.graphics_mask & 0b1000_0000 != 0 {
-            if self.graphics_column >= 39 {
-                self.graphics_column = 0;
-                if self.character_offset >= 7 {
-                    self.character_offset = 0;
-                    self.graphics_row = (self.graphics_row + 40) % (40 * 25);
-                } else {
-                    self.character_offset += 1;
-                }
-            } else {
-                self.graphics_column += 1;
-            }
-        }
+        Ok(color)
+    }
 
-        return Ok(color);
+    /// Reads from bitmap memory a byte that corrensponds to the _next_
+    /// character cell.
+    fn read_bitmap_memory(&self) -> Result<u8, ReadError> {
+        let char_column = (self.x_counter + 1 - DISPLAY_WINDOW_START) / 8;
+        let char_row = (self.raster_counter - DISPLAY_WINDOW_FIRST_LINE) / 8;
+        let char_offset = (self.raster_counter - DISPLAY_WINDOW_FIRST_LINE) % 8;
+        let character_index = self
+            .graphics_memory
+            .read(0x0400 + (char_row * 40 + char_column) as u16)?;
+        return self
+            .graphics_memory
+            .read(0x1000 + character_index as u16 * 8 + char_offset as u16);
+    }
+
+    /// Reads from color memory a color that corrensponds to the _current_
+    /// character cell.
+    fn read_color_memory(&self) -> Result<Color, ReadError> {
+        let char_column = (self.x_counter - DISPLAY_WINDOW_START) / 8;
+        let char_row = (self.raster_counter - DISPLAY_WINDOW_FIRST_LINE) / 8;
+        self.color_memory
+            .borrow()
+            .read(0xD800 + (char_row * 40 + char_column) as u16)
     }
 }
 
@@ -136,6 +192,12 @@ impl<GM: Read, CM: Read> Read for Vic<GM, CM> {
 impl<GM: Read, CM: Read> Write for Vic<GM, CM> {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match address {
+            registers::CONTROL_2 => {
+                if value & flags::CONTROL_2_MCM != 0 {
+                    return Err(WriteError { address, value });
+                }
+                self.reg_control_2 = value;
+            }
             registers::BORDER_COLOR => self.reg_border_color = value,
             registers::BACKGROUND_COLOR_0 => self.reg_background_color = value,
             _ => return Err(WriteError { address, value }),
@@ -186,8 +248,15 @@ pub const VISIBLE_LINES: usize = TOP_BORDER_HEIGHT + DISPLAY_WINDOW_HEIGHT + BOT
 pub const TOTAL_HEIGHT: usize = 262; // Including vertical blank
 
 mod registers {
+    pub const CONTROL_2: u16 = 0xD016;
     pub const BORDER_COLOR: u16 = 0xD020;
     pub const BACKGROUND_COLOR_0: u16 = 0xD021;
+}
+
+mod flags {
+    pub const CONTROL_2_XSCROLL: u8 = 0b0000_0111;
+    pub const CONTROL_2_CSEL: u8 = 0b0000_1000;
+    pub const CONTROL_2_MCM: u8 = 0b0001_0000;
 }
 
 #[cfg(test)]
@@ -217,6 +286,27 @@ mod tests {
             let vic_output = vic.tick().unwrap();
             if (LEFT_BORDER_START..BORDER_END).contains(&vic_output.x) {
                 result[vic_output.x - LEFT_BORDER_START] = vic_output.color;
+            }
+        }
+        return result;
+    }
+
+    /// Grabs a raster line, and returns a range of pixels with given
+    /// coordinates relative to the left edge of the graphics display window.
+    fn grab_raster_line<GM: Read, CM: Read>(
+        vic: &mut Vic<GM, CM>,
+        left: isize,
+        width: usize,
+    ) -> Vec<Color> {
+        let left = (DISPLAY_WINDOW_START as isize + left) as usize;
+        let right = left + width;
+        // Initialize to an illegal color to make sure that all pixels are
+        // covered.
+        let mut result = vec![0xFF; width];
+        for _ in 0..RASTER_LENGTH {
+            let vic_output = vic.tick().unwrap();
+            if (left..right).contains(&vic_output.x) {
+                result[vic_output.x - left] = vic_output.color;
             }
         }
         return result;
@@ -299,6 +389,8 @@ mod tests {
         let mut vic = vic_for_testing();
         vic.write(registers::BORDER_COLOR, 0x08).unwrap();
         vic.write(registers::BACKGROUND_COLOR_0, 0x0A).unwrap();
+        vic.write(registers::CONTROL_2, flags::CONTROL_2_CSEL)
+            .unwrap();
         let border_line = "8".repeat(VISIBLE_PIXELS);
         let border_and_display_line = "8".repeat(LEFT_BORDER_WIDTH)
             + &"A".repeat(DISPLAY_WINDOW_WIDTH)
@@ -339,22 +431,44 @@ mod tests {
     }
 
     #[test]
+    fn draws_border_38_column_mode() {
+        let mut vic = vic_for_testing();
+        vic.write(registers::BORDER_COLOR, 0x05).unwrap();
+        vic.write(registers::BACKGROUND_COLOR_0, 0x0C).unwrap();
+        vic.write(registers::CONTROL_2, 0).unwrap();
+        let narrow_display_line = "5".repeat(LEFT_BORDER_WIDTH + 8)
+            + &"C".repeat(DISPLAY_WINDOW_WIDTH - 16)
+            + &"5".repeat(RIGHT_BORDER_WIDTH + 8);
+
+        skip_raster_lines(&mut vic, TOP_BORDER_HEIGHT);
+        assert_eq!(
+            encode_video(visible_raster_line(&mut vic)),
+            narrow_display_line
+        );
+    }
+
+    #[test]
     fn draws_characters() {
         let mut vic = vic_for_testing();
         vic.write(registers::BORDER_COLOR, 0x01).unwrap();
         vic.write(registers::BACKGROUND_COLOR_0, 0x00).unwrap();
+        vic.write(registers::CONTROL_2, flags::CONTROL_2_CSEL)
+            .unwrap();
 
+        // Set up characters
         vic.graphics_memory.bytes[0x1008..0x1028].copy_from_slice(&[
-            0b00000000, 0b01111111, 0b01000001, 0b01000001, 0b01000001, 0b01000001, 0b01000001,
-            0b01111111, 0b00000000, 0b01000001, 0b00100010, 0b00010100, 0b00001000, 0b00010100,
-            0b00100010, 0b01000001, 0b00000000, 0b00011100, 0b00100010, 0b01000001, 0b01000001,
-            0b01000001, 0b00100010, 0b00011100, 0b00000000, 0b00001000, 0b00010100, 0b00010100,
-            0b00100010, 0b00100010, 0b01000001, 0b01111111,
+            0b11111111, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b10000001,
+            0b11111111, 0b10000001, 0b01000010, 0b00100100, 0b00011000, 0b00011000, 0b00100100,
+            0b01000010, 0b10000001, 0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001,
+            0b10000001, 0b01000010, 0b00111100, 0b00011000, 0b00011000, 0b00100100, 0b00100100,
+            0b01000010, 0b01000010, 0b10000001, 0b11111111,
         ]);
+        // Set up screen
         vic.graphics_memory.bytes[0x0400] = 0x01;
         vic.graphics_memory.bytes[0x0401] = 0x02;
         vic.graphics_memory.bytes[0x0428] = 0x03;
         vic.graphics_memory.bytes[0x0429] = 0x04;
+        // Set up colors
         {
             let mut color_memory = vic.color_memory.borrow_mut();
             color_memory.bytes[0xD800] = 0x0A;
@@ -367,22 +481,22 @@ mod tests {
             encode_video_lines(grab_frame(&mut vic, -1, -1, 17, 17)).iter(),
             &[
                 "11111111111111111",
-                "1................",
-                "1.AAAAAAA.B.....B",
-                "1.A.....A..B...B.",
-                "1.A.....A...B.B..",
-                "1.A.....A....B...",
-                "1.A.....A...B.B..",
-                "1.A.....A..B...B.",
-                "1.AAAAAAA.B.....B",
-                "1................",
-                "1...CCC......D...",
-                "1..C...C....D.D..",
-                "1.C.....C...D.D..",
-                "1.C.....C..D...D.",
-                "1.C.....C..D...D.",
-                "1..C...C..D.....D",
-                "1...CCC...DDDDDDD",
+                "1AAAAAAAAB......B",
+                "1A......A.B....B.",
+                "1A......A..B..B..",
+                "1A......A...BB...",
+                "1A......A...BB...",
+                "1A......A..B..B..",
+                "1A......A.B....B.",
+                "1AAAAAAAAB......B",
+                "1..CCCC.....DD...",
+                "1.C....C....DD...",
+                "1C......C..D..D..",
+                "1C......C..D..D..",
+                "1C......C.D....D.",
+                "1C......C.D....D.",
+                "1.C....C.D......D",
+                "1..CCCC..DDDDDDDD",
             ],
         );
 
@@ -395,23 +509,51 @@ mod tests {
             encode_video_lines(grab_frame(&mut vic, -1, -1, 17, 17)).iter(),
             &[
                 "11111111111111111",
-                "1................",
-                "1....A......BBB..",
-                "1...A.A....B...B.",
-                "1...A.A...B.....B",
-                "1..A...A..B.....B",
-                "1..A...A..B.....B",
-                "1.A.....A..B...B.",
-                "1.AAAAAAA...BBB..",
-                "1................",
-                "1.C.....C.DDDDDDD",
-                "1..C...C..D.....D",
-                "1...C.C...D.....D",
-                "1....C....D.....D",
-                "1...C.C...D.....D",
-                "1..C...C..D.....D",
-                "1.C.....C.DDDDDDD",
+                "1...AA.....BBBB..",
+                "1...AA....B....B.",
+                "1..A..A..B......B",
+                "1..A..A..B......B",
+                "1.A....A.B......B",
+                "1.A....A.B......B",
+                "1A......A.B....B.",
+                "1AAAAAAAA..BBBB..",
+                "1C......CDDDDDDDD",
+                "1.C....C.D......D",
+                "1..C..C..D......D",
+                "1...CC...D......D",
+                "1...CC...D......D",
+                "1..C..C..D......D",
+                "1.C....C.D......D",
+                "1C......CDDDDDDDD",
             ],
         );
+    }
+
+    #[test]
+    fn horizontal_scrolling() {
+        let mut vic = vic_for_testing();
+        vic.write(registers::BORDER_COLOR, 0x01).unwrap();
+        vic.write(registers::BACKGROUND_COLOR_0, 0x00).unwrap();
+        let grab_line_left =
+            move |vic: &mut Vic<Ram, Ram>| encode_video(grab_raster_line(vic, -1, 17));
+
+        // Character 1: a simple bit pattern
+        vic.graphics_memory.bytes[0x1008..0x1010].copy_from_slice(&[0b1010_0101; 8]);
+        vic.graphics_memory.bytes[0x0400] = 0x01;
+        {
+            vic.color_memory.borrow_mut().bytes[0xD800] = 0x0A;
+        }
+
+        // Skip top border
+        skip_raster_lines(&mut vic, TOP_BORDER_HEIGHT);
+
+        vic.write(0xD016, flags::CONTROL_2_CSEL).unwrap();
+        assert_eq!(grab_line_left(&mut vic), "1A.A..A.A........");
+        vic.write(0xD016, flags::CONTROL_2_CSEL | 1).unwrap();
+        assert_eq!(grab_line_left(&mut vic), "1.A.A..A.A.......");
+        vic.write(0xD016, flags::CONTROL_2_CSEL | 2).unwrap();
+        assert_eq!(grab_line_left(&mut vic), "1..A.A..A.A......");
+        vic.write(0xD016, flags::CONTROL_2_CSEL | 7).unwrap();
+        assert_eq!(grab_line_left(&mut vic), "1.......A.A..A.A.");
     }
 }

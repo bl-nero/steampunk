@@ -17,6 +17,8 @@ Reset:      lda #COL_BLUE
             sta VIC_BG_COLOR0
             lda #COL_LIGHT_BLUE
             sta VIC_BORDERCOLOR
+            lda #%00001000
+            sta VIC_CTRL2
 
             lda #>SCREEN_START
             sta FillScreenPage+1
