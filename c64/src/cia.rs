@@ -65,6 +65,12 @@ impl Write for Cia {
                     return Err(WriteError { address, value });
                 }
             }
+            registers::CRA | registers::CRB => {
+                // For now, only allow stopping timers.
+                if value & flags::CRX_START != 0 {
+                    return Err(WriteError { address, value });
+                }
+            }
             _ => return Err(WriteError { address, value }),
         };
         Ok(())
@@ -101,10 +107,13 @@ mod registers {
     pub const DDRA: u16 = 0x2;
     pub const DDRB: u16 = 0x3;
     pub const ICR: u16 = 0xD;
+    pub const CRA: u16 = 0xE;
+    pub const CRB: u16 = 0xF;
 }
 
 mod flags {
-    pub const ICR_SOURCE_BIT: u8 = 0b1000_0000;
+    pub const ICR_SOURCE_BIT: u8 = 1 << 7;
+    pub const CRX_START: u8 = 1 << 0;
 }
 
 #[cfg(test)]
