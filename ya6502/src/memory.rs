@@ -35,7 +35,7 @@ impl fmt::Display for ReadError {
 
 impl fmt::Debug for ReadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("WriteError")
+        f.debug_struct("ReadError")
             .field("address", &format_args!("{:#06X}", self.address))
             .finish()
     }

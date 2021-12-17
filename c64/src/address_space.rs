@@ -17,27 +17,31 @@ use ya6502::memory::WriteResult;
 /// although it should technically be handled by the CPU itself. This is because
 /// the CPU port controls the address space layout.
 #[derive(Debug)]
-pub struct AddressSpace<VIC: Memory> {
+pub struct AddressSpace<VIC: Memory, CIA: Memory> {
     ram: Rc<RefCell<Ram>>,
     basic_rom: Rom,
     vic: VIC,
     color_ram: Rc<RefCell<Ram>>, // TODO: replace with an actual single-nibble RAM
+    cia1: CIA,
+    cia2: CIA,
     kernal_rom: Rom,
     pub cartridge: Option<Cartridge>,
 }
 
-impl<VIC: Memory> AddressSpace<VIC> {
+impl<VIC: Memory, CIA: Memory> AddressSpace<VIC, CIA> {
     pub fn mut_vic(&mut self) -> &mut VIC {
         &mut self.vic
     }
 }
 
-impl<VIC: Memory> AddressSpace<VIC> {
+impl<VIC: Memory, CIA: Memory> AddressSpace<VIC, CIA> {
     pub fn new(
         ram: Rc<RefCell<Ram>>,
         basic_rom: Rom,
         vic: VIC,
         color_ram: Rc<RefCell<Ram>>,
+        cia1: CIA,
+        cia2: CIA,
         kernal_rom: Rom,
     ) -> Self {
         Self {
@@ -45,13 +49,15 @@ impl<VIC: Memory> AddressSpace<VIC> {
             basic_rom,
             vic,
             color_ram,
+            cia1,
+            cia2,
             kernal_rom,
             cartridge: None,
         }
     }
 }
 
-impl<VIC: Memory> Read for AddressSpace<VIC> {
+impl<VIC: Memory, CIA: Memory> Read for AddressSpace<VIC, CIA> {
     fn read(&self, address: u16) -> ReadResult {
         match address {
             0x8000..=0x9FFF => match &self.cartridge {
@@ -68,7 +74,9 @@ impl<VIC: Memory> Read for AddressSpace<VIC> {
             0xD000..=0xD3FF => self.vic.read(address),
             0xD400..=0xD7FF => Err(ReadError { address }),
             0xD800..=0xDBFF => self.color_ram.borrow().read(address),
-            0xDC00..=0xDFFF => Err(ReadError { address }),
+            0xDC00..=0xDCFF => self.cia1.read(address),
+            0xDD00..=0xDDFF => self.cia2.read(address),
+            0xDE00..=0xDFFF => Err(ReadError { address }),
             0xE000..=0xFFFF => match &self.cartridge {
                 Some(Cartridge {
                     mode: CartridgeMode::Ultimax,
@@ -81,22 +89,24 @@ impl<VIC: Memory> Read for AddressSpace<VIC> {
     }
 }
 
-impl<VIC: Memory> Write for AddressSpace<VIC> {
+impl<VIC: Memory, CIA: Memory> Write for AddressSpace<VIC, CIA> {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match address {
             0x0000 | 0x0001 => Err(WriteError { address, value }),
             0xD000..=0xD3FF => self.vic.write(address, value),
             0xD400..=0xD7FF => Err(WriteError { address, value }),
             0xD800..=0xDBFF => self.color_ram.borrow_mut().write(address, value),
-            0xDC00..=0xDFFF => Err(WriteError { address, value }),
+            0xDC00..=0xDCFF => self.cia1.write(address, value),
+            0xDD00..=0xDDFF => self.cia2.write(address, value),
+            0xDE00..=0xDFFF => Err(WriteError { address, value }),
             _ => self.ram.borrow_mut().write(address, value),
         }
     }
 }
 
-impl<VIC: Memory> Memory for AddressSpace<VIC> {}
+impl<VIC: Memory, CIA: Memory> Memory for AddressSpace<VIC, CIA> {}
 
-impl<VIC: Memory> fmt::Display for AddressSpace<VIC> {
+impl<VIC: Memory, CIA: Memory> fmt::Display for AddressSpace<VIC, CIA> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         dump_zero_page(self, f)
     }
@@ -149,12 +159,14 @@ impl<RAM: Read, CHR: Read> Read for VicAddressSpace<RAM, CHR> {
 mod tests {
     use super::*;
 
-    fn new_address_space() -> AddressSpace<Ram> {
+    fn new_address_space() -> AddressSpace<Ram, Ram> {
         AddressSpace::new(
             Rc::new(RefCell::new(Ram::new(16))),
             Rom::new(&[0xBA; 0x2000]).unwrap(),
             Ram::new(10),
             Rc::new(RefCell::new(Ram::new(10))),
+            Ram::new(8),
+            Ram::new(8),
             Rom::new(&[0xA1; 0x2000]).unwrap(),
         )
     }
@@ -179,6 +191,10 @@ mod tests {
         address_space.write(0xD3FF, 11).unwrap(); // VIC
         address_space.write(0xD800, 5).unwrap(); // Color RAM
         address_space.write(0xDBFF, 15).unwrap(); // Color RAM
+        address_space.write(0xDC00, 78).unwrap(); // CIA1
+        address_space.write(0xDCFF, 79).unwrap(); // CIA1
+        address_space.write(0xDD00, 88).unwrap(); // CIA2
+        address_space.write(0xDDFF, 89).unwrap(); // CIA2
         address_space.write(0xE000, 87).unwrap(); // RAM under KERNEL ROM
         address_space.write(0xFFFF, 45).unwrap(); // RAM under KERNEL ROM
 
@@ -213,6 +229,18 @@ mod tests {
         assert_eq!(address_space.read(0xD800).unwrap(), 5);
         assert_eq!(address_space.color_ram.borrow().read(0xDBFF).unwrap(), 15);
         assert_eq!(address_space.read(0xDBFF).unwrap(), 15);
+
+        // CIA1
+        assert_eq!(address_space.cia1.read(0x0).unwrap(), 78);
+        assert_eq!(address_space.read(0xDC00).unwrap(), 78);
+        assert_eq!(address_space.cia1.read(0xFF).unwrap(), 79);
+        assert_eq!(address_space.read(0xDCFF).unwrap(), 79);
+
+        // CIA2
+        assert_eq!(address_space.cia2.read(0x0).unwrap(), 88);
+        assert_eq!(address_space.read(0xDD00).unwrap(), 88);
+        assert_eq!(address_space.cia2.read(0xFF).unwrap(), 89);
+        assert_eq!(address_space.read(0xDDFF).unwrap(), 89);
 
         // KERNEL ROM
         assert_eq!(address_space.read(0xE000).unwrap(), 0xA1);

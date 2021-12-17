@@ -3,6 +3,7 @@
 mod address_space;
 mod app;
 mod c64;
+mod cia;
 mod frame_renderer;
 mod vic;
 

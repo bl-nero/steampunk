@@ -1,6 +1,7 @@
 use crate::address_space::AddressSpace;
 use crate::address_space::Cartridge;
 use crate::address_space::VicAddressSpace;
+use crate::cia::Cia;
 use crate::frame_renderer::FrameRenderer;
 use crate::Vic;
 use image::RgbaImage;
@@ -13,7 +14,7 @@ use ya6502::cpu::Cpu;
 use ya6502::memory::Ram;
 use ya6502::memory::Rom;
 
-pub type C64AddressSpace = AddressSpace<Vic<VicAddressSpace<Ram, Rom>, Ram>>;
+pub type C64AddressSpace = AddressSpace<Vic<VicAddressSpace<Ram, Rom>, Ram>, Cia>;
 
 pub struct C64 {
     cpu: Cpu<C64AddressSpace>,
@@ -39,6 +40,8 @@ impl C64 {
                     color_ram.clone(),
                 ),
                 color_ram,
+                Cia::new(),
+                Cia::new(),
                 Rom::new(&kernal_rom)?,
             ))),
             frame_renderer: FrameRenderer::default(),
