@@ -17,10 +17,11 @@ use ya6502::memory::WriteResult;
 /// although it should technically be handled by the CPU itself. This is because
 /// the CPU port controls the address space layout.
 #[derive(Debug)]
-pub struct AddressSpace<VIC: Memory, CIA: Memory> {
+pub struct AddressSpace<VIC: Memory, SID: Memory, CIA: Memory> {
     ram: Rc<RefCell<Ram>>,
     basic_rom: Rom,
     vic: VIC,
+    sid: SID,
     color_ram: Rc<RefCell<Ram>>, // TODO: replace with an actual single-nibble RAM
     cia1: CIA,
     cia2: CIA,
@@ -28,17 +29,18 @@ pub struct AddressSpace<VIC: Memory, CIA: Memory> {
     pub cartridge: Option<Cartridge>,
 }
 
-impl<VIC: Memory, CIA: Memory> AddressSpace<VIC, CIA> {
+impl<VIC: Memory, SID: Memory, CIA: Memory> AddressSpace<VIC, SID, CIA> {
     pub fn mut_vic(&mut self) -> &mut VIC {
         &mut self.vic
     }
 }
 
-impl<VIC: Memory, CIA: Memory> AddressSpace<VIC, CIA> {
+impl<VIC: Memory, SID: Memory, CIA: Memory> AddressSpace<VIC, SID, CIA> {
     pub fn new(
         ram: Rc<RefCell<Ram>>,
         basic_rom: Rom,
         vic: VIC,
+        sid: SID,
         color_ram: Rc<RefCell<Ram>>,
         cia1: CIA,
         cia2: CIA,
@@ -48,6 +50,7 @@ impl<VIC: Memory, CIA: Memory> AddressSpace<VIC, CIA> {
             ram,
             basic_rom,
             vic,
+            sid,
             color_ram,
             cia1,
             cia2,
@@ -57,7 +60,7 @@ impl<VIC: Memory, CIA: Memory> AddressSpace<VIC, CIA> {
     }
 }
 
-impl<VIC: Memory, CIA: Memory> Read for AddressSpace<VIC, CIA> {
+impl<VIC: Memory, SID: Memory, CIA: Memory> Read for AddressSpace<VIC, SID, CIA> {
     fn read(&self, address: u16) -> ReadResult {
         match address {
             0x8000..=0x9FFF => match &self.cartridge {
@@ -72,7 +75,7 @@ impl<VIC: Memory, CIA: Memory> Read for AddressSpace<VIC, CIA> {
                 _ => self.basic_rom.read(address),
             },
             0xD000..=0xD3FF => self.vic.read(address),
-            0xD400..=0xD7FF => Err(ReadError { address }),
+            0xD400..=0xD7FF => self.sid.read(address),
             0xD800..=0xDBFF => self.color_ram.borrow().read(address),
             0xDC00..=0xDCFF => self.cia1.read(address),
             0xDD00..=0xDDFF => self.cia2.read(address),
@@ -89,12 +92,12 @@ impl<VIC: Memory, CIA: Memory> Read for AddressSpace<VIC, CIA> {
     }
 }
 
-impl<VIC: Memory, CIA: Memory> Write for AddressSpace<VIC, CIA> {
+impl<VIC: Memory, SID: Memory, CIA: Memory> Write for AddressSpace<VIC, SID, CIA> {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match address {
             0x0000 | 0x0001 => Err(WriteError { address, value }),
             0xD000..=0xD3FF => self.vic.write(address, value),
-            0xD400..=0xD7FF => Err(WriteError { address, value }),
+            0xD400..=0xD7FF => self.sid.write(address, value),
             0xD800..=0xDBFF => self.color_ram.borrow_mut().write(address, value),
             0xDC00..=0xDCFF => self.cia1.write(address, value),
             0xDD00..=0xDDFF => self.cia2.write(address, value),
@@ -104,9 +107,9 @@ impl<VIC: Memory, CIA: Memory> Write for AddressSpace<VIC, CIA> {
     }
 }
 
-impl<VIC: Memory, CIA: Memory> Memory for AddressSpace<VIC, CIA> {}
+impl<VIC: Memory, SID: Memory, CIA: Memory> Memory for AddressSpace<VIC, SID, CIA> {}
 
-impl<VIC: Memory, CIA: Memory> fmt::Display for AddressSpace<VIC, CIA> {
+impl<VIC: Memory, SID: Memory, CIA: Memory> fmt::Display for AddressSpace<VIC, SID, CIA> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         dump_zero_page(self, f)
     }
@@ -159,10 +162,11 @@ impl<RAM: Read, CHR: Read> Read for VicAddressSpace<RAM, CHR> {
 mod tests {
     use super::*;
 
-    fn new_address_space() -> AddressSpace<Ram, Ram> {
+    fn new_address_space() -> AddressSpace<Ram, Ram, Ram> {
         AddressSpace::new(
             Rc::new(RefCell::new(Ram::new(16))),
             Rom::new(&[0xBA; 0x2000]).unwrap(),
+            Ram::new(10),
             Ram::new(10),
             Rc::new(RefCell::new(Ram::new(10))),
             Ram::new(8),
@@ -189,6 +193,8 @@ mod tests {
         address_space.write(0xCFFF, 213).unwrap(); // RAM
         address_space.write(0xD000, 73).unwrap(); // VIC
         address_space.write(0xD3FF, 11).unwrap(); // VIC
+        address_space.write(0xD400, 178).unwrap(); // SID
+        address_space.write(0xD7FF, 132).unwrap(); // SID
         address_space.write(0xD800, 5).unwrap(); // Color RAM
         address_space.write(0xDBFF, 15).unwrap(); // Color RAM
         address_space.write(0xDC00, 78).unwrap(); // CIA1
@@ -223,6 +229,12 @@ mod tests {
         assert_eq!(address_space.read(0xD000).unwrap(), 73);
         assert_eq!(address_space.vic.read(0x3FF).unwrap(), 11);
         assert_eq!(address_space.read(0xD3FF).unwrap(), 11);
+
+        // SID
+        assert_eq!(address_space.sid.read(0x0).unwrap(), 178);
+        assert_eq!(address_space.read(0xD400).unwrap(), 178);
+        assert_eq!(address_space.sid.read(0x3FF).unwrap(), 132);
+        assert_eq!(address_space.read(0xD7FF).unwrap(), 132);
 
         // Color RAM
         assert_eq!(address_space.color_ram.borrow().read(0xD800).unwrap(), 5);

@@ -5,6 +5,7 @@ mod app;
 mod c64;
 mod cia;
 mod frame_renderer;
+mod sid;
 mod vic;
 
 use crate::address_space::Cartridge;

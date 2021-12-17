@@ -1,4 +1,4 @@
-use enum_map::{enum_map, Enum, EnumMap};
+use enum_map::{Enum, EnumMap};
 use ya6502::memory::Memory;
 use ya6502::memory::Read;
 use ya6502::memory::ReadError;
@@ -25,12 +25,14 @@ impl Cia {
     }
 
     /// Writes a given value to the pins of a given port.
+    #[cfg(test)]
     pub fn write_port(&mut self, port: Port, value: u8) {
         self.ports[port].pins = value;
     }
 
     /// Reads a value from the pins of a given port. The value takes into
     /// consideration the direction configuration for each particular bit.
+    #[cfg(test)]
     pub fn read_port(&self, port: Port) -> u8 {
         self.ports[port].read()
     }
