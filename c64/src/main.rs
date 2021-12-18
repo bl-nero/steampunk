@@ -5,6 +5,7 @@ mod app;
 mod c64;
 mod cia;
 mod frame_renderer;
+mod port;
 mod sid;
 mod vic;
 

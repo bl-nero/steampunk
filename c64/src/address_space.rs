@@ -1,3 +1,4 @@
+use crate::port::Port;
 use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
@@ -12,12 +13,14 @@ use ya6502::memory::Write;
 use ya6502::memory::WriteError;
 use ya6502::memory::WriteResult;
 
-/// A C64 address space, as visible from the 6510 CPU perspective. Note that
-/// technically, it also will handle the CPU port (addresses 0x0000 and 0x0001),
-/// although it should technically be handled by the CPU itself. This is because
-/// the CPU port controls the address space layout.
+/// A C64 address space, as visible from the 6510 CPU perspective, through the
+/// C64 PLA chip. Note that technically, it also will handle the CPU port
+/// (addresses 0x0000 and 0x0001), although it should technically be handled by
+/// the CPU itself. This is because the CPU port controls the address space
+/// layout.
 #[derive(Debug)]
 pub struct AddressSpace<VIC: Memory, SID: Memory, CIA: Memory> {
+    cpu_port: Port,
     ram: Rc<RefCell<Ram>>,
     basic_rom: Rom,
     vic: VIC,
@@ -46,7 +49,14 @@ impl<VIC: Memory, SID: Memory, CIA: Memory> AddressSpace<VIC, SID, CIA> {
         cia2: CIA,
         kernal_rom: Rom,
     ) -> Self {
-        Self {
+        let mut cpu_port = Port::default();
+        // Set the default values of the CPU port pins. Bits 0-2 and 4 are set
+        // to 1 by pull-up registers. Note that the behavior of bits 3 (dangling
+        // if no Datasette) and 5 (attempting to read from the motor output
+        // driver) are just wild guess, but mostly irrelevant.
+        cpu_port.pins = 0b0011_0111;
+        return Self {
+            cpu_port,
             ram,
             basic_rom,
             vic,
@@ -56,13 +66,15 @@ impl<VIC: Memory, SID: Memory, CIA: Memory> AddressSpace<VIC, SID, CIA> {
             cia2,
             kernal_rom,
             cartridge: None,
-        }
+        };
     }
 }
 
 impl<VIC: Memory, SID: Memory, CIA: Memory> Read for AddressSpace<VIC, SID, CIA> {
     fn read(&self, address: u16) -> ReadResult {
         match address {
+            0x0000 => Ok(self.cpu_port.direction),
+            0x0001 => Ok(self.cpu_port.read()),
             0x8000..=0x9FFF => match &self.cartridge {
                 Some(Cartridge { mode: _, rom }) => rom.read(address),
                 _ => self.ram.borrow().read(address),
@@ -95,7 +107,16 @@ impl<VIC: Memory, SID: Memory, CIA: Memory> Read for AddressSpace<VIC, SID, CIA>
 impl<VIC: Memory, SID: Memory, CIA: Memory> Write for AddressSpace<VIC, SID, CIA> {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match address {
-            0x0000 | 0x0001 => Err(WriteError { address, value }),
+            0x0000 => Ok(self.cpu_port.direction = value),
+            0x0001 => {
+                // For now, only allow one memory layout and don't allow turning
+                // Datasette on.
+                if value & 0b0010_0111 == 0b0010_0111 {
+                    Ok(self.cpu_port.register = value)
+                } else {
+                    Err(WriteError { address, value })
+                }
+            }
             0xD000..=0xD3FF => self.vic.write(address, value),
             0xD400..=0xD7FF => self.sid.write(address, value),
             0xD800..=0xDBFF => self.color_ram.borrow_mut().write(address, value),
@@ -308,6 +329,20 @@ mod tests {
         assert_eq!(address_space.read(0xE000).unwrap(), 3);
         assert_eq!(address_space.read(0xFFFF).unwrap(), 3);
         assert_eq!(address_space.read(0x0000).unwrap(), 0);
+    }
+
+    #[test]
+    fn cpu_port_direction() {
+        let mut address_space = new_address_space();
+        // Set the data direction to "all inputs". The external pull-up
+        // resistors should keep some of the bits high.
+        address_space.write(0x0000, 0b0000_0000).unwrap();
+        assert_eq!(address_space.read(0x0001).unwrap(), 0b0011_0111);
+
+        /// Force bit 4 to 0.
+        address_space.write(0x0001, 0b0010_0111).unwrap();
+        address_space.write(0x0000, 0b0001_0000).unwrap();
+        assert_eq!(address_space.read(0x0001).unwrap(), 0b0010_0111);
     }
 
     #[test]
