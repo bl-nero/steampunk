@@ -404,13 +404,13 @@ fn cmp() {
     assert_eq!(
         reversed_stack(&cpu),
         [
-            flags::UNUSED | flags::Z | flags::C,
-            flags::UNUSED | flags::N,
-            flags::UNUSED | flags::C,
-            flags::UNUSED | flags::Z | flags::C,
-            flags::UNUSED | flags::N,
-            flags::UNUSED | flags::C,
-            flags::UNUSED | flags::Z | flags::C,
+            flags::PUSHED | flags::Z | flags::C,
+            flags::PUSHED | flags::N,
+            flags::PUSHED | flags::C,
+            flags::PUSHED | flags::Z | flags::C,
+            flags::PUSHED | flags::N,
+            flags::PUSHED | flags::C,
+            flags::PUSHED | flags::Z | flags::C,
         ]
     );
 }
@@ -450,12 +450,12 @@ fn cpx_cpy() {
     assert_eq!(
         reversed_stack(&cpu),
         [
-            flags::UNUSED | flags::N | flags::C,
-            flags::UNUSED | flags::N,
-            flags::UNUSED | flags::C,
-            flags::UNUSED | flags::Z | flags::C,
-            flags::UNUSED | flags::C,
-            flags::UNUSED | flags::N,
+            flags::PUSHED | flags::N | flags::C,
+            flags::PUSHED | flags::N,
+            flags::PUSHED | flags::C,
+            flags::PUSHED | flags::Z | flags::C,
+            flags::PUSHED | flags::C,
+            flags::PUSHED | flags::N,
         ]
     );
 }
@@ -488,10 +488,10 @@ fn bit() {
     assert_eq!(
         reversed_stack(&cpu),
         &[
-            flags::UNUSED | flags::N,
-            flags::UNUSED | flags::V,
-            flags::UNUSED | flags::Z,
-            flags::UNUSED | flags::N | flags::V | flags::Z,
+            flags::PUSHED | flags::N,
+            flags::PUSHED | flags::V,
+            flags::PUSHED | flags::Z,
+            flags::PUSHED | flags::N | flags::V | flags::Z,
         ]
     );
 }
@@ -538,19 +538,19 @@ fn adc_sbc() {
         reversed_stack(&cpu),
         [
             0x6F,
-            flags::UNUSED,
+            flags::PUSHED,
             0x8F,
-            flags::UNUSED | flags::V | flags::N,
+            flags::PUSHED | flags::V | flags::N,
             0x3B,
-            flags::UNUSED | flags::C | flags::V,
+            flags::PUSHED | flags::C | flags::V,
             0x3D,
-            flags::UNUSED,
+            flags::PUSHED,
             0xF7,
-            flags::UNUSED | flags::N,
+            flags::PUSHED | flags::N,
             0x77,
-            flags::UNUSED | flags::C | flags::V,
+            flags::PUSHED | flags::C | flags::V,
             0xB8,
-            flags::UNUSED | flags::V | flags::N,
+            flags::PUSHED | flags::V | flags::N,
         ]
     );
 }
@@ -586,13 +586,13 @@ fn adc_sbc_decimal_mode() {
         reversed_stack(&cpu),
         [
             0x13,
-            flags::UNUSED | flags::D | flags::C,
+            flags::PUSHED | flags::D | flags::C,
             0x30,
-            flags::UNUSED | flags::D,
+            flags::PUSHED | flags::D,
             0x04,
-            flags::UNUSED | flags::D | flags::C,
+            flags::PUSHED | flags::D | flags::C,
             0x48,
-            flags::UNUSED | flags::D,
+            flags::PUSHED | flags::D,
         ]
     );
 }
@@ -698,8 +698,8 @@ fn overflow_flag() {
     assert_eq!(
         reversed_stack(&cpu),
         [
-            flags::UNUSED | flags::V | flags::C,
-            flags::UNUSED | flags::C
+            flags::PUSHED | flags::V | flags::C,
+            flags::PUSHED | flags::C
         ]
     );
 }
@@ -1182,10 +1182,10 @@ fn flag_manipulation() {
     assert_eq!(
         cpu.memory.bytes[0x1FC..0x200],
         [
-            flags::UNUSED,
-            flags::C | flags::UNUSED,
-            flags::C | flags::I | flags::N | flags::UNUSED,
-            flags::C | flags::I | flags::Z | flags::UNUSED,
+            flags::PUSHED,
+            flags::C | flags::PUSHED,
+            flags::C | flags::I | flags::N | flags::PUSHED,
+            flags::C | flags::I | flags::Z | flags::PUSHED,
         ]
     );
 }
@@ -1421,9 +1421,11 @@ fn brk_rti() {
             brk
             // 17 cycles
 
+            cld // should be ignored
+
             php
             // 3 cycles
-            nop  // 0xF00D (To be replaced with HLT)
+            nop  // 0xF00E (To be replaced with HLT)
 
         interrupt:
             stx 45
@@ -1435,10 +1437,10 @@ fn brk_rti() {
             // 18 cycles (including JMP in 0xF003)
     };
     cpu.mut_memory().bytes[0xFFFE..=0xFFFF].copy_from_slice(&[0x03, 0xF0]);
-    cpu.mut_memory().bytes[0xF00D] = opcodes::HLT1;
+    cpu.mut_memory().bytes[0xF00E] = opcodes::HLT1;
     cpu.ticks(3 + 17 + 18 + 3).unwrap();
     assert_eq!(cpu.memory.bytes[45], 0xFE);
-    assert_eq!(reversed_stack(&cpu), [flags::UNUSED | flags::D]);
+    assert_eq!(reversed_stack(&cpu), [flags::PUSHED | flags::D]);
 }
 
 #[bench]

@@ -653,10 +653,10 @@ impl<M: Memory + Debug> Cpu<M> {
             }
 
             SequenceState::Opcode(opcodes::PHP, _) => {
-                self.tick_push(self.flags)?;
+                self.tick_push(self.flags | flags::PUSHED)?;
             }
             SequenceState::Opcode(opcodes::PLP, _) => {
-                self.tick_pull(&mut |me, value| me.flags = value | flags::UNUSED)?;
+                self.tick_pull(&mut |me, value| me.flags = value & !flags::PUSHED)?;
             }
             SequenceState::Opcode(opcodes::PHA, _) => {
                 self.tick_push(self.reg_a)?;
@@ -777,7 +777,9 @@ impl<M: Memory + Debug> Cpu<M> {
             },
 
             SequenceState::Opcode(opcodes::BRK, subcycle) => match subcycle {
-                1 => self.phantom_read(self.reg_pc),
+                1 => {
+                    self.consume_program_byte()?;
+                }
                 2 => {
                     self.memory
                         .write(self.stack_pointer(), (self.reg_pc >> 8) as u8)?;
@@ -788,7 +790,8 @@ impl<M: Memory + Debug> Cpu<M> {
                     self.reg_sp = self.reg_sp.wrapping_sub(1);
                 }
                 4 => {
-                    self.memory.write(self.stack_pointer(), self.flags)?;
+                    self.memory
+                        .write(self.stack_pointer(), self.flags | flags::PUSHED)?;
                     self.reg_sp = self.reg_sp.wrapping_sub(1);
                 }
                 5 => {
@@ -840,7 +843,7 @@ impl<M: Memory + Debug> Cpu<M> {
             // Reset sequence. First 6 cycles are idle, the initialization
             // procedure starts after that.
             SequenceState::Reset(0) => {
-                self.flags |= flags::UNUSED | flags::I;
+                self.flags |= flags::I;
             }
             SequenceState::Reset(1..=5) => {}
             SequenceState::Reset(6) => {
