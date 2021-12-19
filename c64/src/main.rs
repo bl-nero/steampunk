@@ -7,6 +7,7 @@ mod cia;
 mod frame_renderer;
 mod port;
 mod sid;
+mod timer;
 mod vic;
 
 use crate::address_space::Cartridge;
