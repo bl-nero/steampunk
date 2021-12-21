@@ -14,6 +14,8 @@ enum SequenceState {
     Reset(u32),
     Ready,
     Opcode(u8, u32),
+    Irq(u32),
+    Nmi(u32),
 }
 
 /// A 6502 CPU that operates on a given type of memory. A key to creating a
@@ -22,6 +24,12 @@ enum SequenceState {
 #[derive(Debug)]
 pub struct Cpu<M: Memory> {
     memory: Box<M>,
+
+    // Interrupt sensors.
+    irq_pin: bool,
+    nmi_pin: bool,
+    nmi_buffer: bool,
+    nmi_latch: bool,
 
     // Registers.
     reg_pc: u16,
@@ -105,6 +113,11 @@ impl<M: Memory + Debug> Cpu<M> {
         Cpu {
             memory: memory,
 
+            irq_pin: false,
+            nmi_pin: false,
+            nmi_buffer: false,
+            nmi_latch: false,
+
             reg_pc: rng.gen(),
             reg_a: rng.gen(),
             reg_x: rng.gen(),
@@ -140,15 +153,44 @@ impl<M: Memory + Debug> Cpu<M> {
         self.sequence_state = SequenceState::Reset(0);
     }
 
+    /// Controls whether IRQ has been received. Note that 6502 senses interrupts
+    /// during a falling phase 2 clock edge, so this needs to be done at most
+    /// once per tick in order to be 100% accurate.
+    pub fn set_irq_pin(&mut self, irq_pin: bool) {
+        self.irq_pin = irq_pin;
+    }
+
+    /// Controls whether NMI has been received. Note that 6502 senses interrupts
+    /// during a falling phase 2 clock edge, so this needs to be done at most
+    /// once per tick in order to be 100% accurate.
+    pub fn set_nmi_pin(&mut self, nmi_pin: bool) {
+        self.nmi_pin = nmi_pin;
+    }
+
     /// Performs a single CPU cycle.
     pub fn tick(&mut self) -> TickResult {
+        // Detect transition on the NMI pin.
+        if self.nmi_pin && !self.nmi_buffer {
+            self.nmi_latch = true;
+        }
+        self.nmi_buffer = self.nmi_pin;
+
         match self.sequence_state {
             // Fetching the opcode. A small trick: at first, we use 0 for
             // subcycle number, and it will later get increased to 1. Funny
             // thing, returning from here with subcycle set to 1 is slower than
             // waiting for 0 to be increased. Benchmarked!
             SequenceState::Ready => {
-                self.sequence_state = SequenceState::Opcode(self.consume_program_byte()?, 0);
+                if self.nmi_latch {
+                    self.nmi_latch = false;
+                    self.phantom_read(self.reg_pc);
+                    self.sequence_state = SequenceState::Nmi(0);
+                } else if self.irq_pin && self.flags & flags::I == 0 {
+                    self.phantom_read(self.reg_pc);
+                    self.sequence_state = SequenceState::Irq(0);
+                } else {
+                    self.sequence_state = SequenceState::Opcode(self.consume_program_byte()?, 0);
+                }
             }
 
             // List ALL the opcodes!
@@ -776,6 +818,9 @@ impl<M: Memory + Debug> Cpu<M> {
                 }
             },
 
+            // Yeah, I know: BRK is so similar to the interrupt sequence, it's
+            // realized with the same bits of silicon. However, the subtle
+            // differences make it not worth to generalize.
             SequenceState::Opcode(opcodes::BRK, subcycle) => match subcycle {
                 1 => {
                     self.consume_program_byte()?;
@@ -840,22 +885,24 @@ impl<M: Memory + Debug> Cpu<M> {
                 }));
             }
 
-            // Reset sequence. First 6 cycles are idle, the initialization
-            // procedure starts after that.
-            SequenceState::Reset(0) => {
-                self.flags |= flags::I;
-            }
-            SequenceState::Reset(1..=5) => {}
-            SequenceState::Reset(6) => {
-                self.reg_pc = self.memory.read(0xFFFC)? as u16;
-            }
-            SequenceState::Reset(7) => {
-                self.reg_pc |= (self.memory.read(0xFFFD)? as u16) << 8;
-                self.sequence_state = SequenceState::Ready;
-            }
-            SequenceState::Reset(unexpected_subcycle) => {
-                panic!("Unexpected subcycle: {}", unexpected_subcycle);
-            }
+            // Reset sequence.
+            SequenceState::Reset(subcycle) => match subcycle {
+                0 => self.phantom_read(self.reg_pc),
+                1 => self.phantom_read(self.reg_pc + 1),
+                2..=4 => {
+                    self.phantom_read(self.stack_pointer());
+                    self.reg_sp = self.reg_sp.wrapping_sub(1);
+                }
+                5 => self.reg_pc = self.reg_pc & 0xFF00 | (self.memory.read(0xFFFC)? as u16),
+                _ => {
+                    self.reg_pc = self.reg_pc & 0xFF | ((self.memory.read(0xFFFD)? as u16) << 8);
+                    self.sequence_state = SequenceState::Ready;
+                    self.flags |= flags::I;
+                }
+            },
+
+            SequenceState::Irq(subcycle) => self.tick_interrupt_sequence(subcycle, 0xFFFE)?,
+            SequenceState::Nmi(subcycle) => self.tick_interrupt_sequence(subcycle, 0xFFFA)?,
         }
 
         // Now move on to the next subcycle.
@@ -868,6 +915,8 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Reset(subcycle) => {
                 self.sequence_state = SequenceState::Reset(subcycle + 1)
             }
+            SequenceState::Irq(subcycle) => self.sequence_state = SequenceState::Irq(subcycle + 1),
+            SequenceState::Nmi(subcycle) => self.sequence_state = SequenceState::Nmi(subcycle + 1),
             _ => {}
         };
         Ok(())
@@ -1301,6 +1350,33 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.sequence_state = SequenceState::Ready;
             }
         };
+        Ok(())
+    }
+
+    fn tick_interrupt_sequence(&mut self, subcycle: u32, vector: u16) -> TickResult {
+        match subcycle {
+            1 => self.phantom_read(self.reg_pc),
+            2 => {
+                self.memory
+                    .write(self.stack_pointer(), (self.reg_pc >> 8) as u8)?;
+                self.reg_sp = self.reg_sp.wrapping_sub(1);
+            }
+            3 => {
+                self.memory.write(self.stack_pointer(), self.reg_pc as u8)?;
+                self.reg_sp = self.reg_sp.wrapping_sub(1);
+            }
+            4 => {
+                self.memory
+                    .write(self.stack_pointer(), self.flags | flags::UNUSED)?;
+                self.reg_sp = self.reg_sp.wrapping_sub(1);
+            }
+            5 => self.reg_pc = self.reg_pc & 0xFF00 | (self.memory.read(vector)? as u16),
+            _ => {
+                self.reg_pc = self.reg_pc & 0xFF | ((self.memory.read(vector + 1)? as u16) << 8);
+                self.sequence_state = SequenceState::Ready;
+                self.flags |= flags::I;
+            }
+        }
         Ok(())
     }
 

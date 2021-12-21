@@ -8,11 +8,14 @@ use test::Bencher;
 
 fn reset<M: Memory + Debug>(cpu: &mut Cpu<M>) {
     cpu.reset();
-    cpu.ticks(8).unwrap();
+    cpu.ticks(7).unwrap();
 }
 
 fn cpu_with_program(program: &[u8]) -> Cpu<Ram> {
-    let memory = Box::new(Ram::with_test_program(program));
+    let mut memory = Box::new(Ram::with_test_program(program));
+    // Add a HLT instruction that makes sure we got the timing right and don't
+    // execute one instruction too many.
+    memory.bytes[0xF000 + program.len()] = opcodes::HLT1;
     let mut cpu = Cpu::new(memory);
     reset(&mut cpu);
     return cpu;
@@ -1441,6 +1444,118 @@ fn brk_rti() {
     cpu.ticks(3 + 17 + 18 + 3).unwrap();
     assert_eq!(cpu.memory.bytes[45], 0xFE);
     assert_eq!(reversed_stack(&cpu), [flags::PUSHED | flags::D]);
+}
+
+fn cpu_with_interrupt_test_code() -> Cpu<Ram> {
+    cpu_with_code! {
+            jmp start
+            // 3 cycles
+            jmp interrupt // 0xF003
+
+        start:
+            ldx #0xFE
+            txs
+            plp
+            lda #0
+            sta 10
+            ldx #0
+            cli
+            // 17 cycles
+
+        loop:
+            inc 10
+            jmp loop
+            // 8 cycles
+
+        interrupt:
+            lda 10
+            sta 11,x
+            inx
+            rti
+            // 18 cycles (including JMP in 0xF003) + 7 cycles of interrupt
+            // sequence
+    }
+}
+
+#[test]
+fn irq() {
+    let mut cpu = cpu_with_interrupt_test_code();
+    cpu.mut_memory().bytes[0xFFFE..=0xFFFF].copy_from_slice(&[0x03, 0xF0]);
+    cpu.set_irq_pin(false);
+    cpu.ticks(3 + 17 + 2 * 8).unwrap();
+    // At this moment, we should have counted to 2, and no interrupt should have
+    // been triggered.
+    assert_eq!(cpu.memory.bytes[10..=14], [2, 0, 0, 0, 0]);
+
+    cpu.set_irq_pin(true);
+    cpu.ticks(7 + 18).unwrap();
+    // No B flag expected on the stack this time.
+    assert_eq!(cpu.memory.bytes[0x1FD], flags::UNUSED);
+    assert_eq!(cpu.memory.bytes[10..=14], [2, 2, 0, 0, 0]);
+
+    // Turn off the IRQ line, expecting no interrupts.
+    cpu.set_irq_pin(false);
+    cpu.ticks(3 * 8).unwrap();
+    assert_eq!(cpu.memory.bytes[10..=14], [5, 2, 0, 0, 0]);
+
+    // Turn the IRQ line back on for twice as long as before, triggering two
+    // consecutive interrupts. To make it more fun, trigger the interrupt in the
+    // middle of processing the INC instruction. This means INC will be fully
+    // processed, increasing cell 10 to 6!
+    cpu.ticks(2).unwrap();
+    cpu.set_irq_pin(true);
+    cpu.ticks(3 + 2 * (7 + 18)).unwrap();
+    assert_eq!(cpu.memory.bytes[10..=14], [6, 2, 6, 6, 0]);
+}
+
+#[test]
+fn nmi() {
+    let mut cpu = cpu_with_interrupt_test_code();
+    cpu.mut_memory().bytes[0xFFFA..=0xFFFB].copy_from_slice(&[0x03, 0xF0]);
+    cpu.set_nmi_pin(false);
+    cpu.ticks(3 + 17 + 2 * 8).unwrap();
+    assert_eq!(cpu.memory.bytes[10..=15], [2, 0, 0, 0, 0, 0]);
+
+    cpu.set_nmi_pin(true);
+    cpu.ticks(7 + 18).unwrap();
+    assert_eq!(cpu.memory.bytes[10..=15], [2, 2, 0, 0, 0, 0]);
+
+    // Since NMI is edge-triggered, this shouldn't result in another interrupt.
+    cpu.ticks(3 * 8).unwrap();
+    assert_eq!(cpu.memory.bytes[10..=15], [5, 2, 0, 0, 0, 0]);
+
+    // Release the NMI flag for a while.
+    cpu.set_nmi_pin(false);
+    cpu.ticks(2 * 8).unwrap();
+    assert_eq!(cpu.memory.bytes[10..=15], [7, 2, 0, 0, 0, 0]);
+
+    // Trigger another interrupt; this time with a very short signal, in the
+    // middle of processing the INC instruction.
+    cpu.ticks(1).unwrap();
+    cpu.set_nmi_pin(true);
+    cpu.ticks(1).unwrap();
+    cpu.set_nmi_pin(false);
+    cpu.ticks(7 + 18 - 2).unwrap();
+    assert_eq!(cpu.memory.bytes[10..=15], [8, 2, 8, 0, 0, 0]);
+}
+
+#[test]
+fn irq_masking() {
+    let mut cpu = cpu_with_code! {
+            sei // 2 cycles
+        loop:
+            jmp loop
+
+        interrupt:  // 0xF004
+            inc 5
+            rti
+            // 11 cycles + 7 cycles of interrupt sequence
+    };
+    cpu.mut_memory().bytes[0xFFFE..=0xFFFF].copy_from_slice(&[0x04, 0xF0]);
+    cpu.ticks(2).unwrap();
+    cpu.set_irq_pin(true);
+    cpu.ticks(7 + 11).unwrap();
+    assert_eq!(cpu.memory.bytes[5], 0);
 }
 
 #[bench]
