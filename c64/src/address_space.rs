@@ -339,7 +339,7 @@ mod tests {
         address_space.write(0x0000, 0b0000_0000).unwrap();
         assert_eq!(address_space.read(0x0001).unwrap(), 0b0011_0111);
 
-        /// Force bit 4 to 0.
+        // Force bit 4 to 0.
         address_space.write(0x0001, 0b0010_0111).unwrap();
         address_space.write(0x0000, 0b0001_0000).unwrap();
         assert_eq!(address_space.read(0x0001).unwrap(), 0b0010_0111);
