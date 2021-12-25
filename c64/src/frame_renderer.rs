@@ -86,6 +86,7 @@ mod tests {
             x,
             raster_line: screen_y_to_raster_line(y),
             color,
+            irq: false,
         }
     }
 

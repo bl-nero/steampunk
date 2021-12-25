@@ -1,3 +1,5 @@
+mod tests;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 use ya6502::memory::Memory;
@@ -19,6 +21,8 @@ pub struct Vic<GM: Read, CM: Read> {
 
     // Registers
     reg_control_2: u8,
+    reg_interrupt: u8,
+    reg_interrupt_enabled: u8,
     reg_border_color: Color,
     reg_background_color: Color,
 
@@ -28,6 +32,8 @@ pub struct Vic<GM: Read, CM: Read> {
     /// coordinates in any space; in particular, on NTSC, raster line 0 is
     /// actually near the bottom of the screen. See [`raster_line_to_screen_y`].
     raster_counter: usize,
+    /// Raster number that will trigger IRQ (if raster IRQ is enabled).
+    irq_raster_line: usize,
     x_counter: usize,
 
     /// A buffer for graphics byte to be displayed next.
@@ -46,10 +52,13 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
             color_memory,
 
             reg_control_2: 0,
+            reg_interrupt: flags::INTERRUPT_UNUSED,
+            reg_interrupt_enabled: flags::INTERRUPT_ENABLED_UNUSED,
             reg_border_color: 0,
             reg_background_color: 0,
 
             raster_counter: 0,
+            irq_raster_line: 0,
             x_counter: 0,
 
             graphics_buffer: 0,
@@ -82,10 +91,18 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
             _ => self.reg_border_color,
         };
 
+        if self.raster_counter == self.irq_raster_line
+            && self.x_counter == 0
+            && self.reg_interrupt_enabled & flags::INTERRUPT_RASTER != 0
+        {
+            self.reg_interrupt |= flags::INTERRUPT_PENDING | flags::INTERRUPT_RASTER;
+        }
+
         let output = VicOutput {
             x: self.x_counter,
             raster_line: self.raster_counter,
             color,
+            irq: self.reg_interrupt & flags::INTERRUPT_PENDING != 0,
         };
 
         self.x_counter += 1;
@@ -179,24 +196,60 @@ pub struct VicOutput {
     pub x: usize,
     /// Raw Y coordinate (including vertical blanking area).
     pub raster_line: usize,
+    /// Whether VIC reports an IRQ interrupt.
+    pub irq: bool,
 }
 
 pub type TickResult = Result<VicOutput, ReadError>;
 
 impl<GM: Read, CM: Read> Read for Vic<GM, CM> {
     fn read(&self, address: u16) -> ReadResult {
-        Err(ReadError { address })
+        match address {
+            registers::CONTROL_1 => {
+                Ok((self.raster_counter >> 1) as u8 & flags::CONTROL_1_RASTER_8)
+            }
+            registers::RASTER => Ok(self.raster_counter as u8),
+            registers::INTERRUPT => Ok(self.reg_interrupt),
+            _ => Err(ReadError { address }),
+        }
     }
 }
 
 impl<GM: Read, CM: Read> Write for Vic<GM, CM> {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match address {
+            registers::CONTROL_1 => {
+                if value & !flags::CONTROL_1_RASTER_8
+                    != 3 | flags::CONTROL_1_RSEL | flags::CONTROL_1_SCREEN_ON
+                {
+                    return Err(WriteError { address, value });
+                }
+                self.irq_raster_line = self.irq_raster_line & 0b1111_1111
+                    | ((value & flags::CONTROL_1_RASTER_8) as usize) << 1;
+            }
+            registers::RASTER => {
+                self.irq_raster_line = self.irq_raster_line & 0b1_0000_0000 | value as usize;
+            }
             registers::CONTROL_2 => {
                 if value & flags::CONTROL_2_MCM != 0 {
                     return Err(WriteError { address, value });
                 }
                 self.reg_control_2 = value;
+            }
+            registers::INTERRUPT => {
+                if value & !(flags::INTERRUPT_UNUSED | flags::INTERRUPT_RASTER) != 0 {
+                    return Err(WriteError { address, value });
+                }
+                if value & flags::INTERRUPT_RASTER != 0 {
+                    self.reg_interrupt = flags::INTERRUPT_UNUSED;
+                }
+            }
+            registers::INTERRUPT_ENABLED => {
+                // Only raster interrupts are currently supported.
+                if value & !flags::INTERRUPT_RASTER != 0 {
+                    return Err(WriteError { address, value });
+                }
+                self.reg_interrupt_enabled = value | flags::INTERRUPT_ENABLED_UNUSED;
             }
             registers::BORDER_COLOR => self.reg_border_color = value,
             registers::BACKGROUND_COLOR_0 => self.reg_background_color = value,
@@ -248,312 +301,53 @@ pub const VISIBLE_LINES: usize = TOP_BORDER_HEIGHT + DISPLAY_WINDOW_HEIGHT + BOT
 pub const TOTAL_HEIGHT: usize = 262; // Including vertical blank
 
 mod registers {
+    pub const CONTROL_1: u16 = 0xD011;
+    pub const RASTER: u16 = 0xD012;
     pub const CONTROL_2: u16 = 0xD016;
+    pub const INTERRUPT: u16 = 0xD019;
+    pub const INTERRUPT_ENABLED: u16 = 0xD01A;
     pub const BORDER_COLOR: u16 = 0xD020;
     pub const BACKGROUND_COLOR_0: u16 = 0xD021;
 }
 
 mod flags {
+    pub const CONTROL_1_YSCROLL: u8 = 0b0000_0111;
+    pub const CONTROL_1_RSEL: u8 = 0b0000_1000;
+    pub const CONTROL_1_SCREEN_ON: u8 = 0b0001_0000;
+    pub const CONTROL_1_BITMAP_MODE: u8 = 0b0010_0000;
+    pub const CONTROL_1_EXTENDED_BG: u8 = 0b0100_0000;
+    /// 8th bit of the raster line counter in the
+    /// [`CONTROL_1`][super::registers::CONTROL_1] register.
+    pub const CONTROL_1_RASTER_8: u8 = 0b1000_0000;
+
     pub const CONTROL_2_XSCROLL: u8 = 0b0000_0111;
     pub const CONTROL_2_CSEL: u8 = 0b0000_1000;
     pub const CONTROL_2_MCM: u8 = 0b0001_0000;
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use common::test_utils::as_single_hex_digit;
-    use ya6502::memory::Ram;
+    /// Raster interrupt. Valid for [`INTERRUPT`][super::registers::INTERRUPT]
+    /// and [`INTERRUPT_ENABLED`][super::registers::INTERRUPT_ENABLED]
+    /// registers.
+    pub const INTERRUPT_RASTER: u8 = 0b0000_0001;
+    /// Sprite-background collision detected. Valid for
+    /// [`INTERRUPT`][super::registers::INTERRUPT] and
+    /// [`INTERRUPT_ENABLED`][super::registers::INTERRUPT_ENABLED] registers.
+    pub const INTERRUPT_SPRITE_BACKGROUND: u8 = 0b0000_0010;
+    /// Sprite-sprite collision detected. Valid for
+    /// [`INTERRUPT`][super::registers::INTERRUPT] and
+    /// [`INTERRUPT_ENABLED`][super::registers::INTERRUPT_ENABLED] registers.
+    pub const INTERRUPT_SPRITE_SPRITE: u8 = 0b0000_0100;
+    /// Light pen signal arrived. Valid for
+    /// [`INTERRUPT`][super::registers::INTERRUPT] and
+    /// [`INTERRUPT_ENABLED`][super::registers::INTERRUPT_ENABLED] registers.
+    pub const INTERRUPT_LIGHT_PEN: u8 = 0b0000_1000;
+    /// There is an unacknowledged interrupt in the
+    /// [`INTERRUPT`][super::registers::INTERRUPT] register.
+    pub const INTERRUPT_PENDING: u8 = 0b1000_0000;
 
-    /// Creates a VIC backed by a simple RAM architecture and runs enough raster
-    /// lines to end up at the beginning of the first visible border line.
-    fn vic_for_testing() -> Vic<Ram, Ram> {
-        let mut vic = Vic::new(Box::new(Ram::new(16)), Rc::new(RefCell::new(Ram::new(16))));
-        for _ in 0..RASTER_LENGTH * TOP_BORDER_FIRST_LINE {
-            vic.tick().unwrap();
-        }
-        return vic;
-    }
+    /// Unused bits of [`INTERRUPT`][super::registers::INTERRUPT] register.
+    pub const INTERRUPT_UNUSED: u8 = 0b0111_0000;
 
-    /// Grabs a single visible raster line, discarding the blanking area. Note
-    /// that the visible area is established by convention, as we don't have to
-    /// pay attention to details too much here.
-    fn visible_raster_line<GM: Read, CM: Read>(vic: &mut Vic<GM, CM>) -> Vec<Color> {
-        // Initialize to an illegal color to make sure that all pixels are
-        // covered.
-        let mut result = vec![0xFF; VISIBLE_PIXELS];
-        for _ in 0..RASTER_LENGTH {
-            let vic_output = vic.tick().unwrap();
-            if (LEFT_BORDER_START..BORDER_END).contains(&vic_output.x) {
-                result[vic_output.x - LEFT_BORDER_START] = vic_output.color;
-            }
-        }
-        return result;
-    }
-
-    /// Grabs a raster line, and returns a range of pixels with given
-    /// coordinates relative to the left edge of the graphics display window.
-    fn grab_raster_line<GM: Read, CM: Read>(
-        vic: &mut Vic<GM, CM>,
-        left: isize,
-        width: usize,
-    ) -> Vec<Color> {
-        let left = (DISPLAY_WINDOW_START as isize + left) as usize;
-        let right = left + width;
-        // Initialize to an illegal color to make sure that all pixels are
-        // covered.
-        let mut result = vec![0xFF; width];
-        for _ in 0..RASTER_LENGTH {
-            let vic_output = vic.tick().unwrap();
-            if (left..right).contains(&vic_output.x) {
-                result[vic_output.x - left] = vic_output.color;
-            }
-        }
-        return result;
-    }
-
-    /// Skips a given number of full raster lines and discards results.
-    fn skip_raster_lines<GM: Read, CM: Read>(vic: &mut Vic<GM, CM>, n: usize) {
-        for _ in 0..n * RASTER_LENGTH {
-            vic.tick().unwrap();
-        }
-    }
-
-    /// Retrieves a full frame, including blank areas, and returns a rectangle
-    /// at given coordinates relative to the upper left corner of the graphics
-    /// display window.
-    fn grab_frame<GM: Read, FM: Read>(
-        vic: &mut Vic<GM, FM>,
-        left: isize,
-        top: isize,
-        width: usize,
-        height: usize,
-    ) -> Vec<Vec<Color>> {
-        // We convert the raster line number to screen Y in order to create a
-        // continuous range against which a screen Y coordinate can be tested.
-        let top = raster_line_to_screen_y((DISPLAY_WINDOW_FIRST_LINE as isize + top) as usize);
-        let left = (DISPLAY_WINDOW_START as isize + left) as usize;
-        let bottom = top + height;
-        let right = left + width;
-        let mut result: Vec<Vec<Color>> =
-            std::iter::repeat(vec![0xFF; width]).take(height).collect();
-        for _ in 0..RASTER_LENGTH * TOTAL_HEIGHT {
-            let vic_output = vic.tick().unwrap();
-            let (x, y) = (
-                vic_output.x,
-                raster_line_to_screen_y(vic_output.raster_line),
-            );
-            if (left..right).contains(&x) && (top..bottom).contains(&y) {
-                result[y - top][x - left] = vic_output.color;
-            }
-        }
-        return result;
-    }
-
-    /// Encodes a sequence of colors into an easy to read string where each
-    /// color from a 4-bit palette is denoted by a single hexadecimal character.
-    /// The color 0 (black) is denoted as '.' for better readability.
-    fn encode_video<I: IntoIterator<Item = Color>>(outputs: I) -> String {
-        outputs
-            .into_iter()
-            .map(|color| match color {
-                0 => '.',
-                c => as_single_hex_digit(c),
-            })
-            .collect()
-    }
-
-    fn encode_video_lines<Iter, IterIter>(outputs: IterIter) -> Vec<String>
-    where
-        Iter: IntoIterator<Item = Color>,
-        IterIter: IntoIterator<Item = Iter>,
-    {
-        outputs.into_iter().map(encode_video).collect()
-    }
-
-    #[test]
-    fn draws_border() {
-        let mut vic = vic_for_testing();
-        vic.write(registers::BORDER_COLOR, 0x00).unwrap();
-        assert_eq!(vic.tick().unwrap().color, 0x00);
-
-        vic.write(registers::BORDER_COLOR, 0x01).unwrap();
-        assert_eq!(vic.tick().unwrap().color, 0x01);
-
-        vic.write(registers::BORDER_COLOR, 0x0F).unwrap();
-        assert_eq!(vic.tick().unwrap().color, 0x0F);
-    }
-
-    #[test]
-    fn draws_border_raster_lines() {
-        let mut vic = vic_for_testing();
-        vic.write(registers::BORDER_COLOR, 0x08).unwrap();
-        vic.write(registers::BACKGROUND_COLOR_0, 0x0A).unwrap();
-        vic.write(registers::CONTROL_2, flags::CONTROL_2_CSEL)
-            .unwrap();
-        let border_line = "8".repeat(VISIBLE_PIXELS);
-        let border_and_display_line = "8".repeat(LEFT_BORDER_WIDTH)
-            + &"A".repeat(DISPLAY_WINDOW_WIDTH)
-            + &"8".repeat(RIGHT_BORDER_WIDTH);
-
-        // Expect the first line of top border.
-        assert_eq!(encode_video(visible_raster_line(&mut vic)), border_line);
-        // Expect the last line of top border.
-        skip_raster_lines(&mut vic, TOP_BORDER_HEIGHT - 2);
-        assert_eq!(encode_video(visible_raster_line(&mut vic)), border_line);
-
-        // Expect the first line of the display window.
-        assert_eq!(
-            encode_video(visible_raster_line(&mut vic)),
-            border_and_display_line
-        );
-
-        // Last line of the display window and the first one of the bottom
-        // border.
-        skip_raster_lines(&mut vic, DISPLAY_WINDOW_HEIGHT - 2);
-        assert_eq!(
-            encode_video(visible_raster_line(&mut vic)),
-            border_and_display_line
-        );
-        assert_eq!(encode_video(visible_raster_line(&mut vic)), border_line);
-
-        // Last line of next frame's top border and first line of its display
-        // window.
-        skip_raster_lines(
-            &mut vic,
-            BOTTOM_BORDER_HEIGHT + BLANK_AREA_HEIGHT + TOP_BORDER_HEIGHT - 2,
-        );
-        assert_eq!(encode_video(visible_raster_line(&mut vic)), border_line);
-        assert_eq!(
-            encode_video(visible_raster_line(&mut vic)),
-            border_and_display_line
-        );
-    }
-
-    #[test]
-    fn draws_border_38_column_mode() {
-        let mut vic = vic_for_testing();
-        vic.write(registers::BORDER_COLOR, 0x05).unwrap();
-        vic.write(registers::BACKGROUND_COLOR_0, 0x0C).unwrap();
-        vic.write(registers::CONTROL_2, 0).unwrap();
-        let narrow_display_line = "5".repeat(LEFT_BORDER_WIDTH + 8)
-            + &"C".repeat(DISPLAY_WINDOW_WIDTH - 16)
-            + &"5".repeat(RIGHT_BORDER_WIDTH + 8);
-
-        skip_raster_lines(&mut vic, TOP_BORDER_HEIGHT);
-        assert_eq!(
-            encode_video(visible_raster_line(&mut vic)),
-            narrow_display_line
-        );
-    }
-
-    #[test]
-    fn draws_characters() {
-        let mut vic = vic_for_testing();
-        vic.write(registers::BORDER_COLOR, 0x01).unwrap();
-        vic.write(registers::BACKGROUND_COLOR_0, 0x00).unwrap();
-        vic.write(registers::CONTROL_2, flags::CONTROL_2_CSEL)
-            .unwrap();
-
-        // Set up characters
-        vic.graphics_memory.bytes[0x1008..0x1028].copy_from_slice(&[
-            0b11111111, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b10000001,
-            0b11111111, 0b10000001, 0b01000010, 0b00100100, 0b00011000, 0b00011000, 0b00100100,
-            0b01000010, 0b10000001, 0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001,
-            0b10000001, 0b01000010, 0b00111100, 0b00011000, 0b00011000, 0b00100100, 0b00100100,
-            0b01000010, 0b01000010, 0b10000001, 0b11111111,
-        ]);
-        // Set up screen
-        vic.graphics_memory.bytes[0x0400] = 0x01;
-        vic.graphics_memory.bytes[0x0401] = 0x02;
-        vic.graphics_memory.bytes[0x0428] = 0x03;
-        vic.graphics_memory.bytes[0x0429] = 0x04;
-        // Set up colors
-        {
-            let mut color_memory = vic.color_memory.borrow_mut();
-            color_memory.bytes[0xD800] = 0x0A;
-            color_memory.bytes[0xD801] = 0x0B;
-            color_memory.bytes[0xD828] = 0x0C;
-            color_memory.bytes[0xD829] = 0x0D;
-        }
-
-        itertools::assert_equal(
-            encode_video_lines(grab_frame(&mut vic, -1, -1, 17, 17)).iter(),
-            &[
-                "11111111111111111",
-                "1AAAAAAAAB......B",
-                "1A......A.B....B.",
-                "1A......A..B..B..",
-                "1A......A...BB...",
-                "1A......A...BB...",
-                "1A......A..B..B..",
-                "1A......A.B....B.",
-                "1AAAAAAAAB......B",
-                "1..CCCC.....DD...",
-                "1.C....C....DD...",
-                "1C......C..D..D..",
-                "1C......C..D..D..",
-                "1C......C.D....D.",
-                "1C......C.D....D.",
-                "1.C....C.D......D",
-                "1..CCCC..DDDDDDDD",
-            ],
-        );
-
-        vic.graphics_memory.bytes[0x0400] = 0x04;
-        vic.graphics_memory.bytes[0x0401] = 0x03;
-        vic.graphics_memory.bytes[0x0428] = 0x02;
-        vic.graphics_memory.bytes[0x0429] = 0x01;
-
-        itertools::assert_equal(
-            encode_video_lines(grab_frame(&mut vic, -1, -1, 17, 17)).iter(),
-            &[
-                "11111111111111111",
-                "1...AA.....BBBB..",
-                "1...AA....B....B.",
-                "1..A..A..B......B",
-                "1..A..A..B......B",
-                "1.A....A.B......B",
-                "1.A....A.B......B",
-                "1A......A.B....B.",
-                "1AAAAAAAA..BBBB..",
-                "1C......CDDDDDDDD",
-                "1.C....C.D......D",
-                "1..C..C..D......D",
-                "1...CC...D......D",
-                "1...CC...D......D",
-                "1..C..C..D......D",
-                "1.C....C.D......D",
-                "1C......CDDDDDDDD",
-            ],
-        );
-    }
-
-    #[test]
-    fn horizontal_scrolling() {
-        let mut vic = vic_for_testing();
-        vic.write(registers::BORDER_COLOR, 0x01).unwrap();
-        vic.write(registers::BACKGROUND_COLOR_0, 0x00).unwrap();
-        let grab_line_left =
-            move |vic: &mut Vic<Ram, Ram>| encode_video(grab_raster_line(vic, -1, 17));
-
-        // Character 1: a simple bit pattern
-        vic.graphics_memory.bytes[0x1008..0x1010].copy_from_slice(&[0b1010_0101; 8]);
-        vic.graphics_memory.bytes[0x0400] = 0x01;
-        {
-            vic.color_memory.borrow_mut().bytes[0xD800] = 0x0A;
-        }
-
-        // Skip top border
-        skip_raster_lines(&mut vic, TOP_BORDER_HEIGHT);
-
-        vic.write(0xD016, flags::CONTROL_2_CSEL).unwrap();
-        assert_eq!(grab_line_left(&mut vic), "1A.A..A.A........");
-        vic.write(0xD016, flags::CONTROL_2_CSEL | 1).unwrap();
-        assert_eq!(grab_line_left(&mut vic), "1.A.A..A.A.......");
-        vic.write(0xD016, flags::CONTROL_2_CSEL | 2).unwrap();
-        assert_eq!(grab_line_left(&mut vic), "1..A.A..A.A......");
-        vic.write(0xD016, flags::CONTROL_2_CSEL | 7).unwrap();
-        assert_eq!(grab_line_left(&mut vic), "1.......A.A..A.A.");
-    }
+    /// Unused bits of
+    /// [`INTERRUPT_ENABLED`][super::registers::INTERRUPT_ENABLED] register.
+    pub const INTERRUPT_ENABLED_UNUSED: u8 = 0b1111_0000;
 }
