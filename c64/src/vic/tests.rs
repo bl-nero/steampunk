@@ -6,12 +6,17 @@ use ya6502::memory::Ram;
 
 /// Creates a VIC backed by a simple RAM architecture and runs enough raster
 /// lines to end up at the beginning of the first visible border line.
-fn vic_for_testing() -> Vic<Ram, Ram> {
-    let mut vic = Vic::new(Box::new(Ram::new(16)), Rc::new(RefCell::new(Ram::new(16))));
+fn initialized_vic_for_testing() -> Vic<Ram, Ram> {
+    let mut vic = vic_for_testing();
     for _ in 0..RASTER_LENGTH * TOP_BORDER_FIRST_LINE {
         vic.tick().unwrap();
     }
     return vic;
+}
+
+/// Creates a VIC backed by a simple RAM architecture.
+fn vic_for_testing() -> Vic<Ram, Ram> {
+    Vic::new(Box::new(Ram::new(16)), Rc::new(RefCell::new(Ram::new(16))))
 }
 
 /// Grabs a single visible raster line, discarding the blanking area. Note
@@ -22,9 +27,9 @@ fn visible_raster_line<GM: Read, CM: Read>(vic: &mut Vic<GM, CM>) -> Vec<Color> 
     // covered.
     let mut result = vec![0xFF; VISIBLE_PIXELS];
     for _ in 0..RASTER_LENGTH {
-        let vic_output = vic.tick().unwrap();
-        if (LEFT_BORDER_START..BORDER_END).contains(&vic_output.x) {
-            result[vic_output.x - LEFT_BORDER_START] = vic_output.color;
+        let video_output = vic.tick().unwrap().video_output;
+        if (LEFT_BORDER_START..BORDER_END).contains(&video_output.x) {
+            result[video_output.x - LEFT_BORDER_START] = video_output.color;
         }
     }
     return result;
@@ -43,9 +48,9 @@ fn grab_raster_line<GM: Read, CM: Read>(
     // covered.
     let mut result = vec![0xFF; width];
     for _ in 0..RASTER_LENGTH {
-        let vic_output = vic.tick().unwrap();
-        if (left..right).contains(&vic_output.x) {
-            result[vic_output.x - left] = vic_output.color;
+        let video_output = vic.tick().unwrap().video_output;
+        if (left..right).contains(&video_output.x) {
+            result[video_output.x - left] = video_output.color;
         }
     }
     return result;
@@ -76,13 +81,13 @@ fn grab_frame<GM: Read, FM: Read>(
     let right = left + width;
     let mut result: Vec<Vec<Color>> = std::iter::repeat(vec![0xFF; width]).take(height).collect();
     for _ in 0..RASTER_LENGTH * TOTAL_HEIGHT {
-        let vic_output = vic.tick().unwrap();
+        let video_output = vic.tick().unwrap().video_output;
         let (x, y) = (
-            vic_output.x,
-            raster_line_to_screen_y(vic_output.raster_line),
+            video_output.x,
+            raster_line_to_screen_y(video_output.raster_line),
         );
         if (left..right).contains(&x) && (top..bottom).contains(&y) {
-            result[y - top][x - left] = vic_output.color;
+            result[y - top][x - left] = video_output.color;
         }
     }
     return result;
@@ -112,17 +117,18 @@ where
 fn expect_no_interrupts_for<GM: Read, FM: Read>(n_ticks: usize, vic: &mut Vic<GM, FM>) {
     for _ in 0..n_ticks {
         let vic_output = vic.tick().unwrap();
+        let video_output = vic_output.video_output;
         assert_eq!(
             vic_output.irq, false,
             "Unexpected IRQ at raster line {} pixel {}",
-            vic_output.raster_line, vic_output.x,
+            video_output.raster_line, video_output.x,
         );
         assert_eq!(
             vic.read(registers::INTERRUPT).unwrap(),
             flags::INTERRUPT_UNUSED,
             "Unexpected IRQ at raster line {} pixel {}",
-            vic_output.raster_line,
-            vic_output.x,
+            video_output.raster_line,
+            video_output.x,
         );
     }
 }
@@ -132,13 +138,14 @@ fn expect_no_interrupts_for<GM: Read, FM: Read>(n_ticks: usize, vic: &mut Vic<GM
 fn tick_until_irq<GM: Read, FM: Read>(vic: &mut Vic<GM, FM>) -> VicOutput {
     for _ in 0..2 * TOTAL_HEIGHT * RASTER_LENGTH {
         let tick_result = vic.tick().unwrap();
+        let video_output = &tick_result.video_output;
         if tick_result.irq {
             assert_eq!(
                 vic.read(registers::INTERRUPT).unwrap(),
                 flags::INTERRUPT_UNUSED | flags::INTERRUPT_PENDING | flags::INTERRUPT_RASTER,
                 "Inconsistent interrupt register at raster line {} pixel {}",
-                tick_result.raster_line,
-                tick_result.x,
+                video_output.raster_line,
+                video_output.x,
             );
             return tick_result;
         }
@@ -146,29 +153,64 @@ fn tick_until_irq<GM: Read, FM: Read>(vic: &mut Vic<GM, FM>) -> VicOutput {
             vic.read(registers::INTERRUPT).unwrap(),
             flags::INTERRUPT_UNUSED,
             "Unexpected IRQ at raster line {} pixel {}",
-            tick_result.raster_line,
-            tick_result.x,
+            video_output.raster_line,
+            video_output.x,
         );
     }
     panic!("IRQ not detected");
 }
 
+macro_rules! test_reg {
+    ($fn_name: ident, $register:ident, $write:expr, $read:expr) => {
+        #[test]
+        fn $fn_name() {
+            let mut vic = vic_for_testing();
+            vic.write(registers::$register, $write).unwrap();
+            assert_eq!(vic.read(registers::$register).unwrap(), $read);
+        }
+    };
+}
+
+test_reg!(rw_control_1_0, CONTROL_1, 0b0001_1011, 0b0001_1011);
+test_reg!(rw_control_1_1, CONTROL_1, 0b1001_1011, 0b0001_1011);
+test_reg!(rw_raster, RASTER, 0b1111_1111, 0b0000_0000);
+test_reg!(rw_control_2_0, CONTROL_2, 0b1100_1011, 0b1100_1011);
+test_reg!(rw_control_2_1, CONTROL_2, 0b0010_0100, 0b1110_0100);
+test_reg!(rw_interrupt_0, INTERRUPT, 0b0000_0000, 0b0111_0000);
+test_reg!(rw_interrupt_1, INTERRUPT, 0b0000_0001, 0b0111_0000);
+test_reg!(
+    rw_interrupt_mask_0,
+    INTERRUPT_MASK,
+    0b0000_0000,
+    0b1111_0000
+);
+test_reg!(
+    rw_interrupt_mask_1,
+    INTERRUPT_MASK,
+    0b0000_0001,
+    0b1111_0001
+);
+test_reg!(rw_border_color_0, BORDER_COLOR, 0xF9, 0xF9);
+test_reg!(rw_border_color_1, BORDER_COLOR, 0x06, 0xF6);
+test_reg!(rw_background_color_0_0, BACKGROUND_COLOR_0, 0xF7, 0xF7);
+test_reg!(rw_background_color_0_1, BACKGROUND_COLOR_0, 0x08, 0xF8);
+
 #[test]
 fn draws_border() {
-    let mut vic = vic_for_testing();
+    let mut vic = initialized_vic_for_testing();
     vic.write(registers::BORDER_COLOR, 0x00).unwrap();
-    assert_eq!(vic.tick().unwrap().color, 0x00);
+    assert_eq!(vic.tick().unwrap().video_output.color, 0x00);
 
     vic.write(registers::BORDER_COLOR, 0x01).unwrap();
-    assert_eq!(vic.tick().unwrap().color, 0x01);
+    assert_eq!(vic.tick().unwrap().video_output.color, 0x01);
 
     vic.write(registers::BORDER_COLOR, 0x0F).unwrap();
-    assert_eq!(vic.tick().unwrap().color, 0x0F);
+    assert_eq!(vic.tick().unwrap().video_output.color, 0x0F);
 }
 
 #[test]
 fn draws_border_raster_lines() {
-    let mut vic = vic_for_testing();
+    let mut vic = initialized_vic_for_testing();
     vic.write(registers::BORDER_COLOR, 0x08).unwrap();
     vic.write(registers::BACKGROUND_COLOR_0, 0x0A).unwrap();
     vic.write(registers::CONTROL_2, flags::CONTROL_2_CSEL)
@@ -214,7 +256,7 @@ fn draws_border_raster_lines() {
 
 #[test]
 fn draws_border_38_column_mode() {
-    let mut vic = vic_for_testing();
+    let mut vic = initialized_vic_for_testing();
     vic.write(registers::BORDER_COLOR, 0x05).unwrap();
     vic.write(registers::BACKGROUND_COLOR_0, 0x0C).unwrap();
     vic.write(registers::CONTROL_2, 0).unwrap();
@@ -231,7 +273,7 @@ fn draws_border_38_column_mode() {
 
 #[test]
 fn draws_characters() {
-    let mut vic = vic_for_testing();
+    let mut vic = initialized_vic_for_testing();
     vic.write(registers::BORDER_COLOR, 0x01).unwrap();
     vic.write(registers::BACKGROUND_COLOR_0, 0x00).unwrap();
     vic.write(registers::CONTROL_2, flags::CONTROL_2_CSEL)
@@ -313,7 +355,7 @@ fn draws_characters() {
 
 #[test]
 fn horizontal_scrolling() {
-    let mut vic = vic_for_testing();
+    let mut vic = initialized_vic_for_testing();
     vic.write(registers::BORDER_COLOR, 0x01).unwrap();
     vic.write(registers::BACKGROUND_COLOR_0, 0x00).unwrap();
     let grab_line_left = move |vic: &mut Vic<Ram, Ram>| encode_video(grab_raster_line(vic, -1, 17));
@@ -340,7 +382,7 @@ fn horizontal_scrolling() {
 
 #[test]
 fn raster_counter() {
-    let mut vic = vic_for_testing();
+    let mut vic = initialized_vic_for_testing();
     const TOP: u8 = TOP_BORDER_FIRST_LINE as u8;
     let read_raster8 =
         |vic: &mut Vic<_, _>| vic.read(registers::CONTROL_1).unwrap() & flags::CONTROL_1_RASTER_8;
@@ -367,17 +409,17 @@ fn raster_counter() {
 #[test]
 fn raster_irq() {
     const CONTROL_1_DEFAULT: u8 = flags::CONTROL_1_SCREEN_ON | flags::CONTROL_1_RSEL | 3;
-    let mut vic = vic_for_testing();
+    let mut vic = initialized_vic_for_testing();
     vic.write(registers::INTERRUPT, flags::INTERRUPT_RASTER)
         .unwrap(); // No IRQs expected, but acknowledge just in case.
-    vic.write(registers::INTERRUPT_ENABLED, flags::INTERRUPT_RASTER)
+    vic.write(registers::INTERRUPT_MASK, flags::INTERRUPT_RASTER)
         .unwrap();
     vic.write(registers::RASTER, 60).unwrap();
     vic.write(registers::CONTROL_1, CONTROL_1_DEFAULT).unwrap();
 
     let vic_output = tick_until_irq(&mut vic);
-    assert_eq!(vic_output.raster_line, 60);
-    assert_eq!(vic_output.x, 0);
+    assert_eq!(vic_output.video_output.raster_line, 60);
+    assert_eq!(vic_output.video_output.x, 0);
 
     // Interrupt continues until it's acknowledged.
     skip_raster_lines(&mut vic, 2);
@@ -407,20 +449,20 @@ fn raster_irq() {
     // Trigger an interrupt at a different raster line.
     vic.write(registers::RASTER, 73).unwrap();
     let vic_output = tick_until_irq(&mut vic);
-    assert_eq!(vic_output.raster_line, 73);
-    assert_eq!(vic_output.x, 0);
+    assert_eq!(vic_output.video_output.raster_line, 73);
+    assert_eq!(vic_output.video_output.x, 0);
     vic.write(registers::INTERRUPT, flags::INTERRUPT_RASTER)
         .unwrap(); // Acknowledge.
 
     // Disable raster IRQ.
-    vic.write(registers::INTERRUPT_ENABLED, 0).unwrap();
+    vic.write(registers::INTERRUPT_MASK, 0).unwrap();
     expect_no_interrupts_for(TOTAL_HEIGHT * RASTER_LENGTH, &mut vic);
 }
 
 #[test]
 fn raster_irq_bit_8() {
     const CONTROL_1_DEFAULT: u8 = flags::CONTROL_1_SCREEN_ON | flags::CONTROL_1_RSEL | 3;
-    let mut vic = vic_for_testing();
+    let mut vic = initialized_vic_for_testing();
     vic.write(registers::INTERRUPT, flags::INTERRUPT_RASTER)
         .unwrap(); // No IRQs expected, but acknowledge just in case.
 
@@ -430,21 +472,21 @@ fn raster_irq_bit_8() {
         CONTROL_1_DEFAULT | flags::CONTROL_1_RASTER_8,
     )
     .unwrap();
-    vic.write(registers::INTERRUPT_ENABLED, flags::INTERRUPT_RASTER)
+    vic.write(registers::INTERRUPT_MASK, flags::INTERRUPT_RASTER)
         .unwrap();
 
     let vic_output = tick_until_irq(&mut vic);
-    assert_eq!(vic_output.raster_line, 259);
+    assert_eq!(vic_output.video_output.raster_line, 259);
 
     vic.write(registers::INTERRUPT, flags::INTERRUPT_RASTER)
         .unwrap(); // Acknowledge.
     vic.write(registers::RASTER, 1).unwrap();
     let vic_output = tick_until_irq(&mut vic);
-    assert_eq!(vic_output.raster_line, 257);
+    assert_eq!(vic_output.video_output.raster_line, 257);
 
     vic.write(registers::INTERRUPT, flags::INTERRUPT_RASTER)
         .unwrap(); // Acknowledge.
     vic.write(registers::CONTROL_1, CONTROL_1_DEFAULT).unwrap();
     let vic_output = tick_until_irq(&mut vic);
-    assert_eq!(vic_output.raster_line, 1);
+    assert_eq!(vic_output.video_output.raster_line, 1);
 }

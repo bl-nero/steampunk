@@ -22,6 +22,12 @@ pub struct C64 {
     frame_renderer: FrameRenderer,
 }
 
+// TODO: DRY
+pub enum FrameStatus {
+    Pending,
+    Complete,
+}
+
 impl C64 {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let basic_rom = fs::read(Path::new(env!("OUT_DIR")).join("roms").join("basic.bin"))?;
@@ -62,13 +68,17 @@ impl C64 {
         self.cpu.reset();
     }
 
-    pub fn tick(&mut self) -> Result<(), Box<dyn Error>> {
-        self.frame_renderer
-            .consume(self.cpu.mut_memory().mut_vic().tick()?);
+    pub fn tick(&mut self) -> Result<FrameStatus, Box<dyn Error>> {
+        let vic_result = self.cpu.mut_memory().mut_vic().tick()?;
         // OK, that's 8 times faster than the _actual_ 6510 CPU. So we don't
         // care about timing for now, big deal. We have bigger problems.
+        self.cpu.set_irq_pin(vic_result.irq);
         self.cpu.tick()?;
-        Ok(())
+        return if self.frame_renderer.consume(vic_result.video_output) {
+            Ok(FrameStatus::Complete)
+        } else {
+            Ok(FrameStatus::Pending)
+        };
     }
 
     pub fn set_cartridge(&mut self, cartridge: Option<Cartridge>) {
@@ -87,10 +97,19 @@ mod tests {
     use std::error::Error;
 
     fn next_frame(c64: &mut C64) -> Result<RgbaImage, Box<dyn Error>> {
-        for _ in 0..RASTER_LENGTH * TOTAL_HEIGHT {
-            c64.tick()?;
+        loop {
+            match c64.tick() {
+                Ok(FrameStatus::Pending) => {}
+                Ok(FrameStatus::Complete) => break,
+                Err(e) => {
+                    eprintln!("ERROR: {}. Machine halted.", e);
+                    eprintln!("{}", c64.cpu);
+                    eprintln!("{}", c64.cpu.memory());
+                    return Err(e);
+                }
+            }
         }
-        Ok(c64.frame_image().clone())
+        return Ok(c64.frame_renderer.frame_image().clone());
     }
 
     pub fn assert_images_equal(actual: DynamicImage, expected: DynamicImage, test_name: &str) {
@@ -119,6 +138,7 @@ mod tests {
             rom: Rom::new(&read_test_rom(file_name)).unwrap(),
         }));
         c64.reset();
+        next_frame(&mut c64).unwrap(); // Skip the first partial frame.
         return c64;
     }
 
@@ -127,5 +147,13 @@ mod tests {
         // Note: Once 6502 runs with its actual speed, we'll probably need to wait for a frame or two.
         let mut c64 = c64_with_cartridge("hello_world.bin");
         assert_produces_frame(&mut c64, "hello_world.png", "shows_hello_world");
+    }
+
+    #[test]
+    fn interrupts() {
+        let mut c64 = c64_with_cartridge("interrupts.bin");
+        assert_produces_frame(&mut c64, "interrupts_1.png", "interrupts_1");
+        assert_produces_frame(&mut c64, "interrupts_2.png", "interrupts_2");
+        assert_produces_frame(&mut c64, "interrupts_3.png", "interrupts_3");
     }
 }

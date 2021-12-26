@@ -1,6 +1,7 @@
+use crate::c64::FrameStatus;
+use crate::c64::C64;
 use crate::vic::RASTER_LENGTH;
 use crate::vic::TOTAL_HEIGHT;
-use crate::C64;
 use common::app::Controller;
 use image::RgbaImage;
 use piston::Event;
@@ -36,6 +37,20 @@ impl C64Controller {
             }
         }
     }
+
+    // TODO: DRY
+    fn run_until_end_of_frame(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        while self.running
+        /*&& !self.interrupted.load(Ordering::Relaxed) */
+        {
+            match self.c64.tick() {
+                Ok(FrameStatus::Pending) => {}
+                Ok(FrameStatus::Complete) => return Ok(()),
+                Err(e) => return Err(e),
+            }
+        }
+        return Ok(());
+    }
 }
 
 impl Controller for C64Controller {
@@ -52,7 +67,11 @@ impl Controller for C64Controller {
     fn event(&mut self, event: &Event) {
         match event {
             Event::Loop(Loop::Update(_)) => {
-                self.run_frame();
+                if let Err(e) = self.run_until_end_of_frame() {
+                    self.running = false;
+                    eprintln!("ERROR: {}. Machine halted.", e);
+                    eprintln!("{}", self.display_machine_state());
+                };
             }
             _ => {}
         }

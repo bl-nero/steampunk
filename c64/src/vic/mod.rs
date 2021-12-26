@@ -20,9 +20,10 @@ pub struct Vic<GM: Read, CM: Read> {
     color_memory: Rc<RefCell<CM>>,
 
     // Registers
+    reg_control_1: u8,
     reg_control_2: u8,
     reg_interrupt: u8,
-    reg_interrupt_enabled: u8,
+    reg_interrupt_mask: u8,
     reg_border_color: Color,
     reg_background_color: Color,
 
@@ -51,9 +52,10 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
             graphics_memory,
             color_memory,
 
+            reg_control_1: 0,
             reg_control_2: 0,
             reg_interrupt: flags::INTERRUPT_UNUSED,
-            reg_interrupt_enabled: flags::INTERRUPT_ENABLED_UNUSED,
+            reg_interrupt_mask: flags::INTERRUPT_MASK_UNUSED,
             reg_border_color: 0,
             reg_background_color: 0,
 
@@ -93,15 +95,17 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
 
         if self.raster_counter == self.irq_raster_line
             && self.x_counter == 0
-            && self.reg_interrupt_enabled & flags::INTERRUPT_RASTER != 0
+            && self.reg_interrupt_mask & flags::INTERRUPT_RASTER != 0
         {
             self.reg_interrupt |= flags::INTERRUPT_PENDING | flags::INTERRUPT_RASTER;
         }
 
         let output = VicOutput {
-            x: self.x_counter,
-            raster_line: self.raster_counter,
-            color,
+            video_output: VideoOutput {
+                x: self.x_counter,
+                raster_line: self.raster_counter,
+                color: color & !flags::COLOR_UNUSED,
+            },
             irq: self.reg_interrupt & flags::INTERRUPT_PENDING != 0,
         };
 
@@ -187,17 +191,21 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
     }
 }
 
+pub struct VicOutput {
+    /// Whether VIC reports an IRQ interrupt.
+    pub irq: bool,
+    pub video_output: VideoOutput,
+}
+
 /// The video output of [`Vic::tick`]. Note that the coordinates are raw and
 /// include horizontal and vertical blanking areas; it's u to the consumer to
 /// crop pixels to the viewport.
-pub struct VicOutput {
+pub struct VideoOutput {
     pub color: Color,
     /// Raw X coordinate (including horizontal blanking area).
     pub x: usize,
     /// Raw Y coordinate (including vertical blanking area).
     pub raster_line: usize,
-    /// Whether VIC reports an IRQ interrupt.
-    pub irq: bool,
 }
 
 pub type TickResult = Result<VicOutput, ReadError>;
@@ -205,11 +213,14 @@ pub type TickResult = Result<VicOutput, ReadError>;
 impl<GM: Read, CM: Read> Read for Vic<GM, CM> {
     fn read(&self, address: u16) -> ReadResult {
         match address {
-            registers::CONTROL_1 => {
-                Ok((self.raster_counter >> 1) as u8 & flags::CONTROL_1_RASTER_8)
-            }
+            registers::CONTROL_1 => Ok(self.reg_control_1 & !flags::CONTROL_1_RASTER_8
+                | (self.raster_counter >> 1) as u8 & flags::CONTROL_1_RASTER_8),
             registers::RASTER => Ok(self.raster_counter as u8),
+            registers::CONTROL_2 => Ok(self.reg_control_2 | flags::CONTROL_2_UNUSED),
             registers::INTERRUPT => Ok(self.reg_interrupt),
+            registers::INTERRUPT_MASK => Ok(self.reg_interrupt_mask),
+            registers::BORDER_COLOR => Ok(self.reg_border_color | flags::COLOR_UNUSED),
+            registers::BACKGROUND_COLOR_0 => Ok(self.reg_background_color | flags::COLOR_UNUSED),
             _ => Err(ReadError { address }),
         }
     }
@@ -224,6 +235,7 @@ impl<GM: Read, CM: Read> Write for Vic<GM, CM> {
                 {
                     return Err(WriteError { address, value });
                 }
+                self.reg_control_1 = value & !flags::CONTROL_1_RASTER_8;
                 self.irq_raster_line = self.irq_raster_line & 0b1111_1111
                     | ((value & flags::CONTROL_1_RASTER_8) as usize) << 1;
             }
@@ -234,7 +246,7 @@ impl<GM: Read, CM: Read> Write for Vic<GM, CM> {
                 if value & flags::CONTROL_2_MCM != 0 {
                     return Err(WriteError { address, value });
                 }
-                self.reg_control_2 = value;
+                self.reg_control_2 = value | flags::CONTROL_2_UNUSED;
             }
             registers::INTERRUPT => {
                 if value & !(flags::INTERRUPT_UNUSED | flags::INTERRUPT_RASTER) != 0 {
@@ -244,15 +256,17 @@ impl<GM: Read, CM: Read> Write for Vic<GM, CM> {
                     self.reg_interrupt = flags::INTERRUPT_UNUSED;
                 }
             }
-            registers::INTERRUPT_ENABLED => {
+            registers::INTERRUPT_MASK => {
                 // Only raster interrupts are currently supported.
                 if value & !flags::INTERRUPT_RASTER != 0 {
                     return Err(WriteError { address, value });
                 }
-                self.reg_interrupt_enabled = value | flags::INTERRUPT_ENABLED_UNUSED;
+                self.reg_interrupt_mask = value | flags::INTERRUPT_MASK_UNUSED;
             }
-            registers::BORDER_COLOR => self.reg_border_color = value,
-            registers::BACKGROUND_COLOR_0 => self.reg_background_color = value,
+            registers::BORDER_COLOR => self.reg_border_color = value | flags::COLOR_UNUSED,
+            registers::BACKGROUND_COLOR_0 => {
+                self.reg_background_color = value | flags::COLOR_UNUSED
+            }
             _ => return Err(WriteError { address, value }),
         }
         Ok(())
@@ -305,7 +319,7 @@ mod registers {
     pub const RASTER: u16 = 0xD012;
     pub const CONTROL_2: u16 = 0xD016;
     pub const INTERRUPT: u16 = 0xD019;
-    pub const INTERRUPT_ENABLED: u16 = 0xD01A;
+    pub const INTERRUPT_MASK: u16 = 0xD01A;
     pub const BORDER_COLOR: u16 = 0xD020;
     pub const BACKGROUND_COLOR_0: u16 = 0xD021;
 }
@@ -323,22 +337,23 @@ mod flags {
     pub const CONTROL_2_XSCROLL: u8 = 0b0000_0111;
     pub const CONTROL_2_CSEL: u8 = 0b0000_1000;
     pub const CONTROL_2_MCM: u8 = 0b0001_0000;
+    pub const CONTROL_2_UNUSED: u8 = 0b1100_0000;
 
     /// Raster interrupt. Valid for [`INTERRUPT`][super::registers::INTERRUPT]
-    /// and [`INTERRUPT_ENABLED`][super::registers::INTERRUPT_ENABLED]
+    /// and [`INTERRUPT_MASK`][super::registers::INTERRUPT_MASK]
     /// registers.
     pub const INTERRUPT_RASTER: u8 = 0b0000_0001;
     /// Sprite-background collision detected. Valid for
     /// [`INTERRUPT`][super::registers::INTERRUPT] and
-    /// [`INTERRUPT_ENABLED`][super::registers::INTERRUPT_ENABLED] registers.
+    /// [`INTERRUPT_MASK`][super::registers::INTERRUPT_MASK] registers.
     pub const INTERRUPT_SPRITE_BACKGROUND: u8 = 0b0000_0010;
     /// Sprite-sprite collision detected. Valid for
     /// [`INTERRUPT`][super::registers::INTERRUPT] and
-    /// [`INTERRUPT_ENABLED`][super::registers::INTERRUPT_ENABLED] registers.
+    /// [`INTERRUPT_MASK`][super::registers::INTERRUPT_MASK] registers.
     pub const INTERRUPT_SPRITE_SPRITE: u8 = 0b0000_0100;
     /// Light pen signal arrived. Valid for
     /// [`INTERRUPT`][super::registers::INTERRUPT] and
-    /// [`INTERRUPT_ENABLED`][super::registers::INTERRUPT_ENABLED] registers.
+    /// [`INTERRUPT_MASK`][super::registers::INTERRUPT_MASK] registers.
     pub const INTERRUPT_LIGHT_PEN: u8 = 0b0000_1000;
     /// There is an unacknowledged interrupt in the
     /// [`INTERRUPT`][super::registers::INTERRUPT] register.
@@ -348,6 +363,8 @@ mod flags {
     pub const INTERRUPT_UNUSED: u8 = 0b0111_0000;
 
     /// Unused bits of
-    /// [`INTERRUPT_ENABLED`][super::registers::INTERRUPT_ENABLED] register.
-    pub const INTERRUPT_ENABLED_UNUSED: u8 = 0b1111_0000;
+    /// [`INTERRUPT_MASK`][super::registers::INTERRUPT_MASK] register.
+    pub const INTERRUPT_MASK_UNUSED: u8 = 0b1111_0000;
+    /// Unused bits of color registers.
+    pub const COLOR_UNUSED: u8 = 0b1111_0000;
 }
