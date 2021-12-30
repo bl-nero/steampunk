@@ -5,6 +5,8 @@ use crate::cia::Cia;
 use crate::frame_renderer::FrameRenderer;
 use crate::sid::Sid;
 use crate::Vic;
+use common::app::FrameStatus;
+use common::app::Machine;
 use image::RgbaImage;
 use std::cell::RefCell;
 use std::error::Error;
@@ -22,10 +24,31 @@ pub struct C64 {
     frame_renderer: FrameRenderer,
 }
 
-// TODO: DRY
-pub enum FrameStatus {
-    Pending,
-    Complete,
+impl Machine for C64 {
+    fn reset(&mut self) {
+        self.cpu.reset();
+    }
+
+    fn tick(&mut self) -> Result<FrameStatus, Box<dyn Error>> {
+        let vic_result = self.cpu.mut_memory().mut_vic().tick()?;
+        // OK, that's 8 times faster than the _actual_ 6510 CPU. So we don't
+        // care about timing for now, big deal. We have bigger problems.
+        self.cpu.set_irq_pin(vic_result.irq);
+        self.cpu.tick()?;
+        return if self.frame_renderer.consume(vic_result.video_output) {
+            Ok(FrameStatus::Complete)
+        } else {
+            Ok(FrameStatus::Pending)
+        };
+    }
+
+    fn frame_image(&self) -> &RgbaImage {
+        self.frame_renderer.frame_image()
+    }
+
+    fn display_state(&self) -> String {
+        format!("{}\n{}", self.cpu, self.cpu.memory())
+    }
 }
 
 impl C64 {
@@ -56,31 +79,6 @@ impl C64 {
         })
     }
 
-    pub fn frame_image(&self) -> &RgbaImage {
-        self.frame_renderer.frame_image()
-    }
-
-    pub fn cpu(&self) -> &Cpu<C64AddressSpace> {
-        &self.cpu
-    }
-
-    pub fn reset(&mut self) {
-        self.cpu.reset();
-    }
-
-    pub fn tick(&mut self) -> Result<FrameStatus, Box<dyn Error>> {
-        let vic_result = self.cpu.mut_memory().mut_vic().tick()?;
-        // OK, that's 8 times faster than the _actual_ 6510 CPU. So we don't
-        // care about timing for now, big deal. We have bigger problems.
-        self.cpu.set_irq_pin(vic_result.irq);
-        self.cpu.tick()?;
-        return if self.frame_renderer.consume(vic_result.video_output) {
-            Ok(FrameStatus::Complete)
-        } else {
-            Ok(FrameStatus::Pending)
-        };
-    }
-
     pub fn set_cartridge(&mut self, cartridge: Option<Cartridge>) {
         self.cpu.mut_memory().cartridge = cartridge;
     }
@@ -90,8 +88,6 @@ impl C64 {
 mod tests {
     use super::*;
     use crate::address_space::CartridgeMode;
-    use crate::vic::RASTER_LENGTH;
-    use crate::vic::TOTAL_HEIGHT;
     use common::test_utils::read_test_image;
     use image::DynamicImage;
     use std::error::Error;

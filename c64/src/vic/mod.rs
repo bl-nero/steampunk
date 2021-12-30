@@ -324,6 +324,7 @@ mod registers {
     pub const BACKGROUND_COLOR_0: u16 = 0xD021;
 }
 
+#[allow(dead_code)]
 mod flags {
     pub const CONTROL_1_YSCROLL: u8 = 0b0000_0111;
     pub const CONTROL_1_RSEL: u8 = 0b0000_1000;

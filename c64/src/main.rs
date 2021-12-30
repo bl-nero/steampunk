@@ -35,7 +35,7 @@ fn main() {
         }));
     }
 
-    let mut app = Application::new(C64Controller::new(c64), "Commodore 64", 2, 2);
+    let mut app = Application::new(C64Controller::new(&mut c64), "Commodore 64", 2, 2);
 
     let interrupted = app.interrupted();
 

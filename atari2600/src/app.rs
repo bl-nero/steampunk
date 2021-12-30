@@ -1,46 +1,43 @@
-use common::app::Controller;
+use common::app::AppController;
+use common::app::MachineController;
 use image::RgbaImage;
 use piston_window::{Button, ButtonState, Event, Input, Key, Loop};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use crate::atari::{Atari, FrameStatus, JoystickInput, JoystickPort, Switch, SwitchPosition};
+use crate::atari::{Atari, JoystickInput, JoystickPort, Switch, SwitchPosition};
 
 pub struct AtariController<'a> {
-    atari: &'a mut Atari,
-    running: bool,
-    interrupted: Arc<AtomicBool>,
+    machine_controller: MachineController<'a, Atari>,
 }
 
 impl<'a> AtariController<'a> {
     pub fn new(atari: &'a mut Atari) -> Self {
         return AtariController {
-            atari,
-            running: false,
-            interrupted: Arc::new(AtomicBool::new(false)),
+            machine_controller: MachineController::new(atari),
         };
     }
 
-    fn run_until_end_of_frame(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        while self.running && !self.interrupted.load(Ordering::Relaxed) {
-            match self.atari.tick() {
-                Ok(FrameStatus::Pending) => {}
-                Ok(FrameStatus::Complete) => return Ok(()),
-                Err(e) => return Err(e),
-            }
-        }
-        return Ok(());
+    fn mut_atari(&mut self) -> &mut Atari {
+        self.machine_controller.mut_machine()
     }
 }
 
-impl<'a> Controller for AtariController<'a> {
+impl<'a> AppController for AtariController<'a> {
     fn frame_image(&self) -> &RgbaImage {
-        self.atari.frame_image()
+        self.machine_controller.frame_image()
     }
 
     fn reset(&mut self) {
-        self.atari.reset().expect("Unable to reset Atari");
-        self.running = true;
+        self.machine_controller.reset()
+    }
+
+    fn interrupted(&self) -> Arc<AtomicBool> {
+        self.machine_controller.interrupted()
+    }
+
+    fn display_machine_state(&self) -> String {
+        self.machine_controller.display_state()
     }
 
     /// Handles Piston events.
@@ -60,8 +57,8 @@ impl<'a> Controller for AtariController<'a> {
                     Key::D3 => Some(Switch::RightDifficulty),
                     _ => None,
                 } {
-                    self.atari
-                        .flip_switch(switch, !self.atari.switch_position(switch));
+                    let atari = self.mut_atari();
+                    atari.flip_switch(switch, !atari.switch_position(switch));
                 }
             }
             Event::Input(
@@ -77,7 +74,7 @@ impl<'a> Controller for AtariController<'a> {
                     Key::D5 => Some(Switch::GameReset),
                     _ => None,
                 } {
-                    self.atari.flip_switch(
+                    self.machine_controller.mut_machine().flip_switch(
                         switch,
                         match state {
                             ButtonState::Press => SwitchPosition::Down,
@@ -108,27 +105,14 @@ impl<'a> Controller for AtariController<'a> {
                     Key::N | Key::Period => Some((JoystickPort::Right, JoystickInput::Fire)),
                     _ => None,
                 } {
-                    self.atari
+                    self.machine_controller
+                        .mut_machine()
                         .set_joystick_input_state(port, input, *state == ButtonState::Press);
                 };
             }
-            Event::Loop(Loop::Update(_)) => {
-                if let Err(e) = self.run_until_end_of_frame() {
-                    self.running = false;
-                    eprintln!("ERROR: {}. Atari halted.", e);
-                    eprintln!("{}", self.display_machine_state());
-                };
-            }
+            Event::Loop(Loop::Update(_)) => self.machine_controller.run_until_end_of_frame(),
             _ => {}
         }
-    }
-
-    fn interrupted(&self) -> Arc<AtomicBool> {
-        self.interrupted.clone()
-    }
-
-    fn display_machine_state(&self) -> String {
-        format!("{}\n{}", self.atari.cpu(), self.atari.cpu().memory())
     }
 }
 
@@ -141,6 +125,7 @@ mod tests {
     use image::DynamicImage;
     use piston_window::ButtonArgs;
     use piston_window::UpdateArgs;
+    use std::sync::atomic::Ordering;
 
     fn assert_current_frame(
         controller: &mut AtariController,
@@ -172,7 +157,7 @@ mod tests {
             "controller_produces_image_until_interrupted_2",
         );
 
-        controller.interrupted.store(true, Ordering::Relaxed);
+        controller.interrupted().store(true, Ordering::Relaxed);
         controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
         assert_current_frame(
             &mut controller,

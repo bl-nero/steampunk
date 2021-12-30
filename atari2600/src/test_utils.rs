@@ -5,6 +5,7 @@ use crate::tia::VideoOutput;
 use crate::Atari;
 use crate::AtariAddressSpace;
 use crate::FrameRendererBuilder;
+use common::app::Machine;
 use common::test_utils::as_single_hex_digit;
 use image::DynamicImage;
 use std::iter;
@@ -109,7 +110,7 @@ pub fn atari_with_rom(file_name: &str) -> Atari {
             .build(),
         consumer,
     );
-    atari.reset().unwrap();
+    atari.reset();
     return atari;
 }
 

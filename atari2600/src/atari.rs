@@ -5,6 +5,8 @@ use crate::riot;
 use crate::riot::Riot;
 use crate::tia;
 use crate::tia::Tia;
+use common::app::FrameStatus;
+use common::app::Machine;
 use enum_map::{enum_map, Enum, EnumMap};
 use image;
 use image::RgbaImage;
@@ -34,9 +36,42 @@ pub struct Atari {
     joysticks: EnumMap<JoystickPort, Joystick>,
 }
 
-pub enum FrameStatus {
-    Pending,
-    Complete,
+impl Machine for Atari {
+    /// Performs a single clock tick. If it resulted in an error reported by the
+    /// CPU, dump debug information on standard error stream and return
+    /// `TickResult::Error`.
+    fn tick(&mut self) -> Result<FrameStatus, Box<dyn error::Error>> {
+        let tia_result = self.mut_tia().tick();
+        if tia_result.cpu_tick {
+            if let Err(e) = self.cpu.tick() {
+                return Err(e);
+            }
+        }
+        if tia_result.riot_tick {
+            self.mut_riot().tick();
+        }
+        if let Some(audio) = tia_result.audio {
+            self.audio_consumer
+                .consume((audio.au0 + audio.au1) as f32 / 30.0 - 0.5);
+        }
+        return if self.frame_renderer.consume(tia_result.video) {
+            Ok(FrameStatus::Complete)
+        } else {
+            Ok(FrameStatus::Pending)
+        };
+    }
+
+    fn frame_image(&self) -> &RgbaImage {
+        self.frame_renderer.frame_image()
+    }
+
+    fn reset(&mut self) {
+        self.cpu.reset()
+    }
+
+    fn display_state(&self) -> String {
+        format!("{}\n{}", self.cpu(), self.cpu().memory())
+    }
 }
 
 impl Atari {
@@ -67,42 +102,6 @@ impl Atari {
 
     fn mut_riot(&mut self) -> &mut Riot {
         return &mut self.cpu.mut_memory().riot;
-    }
-
-    /// Performs a single clock tick. If it resulted in an error reported by the
-    /// CPU, dump debug information on standard error stream and return
-    /// `TickResult::Error`.
-    pub fn tick(&mut self) -> Result<FrameStatus, Box<dyn error::Error>> {
-        let tia_result = self.mut_tia().tick();
-        if tia_result.cpu_tick {
-            if let Err(e) = self.cpu.tick() {
-                return Err(e);
-            }
-        }
-        if tia_result.riot_tick {
-            self.mut_riot().tick();
-        }
-        if let Some(audio) = tia_result.audio {
-            self.audio_consumer
-                .consume((audio.au0 + audio.au1) as f32 / 30.0 - 0.5);
-        }
-        return if self.frame_renderer.consume(tia_result.video) {
-            Ok(FrameStatus::Complete)
-        } else {
-            Ok(FrameStatus::Pending)
-        };
-    }
-
-    pub fn frame_image(&self) -> &RgbaImage {
-        self.frame_renderer.frame_image()
-    }
-
-    pub fn reset(&mut self) -> Result<(), Box<dyn error::Error>> {
-        self.cpu.reset();
-        for _ in 0..8 {
-            self.tick()?;
-        }
-        Ok(())
     }
 
     pub fn switch_position(&self, switch: Switch) -> SwitchPosition {
@@ -486,7 +485,7 @@ mod tests {
                 consumer,
             );
 
-            atari.reset().unwrap();
+            atari.reset();
             next_frame(&mut atari).unwrap();
         });
     }

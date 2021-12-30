@@ -96,6 +96,7 @@ impl Write for Cia {
 
 impl Memory for Cia {}
 
+#[allow(dead_code)]
 mod registers {
     pub const PRA: u16 = 0x0;
     pub const PRB: u16 = 0x1;
