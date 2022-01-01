@@ -22,6 +22,7 @@ pub type C64AddressSpace = AddressSpace<Vic<VicAddressSpace<Ram, Rom>, Ram>, Sid
 pub struct C64 {
     cpu: Cpu<C64AddressSpace>,
     frame_renderer: FrameRenderer,
+    cpu_clock_divider: u32,
 }
 
 impl Machine for C64 {
@@ -31,10 +32,11 @@ impl Machine for C64 {
 
     fn tick(&mut self) -> Result<FrameStatus, Box<dyn Error>> {
         let vic_result = self.cpu.mut_memory().mut_vic().tick()?;
-        // OK, that's 8 times faster than the _actual_ 6510 CPU. So we don't
-        // care about timing for now, big deal. We have bigger problems.
         self.cpu.set_irq_pin(vic_result.irq);
-        self.cpu.tick()?;
+        if self.cpu_clock_divider == 0 {
+            self.cpu.tick()?;
+        }
+        self.cpu_clock_divider = (self.cpu_clock_divider + 1) % 8;
         return if self.frame_renderer.consume(vic_result.video_output) {
             Ok(FrameStatus::Complete)
         } else {
@@ -76,6 +78,7 @@ impl C64 {
                 Rom::new(&kernal_rom)?,
             ))),
             frame_renderer: FrameRenderer::default(),
+            cpu_clock_divider: 0,
         })
     }
 
@@ -142,14 +145,23 @@ mod tests {
     fn shows_hello_world() {
         // Note: Once 6502 runs with its actual speed, we'll probably need to wait for a frame or two.
         let mut c64 = c64_with_cartridge("hello_world.bin");
+        next_frame(&mut c64).unwrap(); // Allow 1 frame for initialization.
         assert_produces_frame(&mut c64, "hello_world.png", "shows_hello_world");
     }
 
     #[test]
     fn interrupts() {
         let mut c64 = c64_with_cartridge("interrupts.bin");
+        next_frame(&mut c64).unwrap(); // Allow 1 frame for initialization.
         assert_produces_frame(&mut c64, "interrupts_1.png", "interrupts_1");
         assert_produces_frame(&mut c64, "interrupts_2.png", "interrupts_2");
         assert_produces_frame(&mut c64, "interrupts_3.png", "interrupts_3");
+    }
+
+    #[test]
+    fn chip_timing() {
+        let mut c64 = c64_with_cartridge("chip_timing.bin");
+        next_frame(&mut c64).unwrap(); // Allow 1 frame for initialization.
+        assert_produces_frame(&mut c64, "chip_timing.png", "chip_timing");
     }
 }

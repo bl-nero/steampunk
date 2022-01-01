@@ -6,6 +6,7 @@ COLOR_START    = $D800
 COL_WHITE      = 1
 COL_BLUE       = 6
 COL_LIGHT_BLUE = 14
+COL_LIGHT_GREY = 15
 
 ; Offset to the center of the screen.
 TEXT_OFFSET = (25 / 2) * 40 + 20 - (HELLO_LEN + 1) / 2
@@ -22,6 +23,8 @@ FillScreenPage: .res 2
 
 Reset:      lda #COL_WHITE
             sta VIC_BG_COLOR0
+            lda #COL_LIGHT_GREY
+            sta VIC_BORDERCOLOR
             lda #%00001000
             sta VIC_CTRL2
 
