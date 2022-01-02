@@ -36,6 +36,9 @@ impl<VIC: Memory, SID: Memory, CIA: Memory> AddressSpace<VIC, SID, CIA> {
     pub fn mut_vic(&mut self) -> &mut VIC {
         &mut self.vic
     }
+    pub fn mut_cia1(&mut self) -> &mut CIA {
+        &mut self.cia1
+    }
 }
 
 impl<VIC: Memory, SID: Memory, CIA: Memory> AddressSpace<VIC, SID, CIA> {

@@ -19,6 +19,60 @@ Counter:        .res 2  ; 4-digit BCD counter
 
 ; ------------------------------------------------------------------------------
 
+.macro MeasureCia CiaCountdown, CiaControl, OutputAddress
+.scope
+            ; Measure the CIA timer cycles. They should correspond 1:1 to the
+            ; CPU clock.
+            ;
+            ; Again, start by going to the end of display window to avoid bad
+            ; lines.
+            lda #251
+:           cmp VIC_HLINE
+            bne :-
+
+            lda #0                      ; Initialize the counter
+            sta Counter
+            sta Counter+1
+            sed
+
+            lda #<1000                   ; Count down from 1000
+            sta CiaCountdown
+            lda #>1000
+            sta CiaCountdown + 1
+            lda #%00011001              ; Load and start a one-shot timer
+            sta CiaControl
+
+Measure:    clc                         ; 2 Increase counter by 1
+            lda Counter                 ; 3
+            adc #1                      ; 2
+            sta Counter                 ; 3
+            lda Counter+1               ; 3
+            adc #0                      ; 2
+            sta Counter+1               ; 3
+            lda CiaControl              ; 4 Check if still running
+            and #%00000001              ; 2
+            bne Measure                 ; 3 (2 when leaving)
+
+; Do our best to protect from crossing page boundaries when branching in
+; time-critical code.
+.assert >Measure = >*, error, "Timer measurement code crosses the page boundary"
+
+            cld                         ; Counting finished
+
+            ; Print the results
+            lda #<(OutputAddress)
+            sta PrintBcdStart
+            lda #>(OutputAddress)
+            sta PrintBcdStart + 1
+            lda Counter+1
+            jsr PrintBcd
+            lda Counter
+            jsr PrintBcd
+.endscope
+.endmacro
+
+; ------------------------------------------------------------------------------
+
 .code
 
 Reset:      lda #COL_LIGHT_GREY
@@ -61,10 +115,10 @@ Reset:      lda #COL_LIGHT_GREY
             ldx #51                     ; 2 Raster line 51
 MeasureVic: clc                         ; 2 Increase counter by 1
             lda Counter                 ; 3
-            adc #1                      ; 3
+            adc #1                      ; 2
             sta Counter                 ; 3
             lda Counter+1               ; 3
-            adc #0                      ; 3
+            adc #0                      ; 2
             sta Counter+1               ; 3
             cpx VIC_HLINE               ; 4
             bne MeasureVic              ; 3 (2 when leaving)
@@ -84,6 +138,8 @@ MeasureVic: clc                         ; 2 Increase counter by 1
             jsr PrintBcd
             lda Counter
             jsr PrintBcd
+
+            MeasureCia CIA1_TA, CIA1_CRA, SCREEN_START + 81
 
 End:        jmp End
 

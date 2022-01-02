@@ -35,6 +35,7 @@ impl Machine for C64 {
         self.cpu.set_irq_pin(vic_result.irq);
         if self.cpu_clock_divider == 0 {
             self.cpu.tick()?;
+            self.cpu.mut_memory().mut_cia1().tick();
         }
         self.cpu_clock_divider = (self.cpu_clock_divider + 1) % 8;
         return if self.frame_renderer.consume(vic_result.video_output) {
