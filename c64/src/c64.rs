@@ -162,7 +162,9 @@ mod tests {
     #[test]
     fn chip_timing() {
         let mut c64 = c64_with_cartridge("chip_timing.bin");
-        next_frame(&mut c64).unwrap(); // Allow 1 frame for initialization.
+        // Allow 2 frames for initialization.
+        next_frame(&mut c64).unwrap();
+        next_frame(&mut c64).unwrap();
         assert_produces_frame(&mut c64, "chip_timing.png", "chip_timing");
     }
 }
