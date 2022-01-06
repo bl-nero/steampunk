@@ -1,4 +1,5 @@
 use std::env;
+use std::env::VarError;
 use std::error::Error;
 use std::fmt;
 use std::fs;
@@ -10,9 +11,8 @@ use std::process::Command;
 
 #[derive(Debug)]
 enum RomBuildError {
-    ExternalToolFailed(i32),
-    ExternalToolTerminated,
-    BuildFailed,
+    ExternalToolFailed(Command, i32),
+    ExternalToolTerminated(Command),
 }
 use RomBuildError::*;
 
@@ -20,25 +20,46 @@ impl Error for RomBuildError {}
 
 impl fmt::Display for RomBuildError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ExternalToolFailed(status) => {
-                write!(f, "External tool failed with status code {}", status)
+        match self {
+            ExternalToolFailed(command, status) => {
+                write!(
+                    f,
+                    "External tool failed with status code {}: {:?}",
+                    status, command
+                )
             }
-            ExternalToolTerminated => write!(f, "External tool terminated"),
-            BuildFailed => write!(f, "Failed to build ROMs"),
+            ExternalToolTerminated(command) => write!(f, "External tool terminated: {:?}", command),
         }
     }
 }
 
-/// Resolves a relative path against the output directory. Creates a directory
-/// with this path if needed.
-pub fn prepare_out_dir(relative_path: &Path) -> Result<PathBuf, Box<dyn Error>> {
-    let out_dir = env::var("OUT_DIR")?;
-    let dest_path = Path::new(&out_dir).join(relative_path);
-    if !dest_path.exists() {
-        fs::create_dir(&dest_path)?;
+/// Tells Cargo to rerun the build script only if relevant files change. It's
+/// important to _always_ call it with a complete list of source files, or never
+/// call it at all. Otherwise, some soures could be ignored, for example, in
+/// case of a failed build.
+pub fn rerun_if_any_changed<I, P>(paths: I)
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    for path in paths {
+        println!("cargo:rerun-if-changed={}", path.as_ref().display());
     }
-    Ok(dest_path)
+}
+
+/// Returns an absolute path of the `src` directory.
+fn absolute_src_dir() -> io::Result<PathBuf> {
+    env::current_dir().map(|d| d.join("src"))
+}
+
+/// Returns an absolute path of a path relative to the `src` directory.
+pub fn absolute_src_path<P: AsRef<Path>>(relative_path: P) -> io::Result<PathBuf> {
+    absolute_src_dir().map(|d| d.join(relative_path))
+}
+
+/// Returns an absolute path of a path relative to the crate's output directory.
+fn absolute_out_path<P: AsRef<Path>>(relative_path: P) -> Result<PathBuf, VarError> {
+    env::var("OUT_DIR").map(|d| PathBuf::from(d).join(relative_path))
 }
 
 /// Returns paths to all files in a given directory that have given extension.
@@ -53,106 +74,102 @@ pub fn all_files_with_extension(dir_path: &Path, extension: &str) -> io::Result<
         .collect())
 }
 
-/// Builds all the ROM files from sources in the `src/test_roms` directory. Puts
-/// the output in the `roms` subdirectory of the output directory. The `roms`
-/// directory is created if it didn't exist. Returns an error if any file fails
-/// to build.
-///
-/// In case of full success, this function also prints the
-/// `cargo:rerun-if-changed` declarations on the standard output to tell Cargo to
-/// rerun the build script only if relevant files change.
-pub fn build_all_test_roms(
-    assembler_args: &[&str],
-    linker_args: &[&str],
-) -> Result<(), Box<dyn Error>> {
-    // Create the ROM destination directory if it doesn't exist.
-    let dest_path = prepare_out_dir(Path::new("test_roms"))?;
-
-    // Find all directory entries in the `src/test_roms` directory.
-    let src_dir = Path::new("src").join("test_roms");
-    let asm_files = all_files_with_extension(&src_dir, "s")?;
-    let config_path = src_dir.join("build.cfg");
-
-    // Assemble and link the files one by one. The `success` variable will
-    // become `false` if any of these files fails to build.
-    let mut success = true;
-    for source_path in &asm_files {
-        println!("Building file '{}'.", source_path.display());
-        let result = build_rom(
-            &source_path,
-            &config_path,
-            &dest_path,
-            assembler_args,
-            linker_args,
-        );
-        if let Err(err) = &result {
-            println!(
-                "Error while building file '{}': {}",
-                source_path.display(),
-                err
-            );
-            success = false;
-        }
+/// Creates a parent directory of a given path if it doesn't exist.
+fn ensure_parent_exists(path: &Path) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        println!("Creating directory {}", parent.display());
+        fs::create_dir_all(parent)?;
     }
-
-    if !success {
-        return Err(BuildFailed.into());
-    }
-
-    // Tell Cargo to rerun the build script only if relevant files change. It's
-    // important to do it AFTER the files are assembled. Otherwise, a failed
-    // build could silently "pass" on the next run, simply because it wouldn't
-    // be retried at all.
-    for path in asm_files {
-        println!("cargo:rerun-if-changed={}", path.display());
-    }
-
-    // Tell Cargo to also rerun the build script if the contents of the
-    // source directory are changed (for example, a new file has been added).
-    println!("cargo:rerun-if-changed={}", src_dir.display());
-
-    // Finally, a success!
     Ok(())
 }
 
-/// Assembles and links a single `source_file`. The output is stored in the
-/// `dest_path` directory. Uses the specified `config_file` for linking the
-/// binary.
-fn build_rom(
-    source_file: &Path,
-    config_file: &Path,
-    dest_path: &Path,
+/// Assembles all files and returns a vector of object file paths.
+pub fn assemble_all<P, I>(
+    asm_files: I,
     assembler_args: &[&str],
+) -> Result<Vec<PathBuf>, Box<dyn Error>>
+where
+    P: AsRef<Path>,
+    I: IntoIterator<Item = P>,
+{
+    asm_files
+        .into_iter()
+        .map(|source| assemble(source, assembler_args))
+        .collect()
+}
+
+/// Assembles a single source file using `ca65` and places results in the
+/// crate's output directory. Returns the output file's path.
+fn assemble<P: AsRef<Path>>(
+    source_file: P,
+    assembler_args: &[&str],
+) -> Result<PathBuf, Box<dyn Error>> {
+    process_source(
+        source_file,
+        |path| path.with_extension("o"),
+        |source_file, output_path| {
+            println!("Assembling file '{}'.", &source_file.display());
+            let mut assembler_command = Command::new("ca65");
+            assembler_command
+                .arg(&source_file)
+                .arg("-o")
+                .arg(&output_path)
+                .args(assembler_args);
+            run_command(assembler_command)
+        },
+    )
+}
+
+/// Processes a given source file using certain action and places the output in
+/// the crate's output directory. The output file's name is taken from the
+/// `to_out_name` function; if the output file's name should be the same as the
+/// input one, the `to_out_name` function should simply return the argument
+/// provided to it.
+pub fn process_source<P, O, A>(
+    source_file: P,
+    to_out_name: O,
+    action: A,
+) -> Result<PathBuf, Box<dyn Error>>
+where
+    P: AsRef<Path>,
+    O: FnOnce(&Path) -> PathBuf,
+    A: FnOnce(&Path, &Path) -> Result<(), Box<dyn Error>>,
+{
+    let source_file = source_file.as_ref();
+    let source_relative_path = source_file.strip_prefix(absolute_src_dir()?)?;
+    let output_relative_path = to_out_name(source_relative_path);
+    let output_absolute_path = absolute_out_path(&output_relative_path)?;
+
+    ensure_parent_exists(&output_absolute_path)?;
+    action(source_file, &output_absolute_path)?;
+
+    Ok(output_absolute_path)
+}
+
+/// Links object files using `cl65` and places the output in the crate's output
+/// directory.  The output file name is computed by taking the first object's
+/// file name and changing its extension to `.bin`.
+pub fn link<PO: AsRef<Path>, PC: AsRef<Path>>(
+    object_files: &[PO],
+    config_file: PC,
     linker_args: &[&str],
-) -> Result<(), Box<dyn Error>> {
-    // Compute the ROM file path out of the destination path and the original
-    // source file name.
-    let source_file_name = source_file.file_name();
-    let output_path = match source_file_name {
-        Some(name) => dest_path.join(name).with_extension("o"),
-        None => dest_path.join("a.out"),
-    };
+) -> Result<PathBuf, Box<dyn Error>> {
+    let object_files: Vec<_> = object_files.iter().map(|f| f.as_ref()).collect();
+    let config_file = config_file.as_ref();
+    let bin_absolute_path = object_files[0].with_extension("bin");
 
-    // Step 1: Assemble the file.
-    let mut assembler_command = Command::new("ca65");
-    assembler_command
-        .arg(&source_file)
-        .arg("-o")
-        .arg(&output_path)
-        .args(assembler_args);
-    run_command(assembler_command)?;
-
-    // Step 2: Link the output file.
-    let bin_output_path = output_path.with_extension("bin");
+    println!("Linking file '{}'.", &bin_absolute_path.display());
     let mut linker_command = Command::new("cl65");
     linker_command
-        .arg(&output_path)
+        .args(object_files)
         .arg("-C")
-        .arg(&config_file)
+        .arg(config_file)
         .arg("-o")
-        .arg(&bin_output_path)
+        .arg(&bin_absolute_path)
         .args(linker_args);
-    run_command(linker_command)
+    run_command(linker_command)?;
+
+    Ok(bin_absolute_path)
 }
 
 /// Runs a `command` and returns an error if it's not been successful.
@@ -165,8 +182,8 @@ fn run_command(command: Command) -> Result<(), Box<dyn Error>> {
         Ok(())
     } else {
         match status.code() {
-            Some(code) => Err(ExternalToolFailed(code).into()),
-            None => Err(ExternalToolTerminated.into()),
+            Some(code) => Err(ExternalToolFailed(command, code).into()),
+            None => Err(ExternalToolTerminated(command).into()),
         }
     };
 }

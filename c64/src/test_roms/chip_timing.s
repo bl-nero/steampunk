@@ -9,13 +9,20 @@ COL_BROWN      = 9
 COL_LIGHT_BLUE = 14
 COL_LIGHT_GREY = 15
 
-; ------------------------------------------------------------------------------
+; ==============================================================================
 
 .zeropage
 
-FillScreenPage: .res 2
+.import FillScreenPage
+
 PrintBcdStart:  .res 2
 Counter:        .res 2  ; 4-digit BCD counter
+
+; ==============================================================================
+
+.code
+
+.import FillScreen
 
 ; ------------------------------------------------------------------------------
 
@@ -72,8 +79,6 @@ Measure:    clc                         ; 2 Increase counter by 1
 .endmacro
 
 ; ------------------------------------------------------------------------------
-
-.code
 
 Reset:      lda #COL_LIGHT_GREY
             sta VIC_BG_COLOR0
@@ -168,24 +173,7 @@ End:        jmp End
             rts
 .endproc
 
-; ------------------------------------------------------------------------------
-
-; Fills a 1KiB area with a byte stored in the accumulator. The start address
-; should be stored at FillScreenPage. The procedure clobbers X and Y registers,
-; as well as FillScreenPage.
-.proc FillScreen
-            ldx #4                      ; 4 pages = 1KiB
-PageLoop:   ldy #0
-Loop:       sta (FillScreenPage),y      ; Fill one page
-            iny
-            bne Loop
-            inc FillScreenPage+1        ; Next page
-            dex
-            bne PageLoop
-            rts
-.endproc
-
-; ------------------------------------------------------------------------------
+; ==============================================================================
 
 .segment "VECTORS"
 
