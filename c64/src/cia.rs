@@ -31,10 +31,17 @@ impl Cia {
 
     pub fn tick(&mut self) -> bool {
         if self.timer_a.tick() {
+            let bits_to_set = if self.reg_interrupt_control & flags::ICR_TIMER_A != 0 {
+                flags::ICR_TIMER_A | flags::ICR_TRIGGERED
+            } else {
+                flags::ICR_TIMER_A
+            };
             self.reg_interrupt_status
-                .set(self.reg_interrupt_status.get() | flags::ICR_TIMER_A);
+                .set(self.reg_interrupt_status.get() | bits_to_set);
         }
         if self.reg_interrupt_control & self.reg_interrupt_status.get() != 0 {
+            self.reg_interrupt_status
+                .set(self.reg_interrupt_status.get() | flags::ICR_TRIGGERED);
             return true;
         }
         return false;
@@ -88,12 +95,12 @@ impl Write for Cia {
                 .timer_a
                 .set_latch(self.timer_a.latch() & 0xFF | (value as u16) << 8),
             registers::ICR => {
-                // For now, only allow manipulating the timer A the IRQ.
-                if value & !(flags::ICR_SOURCE_BIT | flags::ICR_TIMER_A) != 0 {
-                    return Err(WriteError { address, value });
-                }
                 if value & flags::ICR_SOURCE_BIT != 0 {
                     // Set mask bits.
+                    // For now, only allow turning on the timer A IRQ.
+                    if value & !(flags::ICR_TIMER_A | flags::ICR_SOURCE_BIT) != 0 {
+                        return Err(WriteError { address, value });
+                    }
                     self.reg_interrupt_control |= value;
                 } else {
                     self.reg_interrupt_control &= !value;
@@ -265,7 +272,10 @@ mod tests {
         assert_eq!(cia.tick(), false);
         assert_eq!(cia.tick(), true);
         assert_eq!(cia.tick(), true); // Report IRQ until acknowledged.
-        assert_eq!(cia.read(registers::ICR).unwrap(), flags::ICR_TIMER_A);
+        assert_eq!(
+            cia.read(registers::ICR).unwrap(),
+            flags::ICR_TRIGGERED | flags::ICR_TIMER_A
+        );
         assert_eq!(cia.tick(), false);
         assert_eq!(cia.read(registers::ICR).unwrap(), 0);
 
