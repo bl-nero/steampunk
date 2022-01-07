@@ -22,7 +22,10 @@ pub type C64AddressSpace = AddressSpace<Vic<VicAddressSpace<Ram, Rom>, Ram>, Sid
 pub struct C64 {
     cpu: Cpu<C64AddressSpace>,
     frame_renderer: FrameRenderer,
+
     cpu_clock_divider: u32,
+    cia1_irq: bool,
+    cia2_irq: bool,
 }
 
 impl Machine for C64 {
@@ -32,11 +35,13 @@ impl Machine for C64 {
 
     fn tick(&mut self) -> Result<FrameStatus, Box<dyn Error>> {
         let vic_result = self.cpu.mut_memory().mut_vic().tick()?;
-        self.cpu.set_irq_pin(vic_result.irq);
         if self.cpu_clock_divider == 0 {
             self.cpu.tick()?;
-            self.cpu.mut_memory().mut_cia1().tick();
+            self.cia1_irq = self.cpu.mut_memory().mut_cia1().tick();
+            self.cia2_irq = self.cpu.mut_memory().mut_cia2().tick();
         }
+        self.cpu
+            .set_irq_pin(vic_result.irq | self.cia1_irq | self.cia2_irq);
         self.cpu_clock_divider = (self.cpu_clock_divider + 1) % 8;
         return if self.frame_renderer.consume(vic_result.video_output) {
             Ok(FrameStatus::Complete)
@@ -79,7 +84,10 @@ impl C64 {
                 Rom::new(&kernal_rom)?,
             ))),
             frame_renderer: FrameRenderer::default(),
+
             cpu_clock_divider: 0,
+            cia1_irq: false,
+            cia2_irq: false,
         })
     }
 
@@ -162,7 +170,8 @@ mod tests {
     #[test]
     fn chip_timing() {
         let mut c64 = c64_with_cartridge("chip_timing.bin");
-        // Allow 2 frames for initialization.
+        // Allow 3 frames for initialization.
+        next_frame(&mut c64).unwrap();
         next_frame(&mut c64).unwrap();
         next_frame(&mut c64).unwrap();
         assert_produces_frame(&mut c64, "chip_timing.png", "chip_timing");

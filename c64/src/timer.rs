@@ -38,7 +38,8 @@ impl Timer {
         self.counter
     }
 
-    pub fn tick(&mut self) {
+    /// Performs a tick, returns `true` on underflow
+    pub fn tick(&mut self) -> bool {
         if self.control & flags::START != 0 {
             if self.counter > 0 {
                 self.counter -= 1;
@@ -47,8 +48,10 @@ impl Timer {
                 if self.control & flags::RUNMODE == flags::RUNMODE_ONE_SHOT {
                     self.control &= !flags::START;
                 }
+                return true;
             }
         }
+        return false;
     }
 }
 
@@ -108,25 +111,28 @@ mod tests {
             .unwrap();
 
         assert_eq!(timer.counter(), 4);
-        timer.tick();
-        timer.tick();
-        timer.tick();
-        timer.tick();
+        assert_eq!(timer.tick(), false);
+        assert_eq!(timer.tick(), false);
+        assert_eq!(timer.tick(), false);
+        assert_eq!(timer.tick(), false);
         assert_eq!(timer.counter(), 0);
 
-        timer.tick();
+        assert_eq!(timer.tick(), true);
         assert_eq!(timer.counter(), 4);
+        assert_eq!(timer.tick(), false);
+        assert_eq!(timer.counter(), 3);
 
         timer.set_control(LOAD | START | RUNMODE_ONE_SHOT).unwrap();
-        timer.tick();
-        timer.tick();
-        timer.tick();
+        assert_eq!(timer.tick(), false);
+        assert_eq!(timer.tick(), false);
+        assert_eq!(timer.tick(), false);
         assert_eq!(timer.counter(), 1);
-        timer.tick();
+        assert_eq!(timer.tick(), false);
         assert_eq!(timer.counter(), 0);
-        timer.tick();
+
+        assert_eq!(timer.tick(), true);
         assert_eq!(timer.counter(), 4);
-        timer.tick();
+        assert_eq!(timer.tick(), false);
         assert_eq!(timer.counter(), 4);
     }
 }

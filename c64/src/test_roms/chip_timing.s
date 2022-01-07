@@ -145,6 +145,7 @@ MeasureVic: clc                         ; 2 Increase counter by 1
             jsr PrintBcd
 
             MeasureCia CIA1_TA, CIA1_CRA, SCREEN_START + 81
+            MeasureCia CIA2_TA, CIA2_CRA, SCREEN_START + 121
 
 End:        jmp End
 

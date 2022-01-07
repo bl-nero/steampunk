@@ -1,6 +1,7 @@
 use crate::port::Port;
 use crate::timer::Timer;
 use enum_map::{Enum, EnumMap};
+use std::cell::Cell;
 use ya6502::memory::Memory;
 use ya6502::memory::Read;
 use ya6502::memory::ReadError;
@@ -11,6 +12,7 @@ use ya6502::memory::WriteError;
 #[derive(Debug, Default)]
 pub struct Cia {
     reg_interrupt_control: u8,
+    reg_interrupt_status: Cell<u8>,
 
     ports: EnumMap<PortName, Port>,
     timer_a: Timer,
@@ -27,8 +29,15 @@ impl Cia {
         Self::default()
     }
 
-    pub fn tick(&mut self) {
-        self.timer_a.tick();
+    pub fn tick(&mut self) -> bool {
+        if self.timer_a.tick() {
+            self.reg_interrupt_status
+                .set(self.reg_interrupt_status.get() | flags::ICR_TIMER_A);
+        }
+        if self.reg_interrupt_control & self.reg_interrupt_status.get() != 0 {
+            return true;
+        }
+        return false;
     }
 
     /// Writes a given value to the pins of a given port.
@@ -54,6 +63,7 @@ impl Read for Cia {
             registers::DDRB => Ok(self.ports[PortName::B].direction),
             registers::TA_LO => Ok((self.timer_a.counter() & 0xFF) as u8),
             registers::TA_HI => Ok(((self.timer_a.counter() & 0xFF00) >> 8) as u8),
+            registers::ICR => Ok(self.reg_interrupt_status.take()),
             registers::CRA => Ok(self.timer_a.control()),
             _ => Err(ReadError { address }),
         }
@@ -78,9 +88,15 @@ impl Write for Cia {
                 .timer_a
                 .set_latch(self.timer_a.latch() & 0xFF | (value as u16) << 8),
             registers::ICR => {
-                // For now, only allow disabling the interrupts.
-                if value & flags::ICR_SOURCE_BIT != 0 {
+                // For now, only allow manipulating the timer A the IRQ.
+                if value & !(flags::ICR_SOURCE_BIT | flags::ICR_TIMER_A) != 0 {
                     return Err(WriteError { address, value });
+                }
+                if value & flags::ICR_SOURCE_BIT != 0 {
+                    // Set mask bits.
+                    self.reg_interrupt_control |= value;
+                } else {
+                    self.reg_interrupt_control &= !value;
                 }
             }
             registers::CRA => {
@@ -111,6 +127,8 @@ mod registers {
 
 mod flags {
     pub const ICR_SOURCE_BIT: u8 = 1 << 7;
+    pub const ICR_TIMER_A: u8 = 1 << 0;
+    pub const ICR_TRIGGERED: u8 = 1 << 7;
 }
 
 #[cfg(test)]
@@ -190,14 +208,74 @@ mod tests {
         let mut cia = Cia::new();
         cia.write(registers::TA_HI, 0x23).unwrap();
         cia.write(registers::TA_LO, 0x01).unwrap(); // Load 0x2301
-        cia.write(registers::CRA, 0).unwrap(); // Don't start yet
-
         cia.write(registers::CRA, LOAD | START).unwrap();
+
         cia.tick();
         cia.tick();
         cia.tick();
         assert_eq!(cia.read(registers::CRA).unwrap(), START);
         assert_eq!(cia.read(registers::TA_HI).unwrap(), 0x22);
         assert_eq!(cia.read(registers::TA_LO).unwrap(), 0xFE);
+    }
+
+    #[test]
+    fn timer_underflow() {
+        use crate::timer::flags::*;
+
+        let mut cia = Cia::new();
+        cia.write(registers::TA_HI, 0x00).unwrap();
+        cia.write(registers::TA_LO, 0x01).unwrap(); // Load 0x0001
+        cia.write(registers::CRA, LOAD | START).unwrap();
+        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+
+        cia.tick();
+        assert_eq!(cia.read(registers::TA_LO).unwrap(), 0);
+        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+
+        cia.tick();
+        assert_eq!(cia.read(registers::TA_LO).unwrap(), 1);
+        assert_eq!(cia.read(registers::ICR).unwrap(), flags::ICR_TIMER_A);
+        // Reading should have reset the register.
+        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+    }
+
+    #[test]
+    fn timer_underflow_interrupt() {
+        use crate::timer::flags::*;
+
+        let mut cia = Cia::new();
+        cia.write(registers::TA_HI, 0x00).unwrap();
+        cia.write(registers::TA_LO, 0x01).unwrap(); // Load 0x0001
+
+        // No interrupts.
+        cia.write(registers::CRA, LOAD | START | RUNMODE_ONE_SHOT)
+            .unwrap();
+        cia.write(registers::ICR, flags::ICR_TIMER_A).unwrap();
+        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+        assert_eq!(cia.tick(), false);
+        assert_eq!(cia.tick(), false);
+        assert_eq!(cia.read(registers::ICR).unwrap(), flags::ICR_TIMER_A);
+
+        // Enable interrupts.
+        cia.write(registers::ICR, flags::ICR_SOURCE_BIT | flags::ICR_TIMER_A)
+            .unwrap();
+        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+        cia.write(registers::CRA, LOAD | START | RUNMODE_ONE_SHOT)
+            .unwrap();
+        assert_eq!(cia.tick(), false);
+        assert_eq!(cia.tick(), true);
+        assert_eq!(cia.tick(), true); // Report IRQ until acknowledged.
+        assert_eq!(cia.read(registers::ICR).unwrap(), flags::ICR_TIMER_A);
+        assert_eq!(cia.tick(), false);
+        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+
+        // Disable interrupts again.
+        cia.write(registers::ICR, flags::ICR_TIMER_A).unwrap();
+        cia.write(registers::CRA, LOAD | START | RUNMODE_ONE_SHOT)
+            .unwrap();
+        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+        assert_eq!(cia.tick(), false);
+        assert_eq!(cia.tick(), false);
+        assert_eq!(cia.read(registers::ICR).unwrap(), flags::ICR_TIMER_A);
     }
 }
