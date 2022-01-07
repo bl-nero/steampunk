@@ -16,6 +16,7 @@ pub struct Cia {
 
     ports: EnumMap<PortName, Port>,
     timer_a: Timer,
+    timer_b: Timer,
 }
 
 #[derive(Enum, Debug, Clone, Copy)]
@@ -31,20 +32,22 @@ impl Cia {
 
     pub fn tick(&mut self) -> bool {
         if self.timer_a.tick() {
-            let bits_to_set = if self.reg_interrupt_control & flags::ICR_TIMER_A != 0 {
-                flags::ICR_TIMER_A | flags::ICR_TRIGGERED
-            } else {
-                flags::ICR_TIMER_A
-            };
-            self.reg_interrupt_status
-                .set(self.reg_interrupt_status.get() | bits_to_set);
+            self.process_timer_underflow(flags::ICR_TIMER_A);
         }
-        if self.reg_interrupt_control & self.reg_interrupt_status.get() != 0 {
-            self.reg_interrupt_status
-                .set(self.reg_interrupt_status.get() | flags::ICR_TRIGGERED);
-            return true;
+        if self.timer_b.tick() {
+            self.process_timer_underflow(flags::ICR_TIMER_B);
         }
-        return false;
+        return self.reg_interrupt_status.get() & flags::ICR_TRIGGERED != 0;
+    }
+
+    fn process_timer_underflow(&mut self, icr_flag: u8) {
+        let bits_to_set = if self.reg_interrupt_control & icr_flag != 0 {
+            icr_flag | flags::ICR_TRIGGERED
+        } else {
+            icr_flag
+        };
+        self.reg_interrupt_status
+            .set(self.reg_interrupt_status.get() | bits_to_set);
     }
 
     /// Writes a given value to the pins of a given port.
@@ -70,8 +73,11 @@ impl Read for Cia {
             registers::DDRB => Ok(self.ports[PortName::B].direction),
             registers::TA_LO => Ok((self.timer_a.counter() & 0xFF) as u8),
             registers::TA_HI => Ok(((self.timer_a.counter() & 0xFF00) >> 8) as u8),
+            registers::TB_LO => Ok((self.timer_b.counter() & 0xFF) as u8),
+            registers::TB_HI => Ok(((self.timer_b.counter() & 0xFF00) >> 8) as u8),
             registers::ICR => Ok(self.reg_interrupt_status.take()),
             registers::CRA => Ok(self.timer_a.control()),
+            registers::CRB => Ok(self.timer_b.control()),
             _ => Err(ReadError { address }),
         }
     }
@@ -94,11 +100,19 @@ impl Write for Cia {
             registers::TA_HI => self
                 .timer_a
                 .set_latch(self.timer_a.latch() & 0xFF | (value as u16) << 8),
+            registers::TB_LO => self
+                .timer_b
+                .set_latch(self.timer_b.latch() & 0xFF00 | value as u16),
+            registers::TB_HI => self
+                .timer_b
+                .set_latch(self.timer_b.latch() & 0xFF | (value as u16) << 8),
             registers::ICR => {
                 if value & flags::ICR_SOURCE_BIT != 0 {
                     // Set mask bits.
-                    // For now, only allow turning on the timer A IRQ.
-                    if value & !(flags::ICR_TIMER_A | flags::ICR_SOURCE_BIT) != 0 {
+                    // For now, only allow turning on timer IRQs.
+                    if value & !(flags::ICR_TIMER_A | flags::ICR_TIMER_B | flags::ICR_SOURCE_BIT)
+                        != 0
+                    {
                         return Err(WriteError { address, value });
                     }
                     self.reg_interrupt_control |= value;
@@ -108,6 +122,11 @@ impl Write for Cia {
             }
             registers::CRA => {
                 if self.timer_a.set_control(value).is_err() {
+                    return Err(WriteError { address, value });
+                }
+            }
+            registers::CRB => {
+                if self.timer_b.set_control(value).is_err() {
                     return Err(WriteError { address, value });
                 }
             }
@@ -127,6 +146,8 @@ mod registers {
     pub const DDRB: u16 = 0x3;
     pub const TA_LO: u16 = 0x4;
     pub const TA_HI: u16 = 0x5;
+    pub const TB_LO: u16 = 0x6;
+    pub const TB_HI: u16 = 0x7;
     pub const ICR: u16 = 0xD;
     pub const CRA: u16 = 0xE;
     pub const CRB: u16 = 0xF;
@@ -135,6 +156,7 @@ mod registers {
 mod flags {
     pub const ICR_SOURCE_BIT: u8 = 1 << 7;
     pub const ICR_TIMER_A: u8 = 1 << 0;
+    pub const ICR_TIMER_B: u8 = 1 << 1;
     pub const ICR_TRIGGERED: u8 = 1 << 7;
 }
 
@@ -208,84 +230,113 @@ mod tests {
         assert_eq!(cia.read(registers::DDRA).unwrap(), 0x14);
     }
 
-    #[test]
-    fn timers() {
-        use crate::timer::flags::*;
+    macro_rules! test_timer {
+        (
+            $fn_name_basics:ident,
+            $fn_name_underflow:ident,
+            $fn_name_underflow_interrupt:ident,
+            $reg_lo:expr,
+            $reg_hi:expr,
+            $reg_cr:expr,
+            $icr_flag:expr
+        ) => {
+            #[test]
+            fn $fn_name_basics() {
+                use crate::timer::flags::*;
 
-        let mut cia = Cia::new();
-        cia.write(registers::TA_HI, 0x23).unwrap();
-        cia.write(registers::TA_LO, 0x01).unwrap(); // Load 0x2301
-        cia.write(registers::CRA, LOAD | START).unwrap();
+                let mut cia = Cia::new();
+                cia.write($reg_hi, 0x23).unwrap();
+                cia.write($reg_lo, 0x01).unwrap(); // Load 0x2301
+                cia.write($reg_cr, LOAD | START).unwrap();
 
-        cia.tick();
-        cia.tick();
-        cia.tick();
-        assert_eq!(cia.read(registers::CRA).unwrap(), START);
-        assert_eq!(cia.read(registers::TA_HI).unwrap(), 0x22);
-        assert_eq!(cia.read(registers::TA_LO).unwrap(), 0xFE);
+                cia.tick();
+                cia.tick();
+                cia.tick();
+                assert_eq!(cia.read($reg_cr).unwrap(), START);
+                assert_eq!(cia.read($reg_hi).unwrap(), 0x22);
+                assert_eq!(cia.read($reg_lo).unwrap(), 0xFE);
+            }
+
+            #[test]
+            fn $fn_name_underflow() {
+                use crate::timer::flags::*;
+
+                let mut cia = Cia::new();
+                cia.write($reg_hi, 0x00).unwrap();
+                cia.write($reg_lo, 0x01).unwrap(); // Load 0x0001
+                cia.write($reg_cr, LOAD | START).unwrap();
+                assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+
+                cia.tick();
+                assert_eq!(cia.read($reg_lo).unwrap(), 0);
+                assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+
+                cia.tick();
+                assert_eq!(cia.read($reg_lo).unwrap(), 1);
+                assert_eq!(cia.read(registers::ICR).unwrap(), $icr_flag);
+                // Reading should have reset the register.
+                assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+            }
+
+            #[test]
+            fn $fn_name_underflow_interrupt() {
+                use crate::timer::flags::*;
+
+                let mut cia = Cia::new();
+                cia.write($reg_hi, 0x00).unwrap();
+                cia.write($reg_lo, 0x01).unwrap(); // Load 0x0001
+
+                // No interrupts.
+                cia.write($reg_cr, LOAD | START | RUNMODE_ONE_SHOT).unwrap();
+                cia.write(registers::ICR, $icr_flag).unwrap();
+                assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+                assert_eq!(cia.tick(), false);
+                assert_eq!(cia.tick(), false);
+                assert_eq!(cia.read(registers::ICR).unwrap(), $icr_flag);
+
+                // Enable interrupts.
+                cia.write(registers::ICR, flags::ICR_SOURCE_BIT | $icr_flag)
+                    .unwrap();
+                assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+                cia.write($reg_cr, LOAD | START | RUNMODE_ONE_SHOT).unwrap();
+                assert_eq!(cia.tick(), false);
+                assert_eq!(cia.tick(), true);
+                assert_eq!(cia.tick(), true); // Report IRQ until acknowledged.
+                assert_eq!(
+                    cia.read(registers::ICR).unwrap(),
+                    flags::ICR_TRIGGERED | $icr_flag
+                );
+                assert_eq!(cia.tick(), false);
+                assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+
+                // Disable interrupts again.
+                cia.write(registers::ICR, $icr_flag).unwrap();
+                cia.write($reg_cr, LOAD | START | RUNMODE_ONE_SHOT).unwrap();
+                assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+                assert_eq!(cia.tick(), false);
+                assert_eq!(cia.tick(), false);
+                assert_eq!(cia.read(registers::ICR).unwrap(), $icr_flag);
+            }
+        };
     }
 
-    #[test]
-    fn timer_underflow() {
-        use crate::timer::flags::*;
+    test_timer!(
+        timer_a,
+        timer_a_underflow,
+        timer_a_underflow_interrupt,
+        registers::TA_LO,
+        registers::TA_HI,
+        registers::CRA,
+        flags::ICR_TIMER_A
+    );
 
-        let mut cia = Cia::new();
-        cia.write(registers::TA_HI, 0x00).unwrap();
-        cia.write(registers::TA_LO, 0x01).unwrap(); // Load 0x0001
-        cia.write(registers::CRA, LOAD | START).unwrap();
-        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
-
-        cia.tick();
-        assert_eq!(cia.read(registers::TA_LO).unwrap(), 0);
-        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
-
-        cia.tick();
-        assert_eq!(cia.read(registers::TA_LO).unwrap(), 1);
-        assert_eq!(cia.read(registers::ICR).unwrap(), flags::ICR_TIMER_A);
-        // Reading should have reset the register.
-        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
-    }
-
-    #[test]
-    fn timer_underflow_interrupt() {
-        use crate::timer::flags::*;
-
-        let mut cia = Cia::new();
-        cia.write(registers::TA_HI, 0x00).unwrap();
-        cia.write(registers::TA_LO, 0x01).unwrap(); // Load 0x0001
-
-        // No interrupts.
-        cia.write(registers::CRA, LOAD | START | RUNMODE_ONE_SHOT)
-            .unwrap();
-        cia.write(registers::ICR, flags::ICR_TIMER_A).unwrap();
-        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
-        assert_eq!(cia.tick(), false);
-        assert_eq!(cia.tick(), false);
-        assert_eq!(cia.read(registers::ICR).unwrap(), flags::ICR_TIMER_A);
-
-        // Enable interrupts.
-        cia.write(registers::ICR, flags::ICR_SOURCE_BIT | flags::ICR_TIMER_A)
-            .unwrap();
-        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
-        cia.write(registers::CRA, LOAD | START | RUNMODE_ONE_SHOT)
-            .unwrap();
-        assert_eq!(cia.tick(), false);
-        assert_eq!(cia.tick(), true);
-        assert_eq!(cia.tick(), true); // Report IRQ until acknowledged.
-        assert_eq!(
-            cia.read(registers::ICR).unwrap(),
-            flags::ICR_TRIGGERED | flags::ICR_TIMER_A
-        );
-        assert_eq!(cia.tick(), false);
-        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
-
-        // Disable interrupts again.
-        cia.write(registers::ICR, flags::ICR_TIMER_A).unwrap();
-        cia.write(registers::CRA, LOAD | START | RUNMODE_ONE_SHOT)
-            .unwrap();
-        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
-        assert_eq!(cia.tick(), false);
-        assert_eq!(cia.tick(), false);
-        assert_eq!(cia.read(registers::ICR).unwrap(), flags::ICR_TIMER_A);
-    }
+    test_timer!(
+        timer_b,
+        timer_b_underflow,
+        timer_b_underflow_interrupt,
+        registers::TB_LO,
+        registers::TB_HI,
+        registers::CRB,
+        flags::ICR_TIMER_B
+    );
 }
