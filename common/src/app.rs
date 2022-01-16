@@ -1,3 +1,4 @@
+use crate::debugger::Debugger;
 use image::RgbaImage;
 use piston::{Event, EventLoop, WindowSettings};
 use piston_window::{
@@ -28,14 +29,16 @@ pub struct MachineController<'a, M: Machine> {
     machine: &'a mut M,
     running: bool,
     interrupted: Arc<AtomicBool>,
+    debugger: Option<Debugger>,
 }
 
 impl<'a, M: Machine> MachineController<'a, M> {
-    pub fn new(machine: &'a mut M) -> Self {
+    pub fn new(machine: &'a mut M, debugger: Option<Debugger>) -> Self {
         return Self {
             machine,
             running: false,
             interrupted: Arc::new(AtomicBool::new(false)),
+            debugger,
         };
     }
 
@@ -53,6 +56,9 @@ impl<'a, M: Machine> MachineController<'a, M> {
     }
 
     pub fn run_until_end_of_frame(&mut self) {
+        if let Some(debugger) = &self.debugger {
+            debugger.process_meessages();
+        }
         while self.running && !self.interrupted.load(Ordering::Relaxed) {
             match self.machine.tick() {
                 Ok(FrameStatus::Pending) => {}
@@ -250,7 +256,7 @@ mod tests {
     #[test]
     fn machine_controller_generates_frame() {
         let mut machine = TestMachine::new();
-        let mut controller = MachineController::new(&mut machine);
+        let mut controller = MachineController::new(&mut machine, None);
         controller.reset();
 
         controller.run_until_end_of_frame();
@@ -269,7 +275,7 @@ mod tests {
     #[test]
     fn machine_controller_resets() {
         let mut machine = TestMachine::new();
-        let mut controller = MachineController::new(&mut machine);
+        let mut controller = MachineController::new(&mut machine, None);
         controller.reset();
         controller.run_until_end_of_frame();
         controller.reset();
@@ -283,7 +289,7 @@ mod tests {
     #[test]
     fn machine_controller_produces_images_until_interrupted() {
         let mut machine = TestMachine::new();
-        let mut controller = MachineController::new(&mut machine);
+        let mut controller = MachineController::new(&mut machine, None);
         controller.reset();
 
         controller.run_until_end_of_frame();
@@ -305,7 +311,7 @@ mod tests {
     #[test]
     fn machine_controller_halts_on_error_until_reset() {
         let mut machine = TestMachine::new();
-        let mut controller = MachineController::new(&mut machine);
+        let mut controller = MachineController::new(&mut machine, None);
         controller.reset();
 
         controller.run_until_end_of_frame();

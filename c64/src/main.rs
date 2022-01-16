@@ -15,6 +15,7 @@ use crate::address_space::CartridgeMode;
 use crate::app::C64Controller;
 use crate::c64::C64;
 use common::app::Application;
+use common::debugger::DebugAdapter;
 use std::env;
 use std::sync::atomic::Ordering;
 use vic::Vic;
@@ -35,7 +36,14 @@ fn main() {
         }));
     }
 
-    let mut app = Application::new(C64Controller::new(&mut c64), "Commodore 64", 2, 2);
+    let debugger_adapter = DebugAdapter::new(1234);
+
+    let mut app = Application::new(
+        C64Controller::new(&mut c64, Some(debugger_adapter)),
+        "Commodore 64",
+        2,
+        2,
+    );
 
     let interrupted = app.interrupted();
 

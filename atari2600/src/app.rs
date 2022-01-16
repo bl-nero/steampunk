@@ -14,7 +14,7 @@ pub struct AtariController<'a> {
 impl<'a> AtariController<'a> {
     pub fn new(atari: &'a mut Atari) -> Self {
         return AtariController {
-            machine_controller: MachineController::new(atari),
+            machine_controller: MachineController::new(atari, None),
         };
     }
 

@@ -1,6 +1,8 @@
 use crate::c64::C64;
 use common::app::AppController;
 use common::app::MachineController;
+use common::debugger::DebugAdapter;
+use common::debugger::Debugger;
 use image::RgbaImage;
 use piston::Event;
 use piston::Loop;
@@ -12,9 +14,10 @@ pub struct C64Controller<'a> {
 }
 
 impl<'a> C64Controller<'a> {
-    pub fn new(c64: &'a mut C64) -> Self {
+    pub fn new(c64: &'a mut C64, debugger_adapter: Option<DebugAdapter>) -> Self {
+        let debugger = debugger_adapter.map(Debugger::new);
         Self {
-            machine_controller: MachineController::new(c64),
+            machine_controller: MachineController::new(c64, debugger),
         }
     }
 }

@@ -1,0 +1,5 @@
+Content-Length: 418
+
+{"command":"initialize","arguments":{"clientID":"vscode","clientName":"Visual Studio Code","adapterID":"steampunk-6502","pathFormat":"path","linesStartAt1":true,"columnsStartAt1":true,"supportsVariableType":true,"supportsVariablePaging":true,"supportsRunInTerminalRequest":true,"locale":"en-us","supportsProgressReporting":true,"supportsInvalidatedEvent":true,"supportsMemoryReferences":true},"type":"request","seq":1}Content-Length: 79
+
+{"command":"disconnect","arguments":{"restart":false},"type":"request","seq":2}
