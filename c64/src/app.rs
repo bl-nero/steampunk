@@ -1,7 +1,7 @@
 use crate::c64::C64;
 use common::app::AppController;
 use common::app::MachineController;
-use common::debugger::DebugAdapter;
+use common::debugger::adapter::DebugAdapter;
 use common::debugger::Debugger;
 use image::RgbaImage;
 use piston::Event;

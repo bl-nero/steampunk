@@ -15,7 +15,7 @@ use crate::address_space::CartridgeMode;
 use crate::app::C64Controller;
 use crate::c64::C64;
 use common::app::Application;
-use common::debugger::DebugAdapter;
+use common::debugger::adapter::DebugAdapter;
 use std::env;
 use std::sync::atomic::Ordering;
 use vic::Vic;
