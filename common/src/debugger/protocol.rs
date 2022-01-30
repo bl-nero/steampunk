@@ -5,6 +5,7 @@ use debugserver_types::EvaluateResponse;
 use debugserver_types::InitializeRequest;
 use debugserver_types::InitializeResponse;
 use debugserver_types::NextResponse;
+use debugserver_types::StoppedEvent;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::io;
@@ -14,20 +15,22 @@ use std::iter;
 use std::num::ParseIntError;
 use thiserror::Error;
 
-/// A Debug Adapter Protocol request.
+/// Incoming messages of the Debug Adapter Protocol.
 #[derive(Debug, PartialEq)]
-pub enum Request {
+pub enum IncomingMessage {
     Initialize(InitializeRequest),
     Attach(AttachRequest),
     Disconnect(DisconnectRequest),
 }
 
-// A Debug Adapter Protocol response.
-pub enum Response {
+/// Outgoing messages of the Debug Adapter Protocol.
+pub enum OutgoingMessage {
     Initialize(InitializeResponse),
     Attach(AttachResponse),
     Next(NextResponse),
     Evaluate(EvaluateResponse),
+
+    Stopped(StoppedEvent),
 }
 
 #[derive(Error, Debug)]
@@ -74,8 +77,8 @@ pub enum ParseError {
     UnsupportedCommand(serde_json::Value),
 }
 
-/// Parses a DAP request from a byte buffer.
-pub fn parse_request(raw_message: Vec<u8>) -> Result<Request, ParseError> {
+/// Parses a DAP message from a byte buffer.
+pub fn parse_message(raw_message: Vec<u8>) -> Result<IncomingMessage, ParseError> {
     // Note: the `debugserver_types` crate doesn't play well with internally
     // tagged types, which are used by the DAP protocol, so we need to jump
     // through a couple of hoops here instead of using `serde`'s built-in
@@ -87,9 +90,15 @@ pub fn parse_request(raw_message: Vec<u8>) -> Result<Request, ParseError> {
     }
     let command_value = &message_value["command"];
     return match &command_value.as_str() {
-        Some("initialize") => Ok(Request::Initialize(serde_json::from_value(message_value)?)),
-        Some("disconnect") => Ok(Request::Disconnect(serde_json::from_value(message_value)?)),
-        Some("attach") => Ok(Request::Attach(serde_json::from_value(message_value)?)),
+        Some("initialize") => Ok(IncomingMessage::Initialize(serde_json::from_value(
+            message_value,
+        )?)),
+        Some("disconnect") => Ok(IncomingMessage::Disconnect(serde_json::from_value(
+            message_value,
+        )?)),
+        Some("attach") => Ok(IncomingMessage::Attach(serde_json::from_value(
+            message_value,
+        )?)),
         _ => Err(ParseError::UnsupportedCommand(command_value.clone())),
     };
 }
@@ -152,14 +161,16 @@ pub fn send_raw_message(message_bytes: Vec<u8>, output: &mut impl Write) -> Prot
 #[error("Unable to serialize debugger message: {0}")]
 pub struct SerializeError(#[from] serde_json::Error);
 
-/// Serializes a DAP protocol response as JSON.
-pub fn serialize_response(response: &Response) -> Result<Vec<u8>, SerializeError> {
-    use Response::*;
-    match response {
+/// Serializes a DAP protocol message as JSON.
+pub fn serialize_message(message: &OutgoingMessage) -> Result<Vec<u8>, SerializeError> {
+    use OutgoingMessage::*;
+    match message {
         Next(msg) => serde_json::to_vec(msg),
         Evaluate(msg) => serde_json::to_vec(msg),
         Initialize(msg) => serde_json::to_vec(msg),
         Attach(msg) => serde_json::to_vec(msg),
+
+        Stopped(msg) => serde_json::to_vec(msg),
     }
     // Note: there's no way to test it, and I doubt it would ever happen, but
     // anyway, let's map the error.
@@ -346,14 +357,14 @@ mod tests {
     }
 
     #[test]
-    fn deserializes_requests() {
-        let initialize_request = parse_request(read_test_data("initialize_request.json"));
-        let attach_request = parse_request(read_test_data("attach_request.json"));
-        let disconnect_request = parse_request(read_test_data("disconnect_request.json"));
+    fn deserializes_messages() {
+        let initialize_request = parse_message(read_test_data("initialize_request.json"));
+        let attach_request = parse_message(read_test_data("attach_request.json"));
+        let disconnect_request = parse_message(read_test_data("disconnect_request.json"));
 
         assert_matches!(
             initialize_request,
-            Ok(Request::Initialize(InitializeRequest {
+            Ok(IncomingMessage::Initialize(InitializeRequest {
                 arguments: InitializeRequestArguments {
                     client_id: Some(ref client_id),
                     ref adapter_id,
@@ -364,11 +375,11 @@ mod tests {
         );
         assert_matches!(
             attach_request,
-            Ok(Request::Attach(AttachRequest { command, .. })) if command == "attach"
+            Ok(IncomingMessage::Attach(AttachRequest { command, .. })) if command == "attach"
         );
         assert_matches!(
             disconnect_request,
-            Ok(Request::Disconnect(DisconnectRequest {
+            Ok(IncomingMessage::Disconnect(DisconnectRequest {
                 arguments: Some(DisconnectArguments {
                     restart: Some(false),
                     ..
@@ -379,16 +390,16 @@ mod tests {
     }
 
     #[test]
-    fn request_deserialization_errors() {
-        let invalid_request = parse_request(String::from(r#"{"foo": "bar"}"#).into_bytes());
-        let unknown_command = parse_request(
+    fn message_deserialization_errors() {
+        let invalid_request = parse_message(String::from(r#"{"foo": "bar"}"#).into_bytes());
+        let unknown_command = parse_message(
             String::from(r#"{"type": "request", "command": "beam me up"}"#).into_bytes(),
         );
-        let empty_request = parse_request(vec![]);
+        let empty_message = parse_message(vec![]);
 
         assert_eq!(true, invalid_request.is_err());
         assert_eq!(true, unknown_command.is_err());
-        assert_eq!(true, empty_request.is_err());
+        assert_eq!(true, empty_message.is_err());
     }
 
     #[test]
@@ -401,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn serializes_responses() {
+    fn serializes_messages() {
         // Since we don't want to rely on the serializer implementation details,
         // instead of comparing to a golden result, we just read the serialized
         // messages back again and compare with the originals.
@@ -427,9 +438,9 @@ mod tests {
         .unwrap();
 
         let evaluate_response_bytes =
-            serialize_response(&Response::Evaluate(evaluate_response.clone())).unwrap();
+            serialize_message(&OutgoingMessage::Evaluate(evaluate_response.clone())).unwrap();
         let next_response_bytes =
-            serialize_response(&Response::Next(next_response.clone())).unwrap();
+            serialize_message(&OutgoingMessage::Next(next_response.clone())).unwrap();
 
         let actual_evaluate_response: EvaluateResponse =
             serde_json::from_slice(evaluate_response_bytes.as_slice()).unwrap();

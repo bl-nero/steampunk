@@ -1,9 +1,9 @@
-use crate::debugger::protocol::parse_request;
+use crate::debugger::protocol::parse_message;
 use crate::debugger::protocol::raw_messages;
 use crate::debugger::protocol::send_raw_message;
-use crate::debugger::protocol::serialize_response;
-use crate::debugger::protocol::Request;
-use crate::debugger::protocol::Response;
+use crate::debugger::protocol::serialize_message;
+use crate::debugger::protocol::IncomingMessage;
+use crate::debugger::protocol::OutgoingMessage;
 use std::io::BufReader;
 use std::io::Read;
 use std::io::Write;
@@ -26,50 +26,50 @@ use thiserror::Error;
 /// any given time, but connecting with two debuggers at once would be a bad
 /// idea anyway.
 pub struct DebugAdapter {
-    writer_event_sender: mpsc::Sender<WriterThreadEvent>,
-    request_receiver: mpsc::Receiver<Request>,
+    writer_event_sender: mpsc::Sender<WriterThreadCommand>,
+    message_receiver: mpsc::Receiver<IncomingMessage>,
 }
 
 impl DebugAdapter {
     /// Creates a new `DebugAdapter` and starts listening on given port.
     pub fn new(port: u16) -> Self {
         let writer_event_sender = spawn_writer_thread();
-        let request_receiver = spawn_reader_thread(port, writer_event_sender.clone());
+        let message_receiver = spawn_reader_thread(port, writer_event_sender.clone());
         Self {
             writer_event_sender,
-            request_receiver,
+            message_receiver,
         }
     }
 
-    /// Attempts to receive a request from the debugger UI. Returns immediately
+    /// Attempts to receive a message from the debugger UI. Returns immediately
     /// with [`DebugAdapterError::TryRecvError(TryRecvError::Empty)`] if there
-    /// are no pending requests.
-    pub fn try_receive_request(&self) -> Result<Request, DebugAdapterError> {
-        self.request_receiver.try_recv().map_err(|e| e.into())
+    /// are no pending messages.
+    pub fn try_receive_message(&self) -> Result<IncomingMessage, DebugAdapterError> {
+        self.message_receiver.try_recv().map_err(|e| e.into())
     }
 
-    pub fn send_response(&self, response: Response) -> Result<(), DebugAdapterError> {
+    pub fn send_message(&self, message: OutgoingMessage) -> Result<(), DebugAdapterError> {
         self.writer_event_sender
-            .send(WriterThreadEvent::DebuggerResponse(response))
+            .send(WriterThreadCommand::SendMessage(message))
             .map_err(|e| e.into())
     }
 }
 
 #[derive(Error, Debug)]
 pub enum DebugAdapterError {
-    #[error("Unable to retrieve request from debugger adapter: {0}")]
-    ReceiveRequestError(#[from] TryRecvError),
+    #[error("Unable to retrieve message from debugger adapter: {0}")]
+    TryRecvError(#[from] TryRecvError),
 
-    #[error("Unable to send response to debugger adapter: {0}")]
-    UnsupportedMessageType(#[from] SendError<WriterThreadEvent>),
+    #[error("Unable to send message to debugger adapter: {0}")]
+    UnsupportedMessageType(#[from] SendError<WriterThreadCommand>),
 }
 
 /// Spawns a reader thread that listens, repeatedly accepts and handles TCP
 /// connections.
 fn spawn_reader_thread(
     port: u16,
-    writer_event_sender: mpsc::Sender<WriterThreadEvent>,
-) -> mpsc::Receiver<Request> {
+    writer_event_sender: mpsc::Sender<WriterThreadCommand>,
+) -> mpsc::Receiver<IncomingMessage> {
     let (tx, rx) = mpsc::channel();
     thread::Builder::new()
         .name("debugger reader thread".into())
@@ -81,13 +81,13 @@ fn spawn_reader_thread(
                 let (connection, address) = listener.accept().unwrap();
                 eprintln!("Debugger connection accepted from {}", address);
                 writer_event_sender
-                    .send(WriterThreadEvent::Connected(
+                    .send(WriterThreadCommand::Connect(
                         connection.try_clone().unwrap(),
                     ))
                     .unwrap();
                 handle_input(connection, &tx);
                 writer_event_sender
-                    .send(WriterThreadEvent::Disconnected)
+                    .send(WriterThreadCommand::Disconnect)
                     .unwrap();
             }
         })
@@ -95,29 +95,29 @@ fn spawn_reader_thread(
     return rx;
 }
 
-pub enum WriterThreadEvent<W: Write = TcpStream> {
-    DebuggerResponse(Response),
-    Connected(W),
-    Disconnected,
+pub enum WriterThreadCommand<W: Write = TcpStream> {
+    SendMessage(OutgoingMessage),
+    Connect(W),
+    Disconnect,
 }
 
-fn handle_writer_events<W: Write>(events: impl IntoIterator<Item = WriterThreadEvent<W>>) {
+fn handle_writer_events<W: Write>(events: impl IntoIterator<Item = WriterThreadCommand<W>>) {
     let mut stream = None;
     for event in events {
         match event {
-            WriterThreadEvent::Connected(new_stream) => stream = Some(new_stream),
-            WriterThreadEvent::DebuggerResponse(response) => {
+            WriterThreadCommand::Connect(new_stream) => stream = Some(new_stream),
+            WriterThreadCommand::SendMessage(message) => {
                 if let Some(ref mut stream) = stream {
-                    let raw_message = serialize_response(&response).unwrap();
+                    let raw_message = serialize_message(&message).unwrap();
                     send_raw_message(raw_message, stream).unwrap();
                 }
             }
-            WriterThreadEvent::Disconnected => stream = None,
+            WriterThreadCommand::Disconnect => stream = None,
         }
     }
 }
 
-fn spawn_writer_thread() -> mpsc::Sender<WriterThreadEvent> {
+fn spawn_writer_thread() -> mpsc::Sender<WriterThreadCommand> {
     let (tx, rx) = mpsc::channel();
     thread::Builder::new()
         .name("debugger writer thread".into())
@@ -126,13 +126,13 @@ fn spawn_writer_thread() -> mpsc::Sender<WriterThreadEvent> {
     return tx;
 }
 
-fn handle_input(input: impl Read, sender: &mpsc::Sender<Request>) {
+fn handle_input(input: impl Read, sender: &mpsc::Sender<IncomingMessage>) {
     let mut reader = BufReader::new(input);
     raw_messages(&mut reader)
         .map(Result::unwrap)
-        .map(parse_request)
+        .map(parse_message)
         .map(Result::unwrap)
-        .for_each(|request| sender.send(request).unwrap());
+        .for_each(|message| sender.send(message).unwrap());
 }
 
 #[cfg(test)]
@@ -162,7 +162,7 @@ mod tests {
         // Receive 2 messages.
         assert_matches!(
             rx.try_recv(),
-            Ok(Request::Initialize(InitializeRequest {
+            Ok(IncomingMessage::Initialize(InitializeRequest {
                 arguments: InitializeRequestArguments {
                     client_id: Some(ref client_id),
                     ref adapter_id,
@@ -173,7 +173,7 @@ mod tests {
         );
         assert_matches!(
             rx.try_recv(),
-            Ok(Request::Disconnect(DisconnectRequest {
+            Ok(IncomingMessage::Disconnect(DisconnectRequest {
                 arguments: Some(DisconnectArguments {
                     restart: Some(false),
                     ..
@@ -186,8 +186,8 @@ mod tests {
         assert_eq!(rx.try_recv().is_err(), true);
     }
 
-    fn response_with_seq(seq: i64) -> Response {
-        Response::Next(NextResponse {
+    fn response_with_seq(seq: i64) -> OutgoingMessage {
+        OutgoingMessage::Next(NextResponse {
             type_: "response".into(),
             request_seq: 1,
             success: true,
@@ -212,12 +212,12 @@ mod tests {
 
     #[test]
     fn write_thread_handles_events() {
-        use WriterThreadEvent::*;
+        use WriterThreadCommand::*;
         let mut stream = vec![];
         let events = vec![
-            Connected(&mut stream),
-            DebuggerResponse(response_with_seq(4)),
-            DebuggerResponse(response_with_seq(5)),
+            Connect(&mut stream),
+            SendMessage(response_with_seq(4)),
+            SendMessage(response_with_seq(5)),
         ];
 
         handle_writer_events(events);
@@ -230,21 +230,21 @@ mod tests {
 
     #[test]
     fn write_thread_ignores_events_between_connections() {
-        use WriterThreadEvent::*;
+        use WriterThreadCommand::*;
         let mut stream1 = vec![];
         let mut stream2 = vec![];
         let events = vec![
-            DebuggerResponse(response_with_seq(1)),
-            DebuggerResponse(response_with_seq(2)),
-            Connected(&mut stream1),
-            DebuggerResponse(response_with_seq(3)),
-            DebuggerResponse(response_with_seq(4)),
-            Disconnected,
-            DebuggerResponse(response_with_seq(5)),
-            DebuggerResponse(response_with_seq(6)),
-            Connected(&mut stream2),
-            DebuggerResponse(response_with_seq(7)),
-            DebuggerResponse(response_with_seq(8)),
+            SendMessage(response_with_seq(1)),
+            SendMessage(response_with_seq(2)),
+            Connect(&mut stream1),
+            SendMessage(response_with_seq(3)),
+            SendMessage(response_with_seq(4)),
+            Disconnect,
+            SendMessage(response_with_seq(5)),
+            SendMessage(response_with_seq(6)),
+            Connect(&mut stream2),
+            SendMessage(response_with_seq(7)),
+            SendMessage(response_with_seq(8)),
         ];
 
         handle_writer_events(events);
