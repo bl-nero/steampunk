@@ -1,3 +1,5 @@
+use debugserver_types::AttachRequest;
+use debugserver_types::AttachResponse;
 use debugserver_types::DisconnectRequest;
 use debugserver_types::EvaluateResponse;
 use debugserver_types::InitializeRequest;
@@ -16,12 +18,14 @@ use thiserror::Error;
 #[derive(Debug, PartialEq)]
 pub enum Request {
     Initialize(InitializeRequest),
+    Attach(AttachRequest),
     Disconnect(DisconnectRequest),
 }
 
 // A Debug Adapter Protocol response.
 pub enum Response {
     Initialize(InitializeResponse),
+    Attach(AttachResponse),
     Next(NextResponse),
     Evaluate(EvaluateResponse),
 }
@@ -85,6 +89,7 @@ pub fn parse_request(raw_message: Vec<u8>) -> Result<Request, ParseError> {
     return match &command_value.as_str() {
         Some("initialize") => Ok(Request::Initialize(serde_json::from_value(message_value)?)),
         Some("disconnect") => Ok(Request::Disconnect(serde_json::from_value(message_value)?)),
+        Some("attach") => Ok(Request::Attach(serde_json::from_value(message_value)?)),
         _ => Err(ParseError::UnsupportedCommand(command_value.clone())),
     };
 }
@@ -154,6 +159,7 @@ pub fn serialize_response(response: &Response) -> Result<Vec<u8>, SerializeError
         Next(msg) => serde_json::to_vec(msg),
         Evaluate(msg) => serde_json::to_vec(msg),
         Initialize(msg) => serde_json::to_vec(msg),
+        Attach(msg) => serde_json::to_vec(msg),
     }
     // Note: there's no way to test it, and I doubt it would ever happen, but
     // anyway, let's map the error.
@@ -342,6 +348,7 @@ mod tests {
     #[test]
     fn deserializes_requests() {
         let initialize_request = parse_request(read_test_data("initialize_request.json"));
+        let attach_request = parse_request(read_test_data("attach_request.json"));
         let disconnect_request = parse_request(read_test_data("disconnect_request.json"));
 
         assert_matches!(
@@ -354,6 +361,10 @@ mod tests {
                 },
                 ..
             })) if client_id == "vscode" && adapter_id == "steampunk-6502"
+        );
+        assert_matches!(
+            attach_request,
+            Ok(Request::Attach(AttachRequest { command, .. })) if command == "attach"
         );
         assert_matches!(
             disconnect_request,

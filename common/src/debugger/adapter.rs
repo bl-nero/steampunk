@@ -4,7 +4,6 @@ use crate::debugger::protocol::send_raw_message;
 use crate::debugger::protocol::serialize_response;
 use crate::debugger::protocol::Request;
 use crate::debugger::protocol::Response;
-use debugserver_types::InitializeResponse;
 use std::io::BufReader;
 use std::io::Read;
 use std::io::Write;

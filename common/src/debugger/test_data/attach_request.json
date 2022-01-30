@@ -1,0 +1,12 @@
+{
+    "command": "attach",
+    "arguments": {
+        "name": "Attach to Steampunk",
+        "type": "steampunk-6502",
+        "request": "attach",
+        "__configurationTarget": 5,
+        "__sessionId": "3e8cca44-5c1b-4395-bacb-7050a6dd658a"
+    },
+    "type": "request",
+    "seq": 2
+}
