@@ -1,5 +1,4 @@
 use crate::debugger::adapter::DebugAdapter;
-use crate::debugger::adapter::TcpDebugAdapter;
 use crate::debugger::Debugger;
 use image::RgbaImage;
 use piston::{Event, EventLoop, WindowSettings};
@@ -194,6 +193,7 @@ impl View {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::debugger::adapter::TcpDebugAdapter;
     use image::Pixel;
     use image::Rgba;
     use std::fmt;

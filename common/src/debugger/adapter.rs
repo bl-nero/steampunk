@@ -4,6 +4,9 @@ use crate::debugger::protocol::send_raw_message;
 use crate::debugger::protocol::serialize_message;
 use crate::debugger::protocol::IncomingMessage;
 use crate::debugger::protocol::OutgoingMessage;
+use crate::debugger::protocol::ParseError;
+use crate::debugger::protocol::ProtocolError;
+use std::error::Error;
 use std::io::BufReader;
 use std::io::Read;
 use std::io::Write;
@@ -14,7 +17,6 @@ use std::sync::mpsc;
 use std::sync::mpsc::SendError;
 use std::sync::mpsc::TryRecvError;
 use std::thread;
-use thiserror::Error;
 
 /// A generic trait for debug adapter. It's an object that connects the debugger
 /// to a debugger UI.
@@ -66,7 +68,7 @@ impl DebugAdapter for TcpDebugAdapter {
 
 pub type DebugAdapterResult<T> = Result<T, DebugAdapterError>;
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum DebugAdapterError {
     #[error("Unable to retrieve message from debugger adapter: {0}")]
     TryRecvError(#[from] TryRecvError),
@@ -89,21 +91,54 @@ fn spawn_reader_thread(
             let listener = TcpListener::bind(address).expect("Unable to listen for a debugger");
             eprintln!("Listening for a debugger at {}...", address);
             loop {
-                let (connection, address) = listener.accept().unwrap();
+                // Note: For sure, there are some errors that are retriable
+                // here, but whatever, this is not a "five nines" server.
+                let (connection, address) =
+                    listener.accept().expect("Unable to accept a connection");
                 eprintln!("Debugger connection accepted from {}", address);
-                writer_event_sender
-                    .send(WriterThreadCommand::Connect(
-                        connection.try_clone().unwrap(),
-                    ))
-                    .unwrap();
-                handle_input(connection, &tx);
-                writer_event_sender
-                    .send(WriterThreadCommand::Disconnect)
-                    .unwrap();
+                if let Err(e) = handle_connection(connection, &writer_event_sender, &tx) {
+                    eprintln!("Debugger connection error: {}", e);
+                }
             }
         })
         .expect("Unable to start the debugger reader thread");
     return rx;
+}
+
+fn handle_connection(
+    connection: TcpStream,
+    writer_event_sender: &mpsc::Sender<WriterThreadCommand>,
+    incoming_message_sender: &mpsc::Sender<IncomingMessage>,
+) -> Result<(), Box<dyn Error>> {
+    let connection_for_writer = connection.try_clone()?;
+    writer_event_sender.send(WriterThreadCommand::Connect(connection_for_writer))?;
+    handle_input(connection, &incoming_message_sender)?;
+    writer_event_sender.send(WriterThreadCommand::Disconnect)?;
+    Ok(())
+}
+
+#[derive(thiserror::Error, Debug)]
+enum InputHandlingError {
+    #[error("Protocol error: {0}")]
+    ProtocolError(#[from] ProtocolError),
+
+    #[error("Message parsing error: {0}")]
+    ParseError(#[from] ParseError),
+
+    #[error("Error while sending message to the main thread: {0}")]
+    SendError(#[from] SendError<IncomingMessage>),
+}
+
+fn handle_input(
+    input: impl Read,
+    sender: &mpsc::Sender<IncomingMessage>,
+) -> Result<(), InputHandlingError> {
+    let mut reader = BufReader::new(input);
+    for raw_message_result in raw_messages(&mut reader) {
+        let message = parse_message(raw_message_result?)?;
+        sender.send(message)?;
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -111,6 +146,15 @@ pub enum WriterThreadCommand<W: Write = TcpStream> {
     SendMessage(OutgoingMessage),
     Connect(W),
     Disconnect,
+}
+
+fn spawn_writer_thread() -> mpsc::Sender<WriterThreadCommand> {
+    let (tx, rx) = mpsc::channel();
+    thread::Builder::new()
+        .name("debugger writer thread".into())
+        .spawn(|| handle_writer_events(rx))
+        .expect("Unable to spawn the debugger writer thread");
+    return tx;
 }
 
 fn handle_writer_events<W: Write>(events: impl IntoIterator<Item = WriterThreadCommand<W>>) {
@@ -129,24 +173,6 @@ fn handle_writer_events<W: Write>(events: impl IntoIterator<Item = WriterThreadC
     }
 }
 
-fn spawn_writer_thread() -> mpsc::Sender<WriterThreadCommand> {
-    let (tx, rx) = mpsc::channel();
-    thread::Builder::new()
-        .name("debugger writer thread".into())
-        .spawn(|| handle_writer_events(rx))
-        .expect("Unable to spawn the debugger writer thread");
-    return tx;
-}
-
-fn handle_input(input: impl Read, sender: &mpsc::Sender<IncomingMessage>) {
-    let mut reader = BufReader::new(input);
-    raw_messages(&mut reader)
-        .map(Result::unwrap)
-        .map(parse_message)
-        .map(Result::unwrap)
-        .for_each(|message| sender.send(message).unwrap());
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,20 +182,48 @@ mod tests {
     use debugserver_types::InitializeRequest;
     use debugserver_types::InitializeRequestArguments;
     use debugserver_types::NextResponse;
-    use std::fs::File;
+    use std::fs;
     use std::path::Path;
 
-    #[test]
-    fn receives_messages() {
-        let (tx, rx) = mpsc::channel();
-        let stream = File::open(
+    fn response_with_seq(seq: i64) -> OutgoingMessage {
+        OutgoingMessage::Next(NextResponse {
+            type_: "response".into(),
+            request_seq: 1,
+            success: true,
+            command: "next".into(),
+            seq,
+            body: None,
+            message: None,
+        })
+    }
+
+    fn into_json_value(raw_message_result: ProtocolResult<Vec<u8>>) -> serde_json::Value {
+        serde_json::from_slice(&raw_message_result.unwrap()).unwrap()
+    }
+
+    fn message_seq_numbers_from_stream(stream: Vec<u8>) -> Vec<i64> {
+        let mut stream_reader = stream.as_slice();
+        raw_messages(&mut stream_reader)
+            .map(into_json_value)
+            .map(|resp| resp["seq"].as_i64().unwrap())
+            .collect()
+    }
+
+    fn read_session_dump() -> Vec<u8> {
+        fs::read(
             Path::new("src")
                 .join("debugger")
                 .join("test_data")
                 .join("session_dump.txt"),
         )
-        .unwrap();
-        handle_input(stream, &tx);
+        .unwrap()
+    }
+
+    #[test]
+    fn receives_messages() {
+        let (tx, rx) = mpsc::channel();
+        let stream = read_session_dump();
+        handle_input(&stream[..], &tx).unwrap();
 
         // Receive 2 messages.
         assert_matches!(
@@ -195,31 +249,49 @@ mod tests {
         );
 
         // Stop at the 3rd one: end of stream.
-        assert_eq!(rx.try_recv().is_err(), true);
+        rx.try_recv().unwrap_err();
     }
 
-    fn response_with_seq(seq: i64) -> OutgoingMessage {
-        OutgoingMessage::Next(NextResponse {
-            type_: "response".into(),
-            request_seq: 1,
-            success: true,
-            command: "next".into(),
-            seq,
-            body: None,
-            message: None,
-        })
+    #[test]
+    fn stops_on_protocol_errors() {
+        let (tx, rx) = mpsc::channel();
+        let session_dump = read_session_dump();
+        let stream = session_dump
+            .chain("broken message\r\n\r\n".as_bytes())
+            .chain(&session_dump[..]);
+
+        let err = handle_input(stream, &tx).unwrap_err();
+        assert_matches!(err, InputHandlingError::ProtocolError(_));
+
+        rx.try_recv().unwrap(); // Ignore the first message.
+        rx.try_recv().unwrap(); // Ignore the second message.
+        rx.try_recv().unwrap_err(); // Stop at the 3rd one: end of stream.
     }
 
-    fn into_json_value(raw_message_result: ProtocolResult<Vec<u8>>) -> serde_json::Value {
-        serde_json::from_slice(&raw_message_result.unwrap()).unwrap()
+    #[test]
+    fn stops_on_parse_errors() {
+        let (tx, rx) = mpsc::channel();
+        let session_dump = read_session_dump();
+        let stream = session_dump
+            .chain("Content-Length: 3\r\n\r\nfoo".as_bytes())
+            .chain(&session_dump[..]);
+
+        let err = handle_input(stream, &tx).unwrap_err();
+        assert_matches!(err, InputHandlingError::ParseError(_));
+
+        rx.try_recv().unwrap(); // Ignore the first message.
+        rx.try_recv().unwrap(); // Ignore the second message.
+        rx.try_recv().unwrap_err(); // Stop at the 3rd one: end of stream.
     }
 
-    fn message_seq_numbers_from_stream(stream: Vec<u8>) -> Vec<i64> {
-        let mut stream_reader = stream.as_slice();
-        raw_messages(&mut stream_reader)
-            .map(into_json_value)
-            .map(|resp| resp["seq"].as_i64().unwrap())
-            .collect()
+    #[test]
+    fn stops_on_send_errors() {
+        let (tx, rx) = mpsc::channel();
+        let stream = read_session_dump();
+
+        drop(rx);
+        let err = handle_input(&stream[..], &tx).unwrap_err();
+        assert_matches!(err, InputHandlingError::SendError(_));
     }
 
     #[test]

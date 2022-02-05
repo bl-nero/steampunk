@@ -14,7 +14,6 @@ use std::io::BufRead;
 use std::io::Write;
 use std::iter;
 use std::num::ParseIntError;
-use thiserror::Error;
 
 /// Incoming messages of the Debug Adapter Protocol.
 #[derive(Debug, PartialEq, Clone)]
@@ -36,7 +35,7 @@ pub enum OutgoingMessage {
     Stopped(StoppedEvent),
 }
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ProtocolError {
     #[error("I/O error: {0}")]
     IoError(#[from] io::Error),
@@ -68,7 +67,7 @@ pub fn raw_messages<'a>(
     })
 }
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ParseError {
     #[error("Unable to parse debugger message: {0}")]
     JsonParserError(#[from] serde_json::Error),
@@ -160,7 +159,7 @@ pub fn send_raw_message(message_bytes: Vec<u8>, output: &mut impl Write) -> Prot
 }
 
 /// A thin wrapper over `serde_json::Error`, just to make the API a bit cleaner.
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 #[error("Unable to serialize debugger message: {0}")]
 pub struct SerializeError(#[from] serde_json::Error);
 
