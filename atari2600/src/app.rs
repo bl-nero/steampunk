@@ -1,5 +1,7 @@
 use common::app::AppController;
 use common::app::MachineController;
+use common::debugger::adapter::DebugAdapter;
+use common::debugger::Debugger;
 use image::RgbaImage;
 use piston_window::{Button, ButtonState, Event, Input, Key, Loop};
 use std::sync::atomic::AtomicBool;
@@ -7,14 +9,15 @@ use std::sync::Arc;
 
 use crate::atari::{Atari, JoystickInput, JoystickPort, Switch, SwitchPosition};
 
-pub struct AtariController<'a> {
-    machine_controller: MachineController<'a, Atari>,
+pub struct AtariController<'a, A: DebugAdapter> {
+    machine_controller: MachineController<'a, Atari, A>,
 }
 
-impl<'a> AtariController<'a> {
-    pub fn new(atari: &'a mut Atari) -> Self {
+impl<'a, A: DebugAdapter> AtariController<'a, A> {
+    pub fn new(atari: &'a mut Atari, debugger_adapter: Option<A>) -> Self {
+        let debugger = debugger_adapter.map(Debugger::new);
         return AtariController {
-            machine_controller: MachineController::new(atari, None),
+            machine_controller: MachineController::new(atari, debugger),
         };
     }
 
@@ -23,7 +26,7 @@ impl<'a> AtariController<'a> {
     }
 }
 
-impl<'a> AppController for AtariController<'a> {
+impl<'a, A: DebugAdapter> AppController for AtariController<'a, A> {
     fn frame_image(&self) -> &RgbaImage {
         self.machine_controller.frame_image()
     }
@@ -121,14 +124,15 @@ mod tests {
     use super::*;
     use crate::test_utils::assert_images_equal;
     use crate::test_utils::atari_with_rom;
+    use common::debugger::adapter::TcpDebugAdapter;
     use common::test_utils::read_test_image;
     use image::DynamicImage;
     use piston_window::ButtonArgs;
     use piston_window::UpdateArgs;
     use std::sync::atomic::Ordering;
 
-    fn assert_current_frame(
-        controller: &mut AtariController,
+    fn assert_current_frame<A: DebugAdapter>(
+        controller: &mut AtariController<A>,
         test_image_name: &str,
         test_name: &str,
     ) {
@@ -140,7 +144,7 @@ mod tests {
     #[test]
     fn controller_produces_images_until_interrupted() {
         let mut atari = atari_with_rom("horizontal_stripes_animated.bin");
-        let mut controller = AtariController::new(&mut atari);
+        let mut controller = AtariController::new(&mut atari, None::<TcpDebugAdapter>);
         controller.reset();
 
         controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
@@ -166,7 +170,10 @@ mod tests {
         );
     }
 
-    fn send_key(controller: &mut AtariController, key: Key, state: ButtonState) {
+    fn send_key<A>(controller: &mut AtariController<A>, key: Key, state: ButtonState)
+    where
+        A: DebugAdapter,
+    {
         controller.event(&Event::from(ButtonArgs {
             button: Button::Keyboard(key),
             state,
@@ -177,7 +184,7 @@ mod tests {
     #[test]
     fn console_switches() {
         let mut atari = atari_with_rom("io_monitor.bin");
-        let mut controller = AtariController::new(&mut atari);
+        let mut controller = AtariController::new(&mut atari, None::<TcpDebugAdapter>);
         controller.reset();
         controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
         assert_current_frame(
@@ -238,7 +245,7 @@ mod tests {
     #[test]
     fn joysticks() {
         let mut atari = atari_with_rom("io_monitor.bin");
-        let mut controller = AtariController::new(&mut atari);
+        let mut controller = AtariController::new(&mut atari, None::<TcpDebugAdapter>);
         controller.reset();
         controller.event(&Event::from(UpdateArgs { dt: 1.0 / 60.0 }));
 

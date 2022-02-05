@@ -14,6 +14,7 @@ mod test_utils;
 use crate::app::AtariController;
 use atari::{Atari, AtariAddressSpace};
 use common::app::Application;
+use common::debugger::adapter::TcpDebugAdapter;
 use frame_renderer::FrameRendererBuilder;
 use std::env;
 use std::sync::atomic::Ordering;
@@ -44,7 +45,12 @@ fn main() {
         audio_consumer,
     );
 
-    let mut app = Application::new(AtariController::new(&mut atari), "Atari 2600", 5, 3);
+    let mut app = Application::new(
+        AtariController::new(&mut atari, None::<TcpDebugAdapter>),
+        "Atari 2600",
+        5,
+        3,
+    );
     let interrupted = app.interrupted();
 
     ctrlc::set_handler(move || {

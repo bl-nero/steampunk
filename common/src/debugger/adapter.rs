@@ -16,6 +16,16 @@ use std::sync::mpsc::TryRecvError;
 use std::thread;
 use thiserror::Error;
 
+/// A generic trait for debug adapter. It's an object that connects the debugger
+/// to a debugger UI.
+pub trait DebugAdapter {
+    /// Attempts to receive a message from the debugger UI. Returns immediately
+    /// with [`DebugAdapterError::TryRecvError(TryRecvError::Empty)`] if there
+    /// are no pending messages.
+    fn try_receive_message(&self) -> DebugAdapterResult<IncomingMessage>;
+    fn send_message(&self, message: OutgoingMessage) -> DebugAdapterResult<()>;
+}
+
 /// Uses Debug Adapter Protocol over a TCP socket to communicate to a debugger
 /// UI. The adapter spawns two threads internally — one to read, and one to
 /// write to the TCP port — and communicates with them over `mpsc` channels. The
@@ -25,13 +35,13 @@ use thiserror::Error;
 /// One important limitation is that only a single TCP connection is allowed at
 /// any given time, but connecting with two debuggers at once would be a bad
 /// idea anyway.
-pub struct DebugAdapter {
+pub struct TcpDebugAdapter {
     writer_event_sender: mpsc::Sender<WriterThreadCommand>,
     message_receiver: mpsc::Receiver<IncomingMessage>,
 }
 
-impl DebugAdapter {
-    /// Creates a new `DebugAdapter` and starts listening on given port.
+impl TcpDebugAdapter {
+    /// Creates a new `TcpDebugAdapter` and starts listening on given port.
     pub fn new(port: u16) -> Self {
         let writer_event_sender = spawn_writer_thread();
         let message_receiver = spawn_reader_thread(port, writer_event_sender.clone());
@@ -40,20 +50,21 @@ impl DebugAdapter {
             message_receiver,
         }
     }
+}
 
-    /// Attempts to receive a message from the debugger UI. Returns immediately
-    /// with [`DebugAdapterError::TryRecvError(TryRecvError::Empty)`] if there
-    /// are no pending messages.
-    pub fn try_receive_message(&self) -> Result<IncomingMessage, DebugAdapterError> {
+impl DebugAdapter for TcpDebugAdapter {
+    fn try_receive_message(&self) -> DebugAdapterResult<IncomingMessage> {
         self.message_receiver.try_recv().map_err(|e| e.into())
     }
 
-    pub fn send_message(&self, message: OutgoingMessage) -> Result<(), DebugAdapterError> {
+    fn send_message(&self, message: OutgoingMessage) -> DebugAdapterResult<()> {
         self.writer_event_sender
             .send(WriterThreadCommand::SendMessage(message))
             .map_err(|e| e.into())
     }
 }
+
+pub type DebugAdapterResult<T> = Result<T, DebugAdapterError>;
 
 #[derive(Error, Debug)]
 pub enum DebugAdapterError {
@@ -95,6 +106,7 @@ fn spawn_reader_thread(
     return rx;
 }
 
+#[derive(Clone)]
 pub enum WriterThreadCommand<W: Write = TcpStream> {
     SendMessage(OutgoingMessage),
     Connect(W),

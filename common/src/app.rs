@@ -1,3 +1,5 @@
+use crate::debugger::adapter::DebugAdapter;
+use crate::debugger::adapter::TcpDebugAdapter;
 use crate::debugger::Debugger;
 use image::RgbaImage;
 use piston::{Event, EventLoop, WindowSettings};
@@ -25,15 +27,15 @@ pub enum FrameStatus {
 }
 
 /// An auxiliary controller that handles the machine lifecycle.
-pub struct MachineController<'a, M: Machine> {
+pub struct MachineController<'a, M: Machine, A: DebugAdapter> {
     machine: &'a mut M,
     running: bool,
     interrupted: Arc<AtomicBool>,
-    debugger: Option<Debugger>,
+    debugger: Option<Debugger<A>>,
 }
 
-impl<'a, M: Machine> MachineController<'a, M> {
-    pub fn new(machine: &'a mut M, debugger: Option<Debugger>) -> Self {
+impl<'a, M: Machine, A: DebugAdapter> MachineController<'a, M, A> {
+    pub fn new(machine: &'a mut M, debugger: Option<Debugger<A>>) -> Self {
         return Self {
             machine,
             running: false,
@@ -56,7 +58,7 @@ impl<'a, M: Machine> MachineController<'a, M> {
     }
 
     pub fn run_until_end_of_frame(&mut self) {
-        if let Some(debugger) = &self.debugger {
+        if let Some(debugger) = &mut self.debugger {
             debugger.process_meessages();
         }
         while self.running && !self.interrupted.load(Ordering::Relaxed) {
@@ -256,7 +258,8 @@ mod tests {
     #[test]
     fn machine_controller_generates_frame() {
         let mut machine = TestMachine::new();
-        let mut controller = MachineController::new(&mut machine, None);
+        let mut controller =
+            MachineController::new(&mut machine, None::<Debugger<TcpDebugAdapter>>);
         controller.reset();
 
         controller.run_until_end_of_frame();
@@ -275,7 +278,8 @@ mod tests {
     #[test]
     fn machine_controller_resets() {
         let mut machine = TestMachine::new();
-        let mut controller = MachineController::new(&mut machine, None);
+        let mut controller =
+            MachineController::new(&mut machine, None::<Debugger<TcpDebugAdapter>>);
         controller.reset();
         controller.run_until_end_of_frame();
         controller.reset();
@@ -289,7 +293,8 @@ mod tests {
     #[test]
     fn machine_controller_produces_images_until_interrupted() {
         let mut machine = TestMachine::new();
-        let mut controller = MachineController::new(&mut machine, None);
+        let mut controller =
+            MachineController::new(&mut machine, None::<Debugger<TcpDebugAdapter>>);
         controller.reset();
 
         controller.run_until_end_of_frame();
@@ -311,7 +316,8 @@ mod tests {
     #[test]
     fn machine_controller_halts_on_error_until_reset() {
         let mut machine = TestMachine::new();
-        let mut controller = MachineController::new(&mut machine, None);
+        let mut controller =
+            MachineController::new(&mut machine, None::<Debugger<TcpDebugAdapter>>);
         controller.reset();
 
         controller.run_until_end_of_frame();

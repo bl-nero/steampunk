@@ -15,7 +15,7 @@ use crate::address_space::CartridgeMode;
 use crate::app::C64Controller;
 use crate::c64::C64;
 use common::app::Application;
-use common::debugger::adapter::DebugAdapter;
+use common::debugger::adapter::TcpDebugAdapter;
 use std::env;
 use std::sync::atomic::Ordering;
 use vic::Vic;
@@ -36,7 +36,7 @@ fn main() {
         }));
     }
 
-    let debugger_adapter = DebugAdapter::new(1234);
+    let debugger_adapter = TcpDebugAdapter::new(1234);
 
     let mut app = Application::new(
         C64Controller::new(&mut c64, Some(debugger_adapter)),

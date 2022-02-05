@@ -9,12 +9,12 @@ use piston::Loop;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-pub struct C64Controller<'a> {
-    machine_controller: MachineController<'a, C64>,
+pub struct C64Controller<'a, A: DebugAdapter> {
+    machine_controller: MachineController<'a, C64, A>,
 }
 
-impl<'a> C64Controller<'a> {
-    pub fn new(c64: &'a mut C64, debugger_adapter: Option<DebugAdapter>) -> Self {
+impl<'a, A: DebugAdapter> C64Controller<'a, A> {
+    pub fn new(c64: &'a mut C64, debugger_adapter: Option<A>) -> Self {
         let debugger = debugger_adapter.map(Debugger::new);
         Self {
             machine_controller: MachineController::new(c64, debugger),
@@ -22,7 +22,7 @@ impl<'a> C64Controller<'a> {
     }
 }
 
-impl<'a> AppController for C64Controller<'a> {
+impl<'a, A: DebugAdapter> AppController for C64Controller<'a, A> {
     fn frame_image(&self) -> &RgbaImage {
         self.machine_controller.frame_image()
     }

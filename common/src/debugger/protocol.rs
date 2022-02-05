@@ -4,6 +4,7 @@ use debugserver_types::DisconnectRequest;
 use debugserver_types::EvaluateResponse;
 use debugserver_types::InitializeRequest;
 use debugserver_types::InitializeResponse;
+use debugserver_types::InitializedEvent;
 use debugserver_types::NextResponse;
 use debugserver_types::StoppedEvent;
 use lazy_static::lazy_static;
@@ -16,7 +17,7 @@ use std::num::ParseIntError;
 use thiserror::Error;
 
 /// Incoming messages of the Debug Adapter Protocol.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum IncomingMessage {
     Initialize(InitializeRequest),
     Attach(AttachRequest),
@@ -24,12 +25,14 @@ pub enum IncomingMessage {
 }
 
 /// Outgoing messages of the Debug Adapter Protocol.
+#[derive(Clone, PartialEq, Debug)]
 pub enum OutgoingMessage {
     Initialize(InitializeResponse),
     Attach(AttachResponse),
     Next(NextResponse),
     Evaluate(EvaluateResponse),
 
+    Initialized(InitializedEvent),
     Stopped(StoppedEvent),
 }
 
@@ -170,6 +173,7 @@ pub fn serialize_message(message: &OutgoingMessage) -> Result<Vec<u8>, Serialize
         Initialize(msg) => serde_json::to_vec(msg),
         Attach(msg) => serde_json::to_vec(msg),
 
+        Initialized(msg) => serde_json::to_vec(msg),
         Stopped(msg) => serde_json::to_vec(msg),
     }
     // Note: there's no way to test it, and I doubt it would ever happen, but
