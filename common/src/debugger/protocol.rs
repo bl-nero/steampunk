@@ -21,6 +21,8 @@ pub enum IncomingMessage {
     Initialize(InitializeRequest),
     Attach(AttachRequest),
     Disconnect(DisconnectRequest),
+
+    Unknown(serde_json::Value),
 }
 
 /// Outgoing messages of the Debug Adapter Protocol.
@@ -101,7 +103,7 @@ pub fn parse_message(raw_message: Vec<u8>) -> Result<IncomingMessage, ParseError
         Some("attach") => Ok(IncomingMessage::Attach(serde_json::from_value(
             message_value,
         )?)),
-        _ => Err(ParseError::UnsupportedCommand(command_value.clone())),
+        _ => Err(ParseError::UnsupportedCommand(message_value)),
     };
 }
 
@@ -400,9 +402,15 @@ mod tests {
         );
         let empty_message = parse_message(vec![]);
 
-        assert_eq!(true, invalid_request.is_err());
-        assert_eq!(true, unknown_command.is_err());
-        assert_eq!(true, empty_message.is_err());
+        invalid_request.unwrap_err();
+        assert_matches!(
+            unknown_command.unwrap_err(),
+            ParseError::UnsupportedCommand(value) if value == json!({
+                "type": "request",
+                "command": "beam me up",
+            }),
+        );
+        empty_message.unwrap_err();
     }
 
     #[test]
