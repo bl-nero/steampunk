@@ -15,6 +15,10 @@ use debugserver_types::SetExceptionBreakpointsRequest;
 use debugserver_types::SetExceptionBreakpointsResponse;
 use debugserver_types::StoppedEvent;
 use debugserver_types::StoppedEventBody;
+use debugserver_types::Thread;
+use debugserver_types::ThreadsRequest;
+use debugserver_types::ThreadsResponse;
+use debugserver_types::ThreadsResponseBody;
 use std::sync::mpsc::TryRecvError;
 
 /// A debugger for 6502-based machines. Uses Debug Adapter Protocol internally
@@ -46,6 +50,7 @@ impl<A: DebugAdapter> Debugger<A> {
                     self.set_exception_breakpoints(req)
                 }
                 Ok(IncomingMessage::Attach(req)) => self.attach(req),
+                Ok(IncomingMessage::Threads(req)) => self.threads(req),
                 Ok(other) => eprintln!("Unsupported message: {:?}", other),
                 Err(DebugAdapterError::TryRecvError(TryRecvError::Empty)) => return,
                 Err(e) => panic!("{}", e),
@@ -106,10 +111,28 @@ impl<A: DebugAdapter> Debugger<A> {
             body: StoppedEventBody {
                 reason: "entry".into(),
                 description: None,
-                thread_id: None,
+                thread_id: Some(1),
                 preserve_focus_hint: None,
                 text: None,
-                all_threads_stopped: None,
+                all_threads_stopped: Some(true),
+            },
+        }))
+        .unwrap();
+    }
+
+    fn threads(&mut self, request: ThreadsRequest) {
+        self.send_message(OutgoingMessage::Threads(ThreadsResponse {
+            seq: -1,
+            request_seq: request.seq,
+            type_: "response".into(),
+            command: "threads".into(),
+            success: true,
+            message: None,
+            body: ThreadsResponseBody {
+                threads: vec![Thread {
+                    id: 1,
+                    name: "main thread".into(),
+                }],
             },
         }))
         .unwrap();
@@ -120,6 +143,7 @@ impl<A: DebugAdapter> Debugger<A> {
         match &mut message {
             Initialize(msg) => msg.seq = self.next_sequence_number(),
             Attach(msg) => msg.seq = self.next_sequence_number(),
+            Threads(msg) => msg.seq = self.next_sequence_number(),
             Next(msg) => msg.seq = self.next_sequence_number(),
             Evaluate(msg) => msg.seq = self.next_sequence_number(),
 
@@ -192,6 +216,15 @@ mod tests {
         }))
     }
 
+    fn threads_request() -> DebugAdapterResult<IncomingMessage> {
+        Ok(IncomingMessage::Threads(ThreadsRequest {
+            seq: 10,
+            type_: "request".into(),
+            command: "threads".into(),
+            arguments: None,
+        }))
+    }
+
     #[derive(Default)]
     struct FakeDebugAdapterInternals {
         receiver_queue: VecDeque<DebugAdapterResult<IncomingMessage>>,
@@ -244,8 +277,9 @@ mod tests {
     fn initialization_sequence() {
         let (adapter, adapter_internals) = FakeDebugAdapter::new();
         push_incoming(&*adapter_internals, initialize_request());
-        push_incoming(&*adapter_internals, set_exception_breakpoints_request());
         push_incoming(&*adapter_internals, attach_request());
+        push_incoming(&*adapter_internals, set_exception_breakpoints_request());
+        push_incoming(&*adapter_internals, threads_request());
         let mut debugger = Debugger::new(adapter);
 
         debugger.process_meessages();
@@ -269,14 +303,6 @@ mod tests {
         );
         assert_matches!(
             pop_outgoing(&*adapter_internals),
-            Some(OutgoingMessage::SetExceptionBreakpoints(SetExceptionBreakpointsResponse {
-                type_,
-                command,
-                ..
-            })) if type_ == "response" && command == "set_exception_breakpoints"
-        );
-        assert_matches!(
-            pop_outgoing(&*adapter_internals),
             Some(OutgoingMessage::Attach(AttachResponse {
                 type_,
                 command,
@@ -288,8 +314,35 @@ mod tests {
             Some(OutgoingMessage::Stopped(StoppedEvent {
                 type_,
                 event,
+                body: StoppedEventBody {
+                    thread_id: Some(1),
+                    all_threads_stopped: Some(true),
+                    ..
+                },
                 ..
             })) if type_ == "event" && event == "stopped"
+        );
+        assert_matches!(
+            pop_outgoing(&*adapter_internals),
+            Some(OutgoingMessage::SetExceptionBreakpoints(SetExceptionBreakpointsResponse {
+                type_,
+                command,
+                ..
+            })) if type_ == "response" && command == "set_exception_breakpoints"
+        );
+        assert_matches!(
+            pop_outgoing(&*adapter_internals),
+            Some(OutgoingMessage::Threads(ThreadsResponse {
+                type_,
+                command,
+                body: ThreadsResponseBody { threads },
+                ..
+            })) if type_ == "response"
+                && command == "threads"
+                && threads == vec![Thread {
+                    id: 1,
+                    name: "main thread".into(),
+                }]
         );
         assert_eq!(pop_outgoing(&*adapter_internals), None);
     }

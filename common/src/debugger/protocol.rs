@@ -9,6 +9,8 @@ use debugserver_types::NextResponse;
 use debugserver_types::SetExceptionBreakpointsRequest;
 use debugserver_types::SetExceptionBreakpointsResponse;
 use debugserver_types::StoppedEvent;
+use debugserver_types::ThreadsRequest;
+use debugserver_types::ThreadsResponse;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::io;
@@ -23,6 +25,7 @@ pub enum IncomingMessage {
     Initialize(InitializeRequest),
     SetExceptionBreakpoints(SetExceptionBreakpointsRequest),
     Attach(AttachRequest),
+    Threads(ThreadsRequest),
     Disconnect(DisconnectRequest),
 
     Unknown(serde_json::Value),
@@ -34,6 +37,7 @@ pub enum OutgoingMessage {
     Initialize(InitializeResponse),
     SetExceptionBreakpoints(SetExceptionBreakpointsResponse),
     Attach(AttachResponse),
+    Threads(ThreadsResponse),
     Next(NextResponse),
     Evaluate(EvaluateResponse),
 
@@ -91,6 +95,7 @@ pub fn parse_message(raw_message: Vec<u8>) -> Result<IncomingMessage, ParseError
     // tagged types, which are used by the DAP protocol, so we need to jump
     // through a couple of hoops here instead of using `serde`'s built-in
     // mechanism.
+    // println!("-> {}", std::str::from_utf8(&raw_message).unwrap());
     let message_value: serde_json::Value = serde_json::from_slice(&raw_message)?;
     match &message_value["type"] {
         serde_json::Value::String(s) if s == "request" => {}
@@ -104,10 +109,13 @@ pub fn parse_message(raw_message: Vec<u8>) -> Result<IncomingMessage, ParseError
         Some("setExceptionBreakpoints") => Ok(IncomingMessage::SetExceptionBreakpoints(
             serde_json::from_value(message_value)?,
         )),
-        Some("disconnect") => Ok(IncomingMessage::Disconnect(serde_json::from_value(
+        Some("attach") => Ok(IncomingMessage::Attach(serde_json::from_value(
             message_value,
         )?)),
-        Some("attach") => Ok(IncomingMessage::Attach(serde_json::from_value(
+        Some("threads") => Ok(IncomingMessage::Threads(serde_json::from_value(
+            message_value,
+        )?)),
+        Some("disconnect") => Ok(IncomingMessage::Disconnect(serde_json::from_value(
             message_value,
         )?)),
         _ => Err(ParseError::UnsupportedCommand(message_value)),
@@ -158,6 +166,7 @@ fn read_headers(input: &mut impl BufRead) -> ProtocolResult<Option<usize>> {
 
 /// Sends a raw byte buffer using the DAP protocol.
 pub fn send_raw_message(message_bytes: Vec<u8>, output: &mut impl Write) -> ProtocolResult<()> {
+    // println!("<- {}", std::str::from_utf8(&message_bytes).unwrap());
     output.write_fmt(format_args!(
         "Content-Length: {}\r\n\r\n",
         message_bytes.len()
@@ -180,6 +189,7 @@ pub fn serialize_message(message: &OutgoingMessage) -> Result<Vec<u8>, Serialize
         Evaluate(msg) => serde_json::to_vec(msg),
         Initialize(msg) => serde_json::to_vec(msg),
         Attach(msg) => serde_json::to_vec(msg),
+        Threads(msg) => serde_json::to_vec(msg),
 
         Initialized(msg) => serde_json::to_vec(msg),
         SetExceptionBreakpoints(msg) => serde_json::to_vec(msg),
@@ -375,6 +385,7 @@ mod tests {
         let set_exception_breakpoints_request =
             parse_message(read_test_data("set_exception_breakpoints_request.json"));
         let attach_request = parse_message(read_test_data("attach_request.json"));
+        let threads_request = parse_message(read_test_data("threads_request.json"));
         let disconnect_request = parse_message(read_test_data("disconnect_request.json"));
 
         assert_matches!(
@@ -397,6 +408,10 @@ mod tests {
         assert_matches!(
             attach_request,
             Ok(IncomingMessage::Attach(AttachRequest { command, .. })) if command == "attach"
+        );
+        assert_matches!(
+            threads_request,
+            Ok(IncomingMessage::Threads(ThreadsRequest { command, .. })) if command == "threads"
         );
         assert_matches!(
             disconnect_request,
