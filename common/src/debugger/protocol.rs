@@ -8,6 +8,8 @@ use debugserver_types::InitializedEvent;
 use debugserver_types::NextResponse;
 use debugserver_types::SetExceptionBreakpointsRequest;
 use debugserver_types::SetExceptionBreakpointsResponse;
+use debugserver_types::StackTraceRequest;
+use debugserver_types::StackTraceResponse;
 use debugserver_types::StoppedEvent;
 use debugserver_types::ThreadsRequest;
 use debugserver_types::ThreadsResponse;
@@ -26,6 +28,7 @@ pub enum IncomingMessage {
     SetExceptionBreakpoints(SetExceptionBreakpointsRequest),
     Attach(AttachRequest),
     Threads(ThreadsRequest),
+    StackTrace(StackTraceRequest),
     Disconnect(DisconnectRequest),
 
     Unknown(serde_json::Value),
@@ -38,6 +41,7 @@ pub enum OutgoingMessage {
     SetExceptionBreakpoints(SetExceptionBreakpointsResponse),
     Attach(AttachResponse),
     Threads(ThreadsResponse),
+    StackTrace(StackTraceResponse),
     Next(NextResponse),
     Evaluate(EvaluateResponse),
 
@@ -115,6 +119,9 @@ pub fn parse_message(raw_message: Vec<u8>) -> Result<IncomingMessage, ParseError
         Some("threads") => Ok(IncomingMessage::Threads(serde_json::from_value(
             message_value,
         )?)),
+        Some("stackTrace") => Ok(IncomingMessage::StackTrace(serde_json::from_value(
+            message_value,
+        )?)),
         Some("disconnect") => Ok(IncomingMessage::Disconnect(serde_json::from_value(
             message_value,
         )?)),
@@ -190,6 +197,7 @@ pub fn serialize_message(message: &OutgoingMessage) -> Result<Vec<u8>, Serialize
         Initialize(msg) => serde_json::to_vec(msg),
         Attach(msg) => serde_json::to_vec(msg),
         Threads(msg) => serde_json::to_vec(msg),
+        StackTrace(msg) => serde_json::to_vec(msg),
 
         Initialized(msg) => serde_json::to_vec(msg),
         SetExceptionBreakpoints(msg) => serde_json::to_vec(msg),
@@ -386,6 +394,7 @@ mod tests {
             parse_message(read_test_data("set_exception_breakpoints_request.json"));
         let attach_request = parse_message(read_test_data("attach_request.json"));
         let threads_request = parse_message(read_test_data("threads_request.json"));
+        let stack_trace_request = parse_message(read_test_data("stack_trace_request.json"));
         let disconnect_request = parse_message(read_test_data("disconnect_request.json"));
 
         assert_matches!(
@@ -412,6 +421,13 @@ mod tests {
         assert_matches!(
             threads_request,
             Ok(IncomingMessage::Threads(ThreadsRequest { command, .. })) if command == "threads"
+        );
+        assert_matches!(
+            stack_trace_request,
+            Ok(IncomingMessage::StackTrace(StackTraceRequest {
+                command,
+                ..
+            })) if command == "stackTrace"
         );
         assert_matches!(
             disconnect_request,

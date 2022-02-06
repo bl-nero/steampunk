@@ -13,6 +13,9 @@ use debugserver_types::InitializeResponse;
 use debugserver_types::InitializedEvent;
 use debugserver_types::SetExceptionBreakpointsRequest;
 use debugserver_types::SetExceptionBreakpointsResponse;
+use debugserver_types::StackTraceRequest;
+use debugserver_types::StackTraceResponse;
+use debugserver_types::StackTraceResponseBody;
 use debugserver_types::StoppedEvent;
 use debugserver_types::StoppedEventBody;
 use debugserver_types::Thread;
@@ -51,6 +54,7 @@ impl<A: DebugAdapter> Debugger<A> {
                 }
                 Ok(IncomingMessage::Attach(req)) => self.attach(req),
                 Ok(IncomingMessage::Threads(req)) => self.threads(req),
+                Ok(IncomingMessage::StackTrace(req)) => self.stack_trace(req),
                 Ok(other) => eprintln!("Unsupported message: {:?}", other),
                 Err(DebugAdapterError::TryRecvError(TryRecvError::Empty)) => return,
                 Err(e) => panic!("{}", e),
@@ -138,12 +142,29 @@ impl<A: DebugAdapter> Debugger<A> {
         .unwrap();
     }
 
+    fn stack_trace(&mut self, request: StackTraceRequest) {
+        self.send_message(OutgoingMessage::StackTrace(StackTraceResponse {
+            seq: -1,
+            request_seq: request.seq,
+            type_: "response".into(),
+            command: "stack_trace".into(),
+            success: true,
+            message: None,
+            body: StackTraceResponseBody {
+                stack_frames: vec![],
+                total_frames: Some(0),
+            },
+        }))
+        .unwrap();
+    }
+
     fn send_message(&mut self, mut message: OutgoingMessage) -> DebugAdapterResult<()> {
         use OutgoingMessage::*;
         match &mut message {
             Initialize(msg) => msg.seq = self.next_sequence_number(),
             Attach(msg) => msg.seq = self.next_sequence_number(),
             Threads(msg) => msg.seq = self.next_sequence_number(),
+            StackTrace(msg) => msg.seq = self.next_sequence_number(),
             Next(msg) => msg.seq = self.next_sequence_number(),
             Evaluate(msg) => msg.seq = self.next_sequence_number(),
 
@@ -169,6 +190,7 @@ mod tests {
     use debugserver_types::InitializeRequestArguments;
     use debugserver_types::SetExceptionBreakpointsArguments;
     use debugserver_types::SetExceptionBreakpointsResponse;
+    use debugserver_types::StackTraceArguments;
     use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::rc::Rc;
@@ -222,6 +244,20 @@ mod tests {
             type_: "request".into(),
             command: "threads".into(),
             arguments: None,
+        }))
+    }
+
+    fn stack_trace_request() -> DebugAdapterResult<IncomingMessage> {
+        Ok(IncomingMessage::StackTrace(StackTraceRequest {
+            seq: 15,
+            type_: "request".into(),
+            command: "stackTrace".into(),
+            arguments: StackTraceArguments {
+                levels: Some(20),
+                start_frame: Some(0),
+                thread_id: 1,
+                format: None,
+            },
         }))
     }
 
@@ -280,6 +316,7 @@ mod tests {
         push_incoming(&*adapter_internals, attach_request());
         push_incoming(&*adapter_internals, set_exception_breakpoints_request());
         push_incoming(&*adapter_internals, threads_request());
+        push_incoming(&*adapter_internals, stack_trace_request());
         let mut debugger = Debugger::new(adapter);
 
         debugger.process_meessages();
@@ -343,6 +380,18 @@ mod tests {
                     id: 1,
                     name: "main thread".into(),
                 }]
+        );
+        assert_matches!(
+            pop_outgoing(&*adapter_internals),
+            Some(OutgoingMessage::StackTrace(StackTraceResponse {
+                type_,
+                command,
+                body: StackTraceResponseBody {
+                    stack_frames,
+                    total_frames: Some(0),
+                },
+                ..
+            })) if type_ == "response" && command == "stack_trace" && stack_frames == vec![]
         );
         assert_eq!(pop_outgoing(&*adapter_internals), None);
     }
