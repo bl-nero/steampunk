@@ -9,6 +9,7 @@ use crate::debugger::protocol::OutgoingMessage;
 use debugserver_types::AttachResponse;
 use debugserver_types::InitializeResponse;
 use debugserver_types::InitializedEvent;
+use debugserver_types::SetExceptionBreakpointsResponse;
 use debugserver_types::StoppedEvent;
 use debugserver_types::StoppedEventBody;
 use std::sync::mpsc::TryRecvError;
@@ -56,6 +57,20 @@ impl<A: DebugAdapter> Debugger<A> {
                     }))
                     .unwrap();
                 }
+                Ok(IncomingMessage::SetExceptionBreakpoints(req)) => {
+                    self.send_message(OutgoingMessage::SetExceptionBreakpoints(
+                        SetExceptionBreakpointsResponse {
+                            seq: -1,
+                            request_seq: req.seq,
+                            type_: "response".into(),
+                            command: "set_exception_breakpoints".into(),
+                            success: true,
+                            message: None,
+                            body: None,
+                        },
+                    ))
+                    .unwrap();
+                }
                 Ok(IncomingMessage::Attach(req)) => {
                     self.send_message(OutgoingMessage::Attach(AttachResponse {
                         seq: -1,
@@ -82,9 +97,9 @@ impl<A: DebugAdapter> Debugger<A> {
                     }))
                     .unwrap();
                 }
+                Ok(other) => eprintln!("Unsupported message: {:?}", other),
                 Err(DebugAdapterError::TryRecvError(TryRecvError::Empty)) => return,
                 Err(e) => panic!("{}", e),
-                other => eprintln!("{:?}", other),
             }
         }
     }
@@ -98,6 +113,7 @@ impl<A: DebugAdapter> Debugger<A> {
             Evaluate(msg) => msg.seq = self.next_sequence_number(),
 
             Initialized(msg) => msg.seq = self.next_sequence_number(),
+            SetExceptionBreakpoints(msg) => msg.seq = self.next_sequence_number(),
             Stopped(msg) => msg.seq = self.next_sequence_number(),
         }
         return self.adapter.send_message(message);
@@ -117,6 +133,9 @@ mod tests {
     use debugserver_types::AttachRequestArguments;
     use debugserver_types::InitializeRequest;
     use debugserver_types::InitializeRequestArguments;
+    use debugserver_types::SetExceptionBreakpointsArguments;
+    use debugserver_types::SetExceptionBreakpointsRequest;
+    use debugserver_types::SetExceptionBreakpointsResponse;
     use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::rc::Rc;
@@ -139,6 +158,20 @@ mod tests {
                 locale: Some("en-us".into()),
             },
         }))
+    }
+
+    fn set_exception_breakpoints_request() -> DebugAdapterResult<IncomingMessage> {
+        Ok(IncomingMessage::SetExceptionBreakpoints(
+            SetExceptionBreakpointsRequest {
+                seq: 6,
+                type_: "request".into(),
+                command: "setExceptionBreakpoints".into(),
+                arguments: SetExceptionBreakpointsArguments {
+                    filters: vec![],
+                    exception_options: None,
+                },
+            },
+        ))
     }
 
     fn attach_request() -> DebugAdapterResult<IncomingMessage> {
@@ -202,6 +235,7 @@ mod tests {
     fn initialization_sequence() {
         let (adapter, adapter_internals) = FakeDebugAdapter::new();
         push_incoming(&*adapter_internals, initialize_request());
+        push_incoming(&*adapter_internals, set_exception_breakpoints_request());
         push_incoming(&*adapter_internals, attach_request());
         let mut debugger = Debugger::new(adapter);
 
@@ -223,6 +257,14 @@ mod tests {
                 event,
                 ..
             })) if type_ == "event" && event == "initialized"
+        );
+        assert_matches!(
+            pop_outgoing(&*adapter_internals),
+            Some(OutgoingMessage::SetExceptionBreakpoints(SetExceptionBreakpointsResponse {
+                type_,
+                command,
+                ..
+            })) if type_ == "response" && command == "set_exception_breakpoints"
         );
         assert_matches!(
             pop_outgoing(&*adapter_internals),

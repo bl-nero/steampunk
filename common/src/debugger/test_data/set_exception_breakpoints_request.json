@@ -1,0 +1,8 @@
+{
+    "arguments": {
+        "filters": []
+    },
+    "command": "setExceptionBreakpoints",
+    "seq": 3,
+    "type": "request"
+}

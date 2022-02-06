@@ -6,6 +6,8 @@ use debugserver_types::InitializeRequest;
 use debugserver_types::InitializeResponse;
 use debugserver_types::InitializedEvent;
 use debugserver_types::NextResponse;
+use debugserver_types::SetExceptionBreakpointsRequest;
+use debugserver_types::SetExceptionBreakpointsResponse;
 use debugserver_types::StoppedEvent;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -19,6 +21,7 @@ use std::num::ParseIntError;
 #[derive(Debug, PartialEq, Clone)]
 pub enum IncomingMessage {
     Initialize(InitializeRequest),
+    SetExceptionBreakpoints(SetExceptionBreakpointsRequest),
     Attach(AttachRequest),
     Disconnect(DisconnectRequest),
 
@@ -29,6 +32,7 @@ pub enum IncomingMessage {
 #[derive(Clone, PartialEq, Debug)]
 pub enum OutgoingMessage {
     Initialize(InitializeResponse),
+    SetExceptionBreakpoints(SetExceptionBreakpointsResponse),
     Attach(AttachResponse),
     Next(NextResponse),
     Evaluate(EvaluateResponse),
@@ -97,6 +101,9 @@ pub fn parse_message(raw_message: Vec<u8>) -> Result<IncomingMessage, ParseError
         Some("initialize") => Ok(IncomingMessage::Initialize(serde_json::from_value(
             message_value,
         )?)),
+        Some("setExceptionBreakpoints") => Ok(IncomingMessage::SetExceptionBreakpoints(
+            serde_json::from_value(message_value)?,
+        )),
         Some("disconnect") => Ok(IncomingMessage::Disconnect(serde_json::from_value(
             message_value,
         )?)),
@@ -175,6 +182,7 @@ pub fn serialize_message(message: &OutgoingMessage) -> Result<Vec<u8>, Serialize
         Attach(msg) => serde_json::to_vec(msg),
 
         Initialized(msg) => serde_json::to_vec(msg),
+        SetExceptionBreakpoints(msg) => serde_json::to_vec(msg),
         Stopped(msg) => serde_json::to_vec(msg),
     }
     // Note: there's no way to test it, and I doubt it would ever happen, but
@@ -364,6 +372,8 @@ mod tests {
     #[test]
     fn deserializes_messages() {
         let initialize_request = parse_message(read_test_data("initialize_request.json"));
+        let set_exception_breakpoints_request =
+            parse_message(read_test_data("set_exception_breakpoints_request.json"));
         let attach_request = parse_message(read_test_data("attach_request.json"));
         let disconnect_request = parse_message(read_test_data("disconnect_request.json"));
 
@@ -377,6 +387,12 @@ mod tests {
                 },
                 ..
             })) if client_id == "vscode" && adapter_id == "steampunk-6502"
+        );
+        assert_matches!(
+            set_exception_breakpoints_request,
+            Ok(IncomingMessage::SetExceptionBreakpoints(
+                SetExceptionBreakpointsRequest { command, .. }
+            )) if command == "setExceptionBreakpoints"
         );
         assert_matches!(
             attach_request,
