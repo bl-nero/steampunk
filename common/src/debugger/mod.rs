@@ -6,9 +6,12 @@ use crate::debugger::adapter::DebugAdapterError;
 use crate::debugger::adapter::DebugAdapterResult;
 use crate::debugger::protocol::IncomingMessage;
 use crate::debugger::protocol::OutgoingMessage;
+use debugserver_types::AttachRequest;
 use debugserver_types::AttachResponse;
+use debugserver_types::InitializeRequest;
 use debugserver_types::InitializeResponse;
 use debugserver_types::InitializedEvent;
+use debugserver_types::SetExceptionBreakpointsRequest;
 use debugserver_types::SetExceptionBreakpointsResponse;
 use debugserver_types::StoppedEvent;
 use debugserver_types::StoppedEventBody;
@@ -38,70 +41,78 @@ impl<A: DebugAdapter> Debugger<A> {
     pub fn process_meessages(&mut self) {
         loop {
             match self.adapter.try_receive_message() {
-                Ok(IncomingMessage::Initialize(req)) => {
-                    self.send_message(OutgoingMessage::Initialize(InitializeResponse {
-                        seq: -1,
-                        request_seq: req.seq,
-                        type_: "response".into(),
-                        command: "initialize".into(),
-                        success: true,
-                        message: None,
-                        body: None,
-                    }))
-                    .unwrap();
-                    self.send_message(OutgoingMessage::Initialized(InitializedEvent {
-                        seq: -1,
-                        type_: "event".into(),
-                        event: "initialized".into(),
-                        body: None,
-                    }))
-                    .unwrap();
-                }
+                Ok(IncomingMessage::Initialize(req)) => self.initialize(req),
                 Ok(IncomingMessage::SetExceptionBreakpoints(req)) => {
-                    self.send_message(OutgoingMessage::SetExceptionBreakpoints(
-                        SetExceptionBreakpointsResponse {
-                            seq: -1,
-                            request_seq: req.seq,
-                            type_: "response".into(),
-                            command: "set_exception_breakpoints".into(),
-                            success: true,
-                            message: None,
-                            body: None,
-                        },
-                    ))
-                    .unwrap();
+                    self.set_exception_breakpoints(req)
                 }
-                Ok(IncomingMessage::Attach(req)) => {
-                    self.send_message(OutgoingMessage::Attach(AttachResponse {
-                        seq: -1,
-                        request_seq: req.seq,
-                        type_: "response".into(),
-                        command: "attach".into(),
-                        success: true,
-                        message: None,
-                        body: None,
-                    }))
-                    .unwrap();
-                    self.send_message(OutgoingMessage::Stopped(StoppedEvent {
-                        seq: -1,
-                        type_: "event".into(),
-                        event: "stopped".into(),
-                        body: StoppedEventBody {
-                            reason: "entry".into(),
-                            description: None,
-                            thread_id: None,
-                            preserve_focus_hint: None,
-                            text: None,
-                            all_threads_stopped: None,
-                        },
-                    }))
-                    .unwrap();
-                }
+                Ok(IncomingMessage::Attach(req)) => self.attach(req),
                 Ok(other) => eprintln!("Unsupported message: {:?}", other),
                 Err(DebugAdapterError::TryRecvError(TryRecvError::Empty)) => return,
                 Err(e) => panic!("{}", e),
             }
         }
+    }
+
+    fn initialize(&mut self, request: InitializeRequest) {
+        self.send_message(OutgoingMessage::Initialize(InitializeResponse {
+            seq: -1,
+            request_seq: request.seq,
+            type_: "response".into(),
+            command: "initialize".into(),
+            success: true,
+            message: None,
+            body: None,
+        }))
+        .unwrap();
+        self.send_message(OutgoingMessage::Initialized(InitializedEvent {
+            seq: -1,
+            type_: "event".into(),
+            event: "initialized".into(),
+            body: None,
+        }))
+        .unwrap();
+    }
+
+    fn set_exception_breakpoints(&mut self, request: SetExceptionBreakpointsRequest) {
+        self.send_message(OutgoingMessage::SetExceptionBreakpoints(
+            SetExceptionBreakpointsResponse {
+                seq: -1,
+                request_seq: request.seq,
+                type_: "response".into(),
+                command: "set_exception_breakpoints".into(),
+                success: true,
+                message: None,
+                body: None,
+            },
+        ))
+        .unwrap();
+    }
+
+    fn attach(&mut self, request: AttachRequest) {
+        self.send_message(OutgoingMessage::Attach(AttachResponse {
+            seq: -1,
+            request_seq: request.seq,
+            type_: "response".into(),
+            command: "attach".into(),
+            success: true,
+            message: None,
+            body: None,
+        }))
+        .unwrap();
+        self.send_message(OutgoingMessage::Stopped(StoppedEvent {
+            seq: -1,
+            type_: "event".into(),
+            event: "stopped".into(),
+            body: StoppedEventBody {
+                reason: "entry".into(),
+                description: None,
+                thread_id: None,
+                preserve_focus_hint: None,
+                text: None,
+                all_threads_stopped: None,
+            },
+        }))
+        .unwrap();
     }
 
     fn send_message(&mut self, mut message: OutgoingMessage) -> DebugAdapterResult<()> {
@@ -129,12 +140,10 @@ impl<A: DebugAdapter> Debugger<A> {
 mod tests {
     use super::*;
     use crate::debugger::adapter::DebugAdapterResult;
-    use debugserver_types::AttachRequest;
     use debugserver_types::AttachRequestArguments;
     use debugserver_types::InitializeRequest;
     use debugserver_types::InitializeRequestArguments;
     use debugserver_types::SetExceptionBreakpointsArguments;
-    use debugserver_types::SetExceptionBreakpointsRequest;
     use debugserver_types::SetExceptionBreakpointsResponse;
     use std::cell::RefCell;
     use std::collections::VecDeque;
