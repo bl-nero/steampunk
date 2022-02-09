@@ -6,7 +6,7 @@ authors = [
     "Bartosz Leper <bl.nero@gmail.com>",
     "technomaniak",
 ]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 
 [dependencies]

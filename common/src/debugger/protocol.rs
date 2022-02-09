@@ -214,6 +214,7 @@ mod tests {
     use debugserver_types::DisconnectArguments;
     use debugserver_types::InitializeRequestArguments;
     use serde_json::json;
+    use std::assert_matches::assert_matches;
     use std::fs;
     use std::io::BufReader;
     use std::io::Read;

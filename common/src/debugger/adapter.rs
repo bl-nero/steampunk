@@ -182,6 +182,7 @@ mod tests {
     use debugserver_types::InitializeRequest;
     use debugserver_types::InitializeRequestArguments;
     use debugserver_types::NextResponse;
+    use std::assert_matches::assert_matches;
     use std::fs;
     use std::path::Path;
 

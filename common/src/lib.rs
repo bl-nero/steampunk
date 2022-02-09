@@ -1,5 +1,4 @@
 #![feature(assert_matches)]
-#![feature(int_error_matching)]
 
 pub mod app;
 pub mod build_utils;

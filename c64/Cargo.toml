@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = [
     "Bartosz Leper <bl.nero@gmail.com>",
 ]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 image = "0.23.14"

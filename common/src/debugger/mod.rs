@@ -191,6 +191,7 @@ mod tests {
     use debugserver_types::SetExceptionBreakpointsArguments;
     use debugserver_types::SetExceptionBreakpointsResponse;
     use debugserver_types::StackTraceArguments;
+    use std::assert_matches::assert_matches;
     use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::rc::Rc;
