@@ -1,0 +1,7 @@
+{
+    "seq": 2,
+    "request_seq": 12,
+    "type": "response",
+    "command": "setExceptionBreakpoints",
+    "success": true
+}

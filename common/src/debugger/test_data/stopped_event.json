@@ -1,0 +1,10 @@
+{
+    "seq": 10,
+    "type": "event",
+    "event": "stopped",
+    "body": {
+        "reason": "entry",
+        "threadId": 1,
+        "allThreadsStopped": true
+    }
+}

@@ -1,12 +1,3 @@
-use debugserver_types::AttachResponse;
-use debugserver_types::EvaluateResponse;
-use debugserver_types::InitializeResponse;
-use debugserver_types::InitializedEvent;
-use debugserver_types::NextResponse;
-use debugserver_types::SetExceptionBreakpointsResponse;
-use debugserver_types::StackTraceResponse;
-use debugserver_types::StoppedEvent;
-use debugserver_types::ThreadsResponse;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::io;
@@ -14,21 +5,6 @@ use std::io::BufRead;
 use std::io::Write;
 use std::iter;
 use std::num::ParseIntError;
-
-/// Outgoing messages of the Debug Adapter Protocol.
-#[derive(Clone, PartialEq, Debug)]
-pub enum OutgoingMessage {
-    Initialize(InitializeResponse),
-    SetExceptionBreakpoints(SetExceptionBreakpointsResponse),
-    Attach(AttachResponse),
-    Threads(ThreadsResponse),
-    StackTrace(StackTraceResponse),
-    Next(NextResponse),
-    Evaluate(EvaluateResponse),
-
-    Initialized(InitializedEvent),
-    Stopped(StoppedEvent),
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum ProtocolError {
@@ -116,35 +92,9 @@ pub fn send_raw_message(message_bytes: Vec<u8>, output: &mut impl Write) -> Prot
     Ok(())
 }
 
-/// A thin wrapper over `serde_json::Error`, just to make the API a bit cleaner.
-#[derive(thiserror::Error, Debug)]
-#[error("Unable to serialize debugger message: {0}")]
-pub struct SerializeError(#[from] serde_json::Error);
-
-/// Serializes a DAP protocol message as JSON.
-pub fn serialize_message(message: &OutgoingMessage) -> Result<Vec<u8>, SerializeError> {
-    use OutgoingMessage::*;
-    match message {
-        Next(msg) => serde_json::to_vec(msg),
-        Evaluate(msg) => serde_json::to_vec(msg),
-        Initialize(msg) => serde_json::to_vec(msg),
-        Attach(msg) => serde_json::to_vec(msg),
-        Threads(msg) => serde_json::to_vec(msg),
-        StackTrace(msg) => serde_json::to_vec(msg),
-
-        Initialized(msg) => serde_json::to_vec(msg),
-        SetExceptionBreakpoints(msg) => serde_json::to_vec(msg),
-        Stopped(msg) => serde_json::to_vec(msg),
-    }
-    // Note: there's no way to test it, and I doubt it would ever happen, but
-    // anyway, let's map the error.
-    .map_err(|e| e.into())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use std::assert_matches::assert_matches;
     use std::io::BufReader;
     use std::io::Read;
@@ -314,46 +264,6 @@ mod tests {
         send_raw_message(raw_message, &mut output).unwrap();
 
         assert_eq!(&output, "Content-Length: 3\r\n\r\nfoo".as_bytes());
-    }
-
-    #[test]
-    fn serializes_messages() {
-        // Since we don't want to rely on the serializer implementation details,
-        // instead of comparing to a golden result, we just read the serialized
-        // messages back again and compare with the originals.
-        let evaluate_response: EvaluateResponse = serde_json::from_value(json!({
-            "type": "response",
-            "request_seq": 1,
-            "success": true,
-            "command": "evaluate",
-            "seq": 2,
-            "body": {
-                "result": "something",
-                "variablesReference": 0,
-            },
-        }))
-        .unwrap();
-        let next_response: NextResponse = serde_json::from_value(json!({
-            "type": "response",
-            "request_seq": 3,
-            "success": true,
-            "command": "next",
-            "seq": 4,
-        }))
-        .unwrap();
-
-        let evaluate_response_bytes =
-            serialize_message(&OutgoingMessage::Evaluate(evaluate_response.clone())).unwrap();
-        let next_response_bytes =
-            serialize_message(&OutgoingMessage::Next(next_response.clone())).unwrap();
-
-        let actual_evaluate_response: EvaluateResponse =
-            serde_json::from_slice(evaluate_response_bytes.as_slice()).unwrap();
-        let actual_next_response: NextResponse =
-            serde_json::from_slice(next_response_bytes.as_slice()).unwrap();
-
-        assert_eq!(actual_evaluate_response, evaluate_response);
-        assert_eq!(actual_next_response, next_response);
     }
 
     #[test]

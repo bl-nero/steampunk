@@ -1,8 +1,6 @@
 use crate::debugger::dap_types::MessageEnvelope;
 use crate::debugger::protocol::raw_messages;
 use crate::debugger::protocol::send_raw_message;
-use crate::debugger::protocol::serialize_message;
-use crate::debugger::protocol::OutgoingMessage;
 use crate::debugger::protocol::ProtocolError;
 use std::error::Error;
 use std::io::BufReader;
@@ -23,7 +21,7 @@ pub trait DebugAdapter {
     /// with [`DebugAdapterError::TryRecvError(TryRecvError::Empty)`] if there
     /// are no pending messages.
     fn try_receive_message(&self) -> DebugAdapterResult<MessageEnvelope>;
-    fn send_message(&self, message: OutgoingMessage) -> DebugAdapterResult<()>;
+    fn send_message(&self, message: MessageEnvelope) -> DebugAdapterResult<()>;
 }
 
 /// Uses Debug Adapter Protocol over a TCP socket to communicate to a debugger
@@ -57,7 +55,7 @@ impl DebugAdapter for TcpDebugAdapter {
         self.message_receiver.try_recv().map_err(|e| e.into())
     }
 
-    fn send_message(&self, message: OutgoingMessage) -> DebugAdapterResult<()> {
+    fn send_message(&self, message: MessageEnvelope) -> DebugAdapterResult<()> {
         self.writer_event_sender
             .send(WriterThreadCommand::SendMessage(message))
             .map_err(|e| e.into())
@@ -139,9 +137,8 @@ fn handle_input(
     Ok(())
 }
 
-#[derive(Clone)]
 pub enum WriterThreadCommand<W: Write = TcpStream> {
-    SendMessage(OutgoingMessage),
+    SendMessage(MessageEnvelope),
     Connect(W),
     Disconnect,
 }
@@ -162,7 +159,7 @@ fn handle_writer_events<W: Write>(events: impl IntoIterator<Item = WriterThreadC
             WriterThreadCommand::Connect(new_stream) => stream = Some(new_stream),
             WriterThreadCommand::SendMessage(message) => {
                 if let Some(ref mut stream) = stream {
-                    let raw_message = serialize_message(&message).unwrap();
+                    let raw_message = serde_json::to_vec(&message).unwrap();
                     send_raw_message(raw_message, stream).unwrap();
                 }
             }
@@ -177,22 +174,22 @@ mod tests {
     use crate::debugger::dap_types::InitializeArguments;
     use crate::debugger::dap_types::Message;
     use crate::debugger::dap_types::Request;
+    use crate::debugger::dap_types::Response;
+    use crate::debugger::dap_types::ResponseEnvelope;
     use crate::debugger::protocol::ProtocolResult;
-    use debugserver_types::NextResponse;
     use std::assert_matches::assert_matches;
     use std::fs;
     use std::path::Path;
 
-    fn response_with_seq(seq: i64) -> OutgoingMessage {
-        OutgoingMessage::Next(NextResponse {
-            type_: "response".into(),
-            request_seq: 1,
-            success: true,
-            command: "next".into(),
+    fn response_with_seq(seq: i64) -> MessageEnvelope {
+        MessageEnvelope {
             seq,
-            body: None,
-            message: None,
-        })
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 1,
+                success: true,
+                response: Response::Attach,
+            }),
+        }
     }
 
     fn into_json_value(raw_message_result: ProtocolResult<Vec<u8>>) -> serde_json::Value {

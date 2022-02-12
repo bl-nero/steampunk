@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct MessageEnvelope {
     pub seq: i64,
 
@@ -24,8 +25,8 @@ pub struct MessageEnvelope {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Message {
     Request(Request),
-    Response(Response),
-    Event,
+    Response(ResponseEnvelope),
+    Event(Event),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -40,15 +41,73 @@ pub enum Request {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-#[serde(tag = "command", rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
+pub struct InitializeArguments {
+    pub client_name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct ResponseEnvelope {
+    pub request_seq: i64,
+    pub success: bool,
+
+    #[serde(flatten)]
+    pub response: Response,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(tag = "command", content = "body", rename_all = "camelCase")]
 pub enum Response {
     Initialize,
+    SetExceptionBreakpoints,
+    Attach,
+    Threads(ThreadsResponse),
+    StackTrace(StackTraceResponse),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct InitializeArguments {
-    pub client_name: Option<String>,
+pub struct ThreadsResponse {
+    pub threads: Vec<Thread>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StackTraceResponse {
+    pub stack_frames: Vec<StackFrame>,
+    pub total_frames: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(tag = "event", content = "body", rename_all = "camelCase")]
+pub enum Event {
+    Initialized,
+    Stopped(StoppedEvent),
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StoppedEvent {
+    pub reason: StopReason,
+    pub thread_id: i64,
+    pub all_threads_stopped: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum StopReason {
+    Entry,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StackFrame {}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Thread {
+    pub id: i64,
+    pub name: String,
 }
 
 /// This empty struct is here only because `Serde` doesn't allow us to use an
@@ -122,6 +181,68 @@ mod tests {
         disconnect_request_no_args: MessageEnvelope {
             seq: 2,
             message: Message::Request(Request::Disconnect(None)),
+        },
+
+        initialize_response: MessageEnvelope {
+            seq: 1,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 11,
+                success: true,
+                response: Response::Initialize,
+            }),
+        },
+        set_exception_breakpoints_response: MessageEnvelope {
+            seq: 2,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 12,
+                success: true,
+                response: Response::SetExceptionBreakpoints,
+            }),
+        },
+        attach_response: MessageEnvelope {
+            seq: 3,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 13,
+                success: true,
+                response: Response::Attach,
+            }),
+        },
+        threads_response: MessageEnvelope {
+            seq: 54,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 14,
+                success: true,
+                response: Response::Threads(ThreadsResponse {
+                    threads: vec![Thread {
+                        id: 1,
+                        name: "main thread".to_string(),
+                    }],
+                }),
+            }),
+        },
+        stack_trace_response: MessageEnvelope {
+            seq: 75,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 19,
+                success: true,
+                response: Response::StackTrace(StackTraceResponse {
+                    stack_frames: vec![],
+                    total_frames: 0,
+                }),
+            }),
+        },
+
+        initialized_event: MessageEnvelope {
+            seq: 74,
+            message: Message::Event(Event::Initialized),
+        },
+        stopped_event: MessageEnvelope {
+            seq: 10,
+            message: Message::Event(Event::Stopped(StoppedEvent {
+                reason: StopReason::Entry,
+                thread_id: 1,
+                all_threads_stopped: true,
+            })),
         },
     }
 }

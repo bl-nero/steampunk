@@ -1,0 +1,11 @@
+{
+    "seq": 75,
+    "request_seq": 19,
+    "type": "response",
+    "command": "stackTrace",
+    "success": true,
+    "body": {
+        "stackFrames": [],
+        "totalFrames": 0
+    }
+}
