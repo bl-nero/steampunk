@@ -1,25 +1,24 @@
 pub mod adapter;
+pub mod dap_types;
 mod protocol;
 
 use crate::debugger::adapter::DebugAdapter;
 use crate::debugger::adapter::DebugAdapterError;
 use crate::debugger::adapter::DebugAdapterResult;
-use crate::debugger::protocol::IncomingMessage;
+use crate::debugger::dap_types::InitializeArguments;
+use crate::debugger::dap_types::Message;
+use crate::debugger::dap_types::MessageEnvelope;
+use crate::debugger::dap_types::Request;
 use crate::debugger::protocol::OutgoingMessage;
-use debugserver_types::AttachRequest;
 use debugserver_types::AttachResponse;
-use debugserver_types::InitializeRequest;
 use debugserver_types::InitializeResponse;
 use debugserver_types::InitializedEvent;
-use debugserver_types::SetExceptionBreakpointsRequest;
 use debugserver_types::SetExceptionBreakpointsResponse;
-use debugserver_types::StackTraceRequest;
 use debugserver_types::StackTraceResponse;
 use debugserver_types::StackTraceResponseBody;
 use debugserver_types::StoppedEvent;
 use debugserver_types::StoppedEventBody;
 use debugserver_types::Thread;
-use debugserver_types::ThreadsRequest;
 use debugserver_types::ThreadsResponse;
 use debugserver_types::ThreadsResponseBody;
 use std::sync::mpsc::TryRecvError;
@@ -48,24 +47,35 @@ impl<A: DebugAdapter> Debugger<A> {
     pub fn process_meessages(&mut self) {
         loop {
             match self.adapter.try_receive_message() {
-                Ok(IncomingMessage::Initialize(req)) => self.initialize(req),
-                Ok(IncomingMessage::SetExceptionBreakpoints(req)) => {
-                    self.set_exception_breakpoints(req)
-                }
-                Ok(IncomingMessage::Attach(req)) => self.attach(req),
-                Ok(IncomingMessage::Threads(req)) => self.threads(req),
-                Ok(IncomingMessage::StackTrace(req)) => self.stack_trace(req),
-                Ok(other) => eprintln!("Unsupported message: {:?}", other),
+                Ok(envelope) => self.process_message(envelope),
                 Err(DebugAdapterError::TryRecvError(TryRecvError::Empty)) => return,
                 Err(e) => panic!("{}", e),
             }
         }
     }
 
-    fn initialize(&mut self, request: InitializeRequest) {
+    fn process_message(&mut self, envelope: MessageEnvelope) {
+        let message_seq = envelope.seq;
+        match envelope.message {
+            Message::Request(Request::Initialize(args)) => self.initialize(message_seq, args),
+            Message::Request(Request::SetExceptionBreakpoints {}) => {
+                self.set_exception_breakpoints(message_seq)
+            }
+            Message::Request(Request::Attach {}) => self.attach(message_seq),
+            Message::Request(Request::Threads) => self.threads(message_seq),
+            Message::Request(Request::StackTrace {}) => self.stack_trace(message_seq),
+            other => eprintln!("Unsupported message: {:?}", other),
+        }
+    }
+
+    fn initialize(&mut self, request_seq: i64, args: InitializeArguments) {
+        eprintln!(
+            "Initializing debugger session with {}",
+            args.client_name.as_deref().unwrap_or("an unnamed client")
+        );
         self.send_message(OutgoingMessage::Initialize(InitializeResponse {
             seq: -1,
-            request_seq: request.seq,
+            request_seq: request_seq,
             type_: "response".into(),
             command: "initialize".into(),
             success: true,
@@ -82,11 +92,11 @@ impl<A: DebugAdapter> Debugger<A> {
         .unwrap();
     }
 
-    fn set_exception_breakpoints(&mut self, request: SetExceptionBreakpointsRequest) {
+    fn set_exception_breakpoints(&mut self, request_seq: i64) {
         self.send_message(OutgoingMessage::SetExceptionBreakpoints(
             SetExceptionBreakpointsResponse {
                 seq: -1,
-                request_seq: request.seq,
+                request_seq: request_seq,
                 type_: "response".into(),
                 command: "set_exception_breakpoints".into(),
                 success: true,
@@ -97,10 +107,10 @@ impl<A: DebugAdapter> Debugger<A> {
         .unwrap();
     }
 
-    fn attach(&mut self, request: AttachRequest) {
+    fn attach(&mut self, request_seq: i64) {
         self.send_message(OutgoingMessage::Attach(AttachResponse {
             seq: -1,
-            request_seq: request.seq,
+            request_seq: request_seq,
             type_: "response".into(),
             command: "attach".into(),
             success: true,
@@ -124,10 +134,10 @@ impl<A: DebugAdapter> Debugger<A> {
         .unwrap();
     }
 
-    fn threads(&mut self, request: ThreadsRequest) {
+    fn threads(&mut self, request_seq: i64) {
         self.send_message(OutgoingMessage::Threads(ThreadsResponse {
             seq: -1,
-            request_seq: request.seq,
+            request_seq: request_seq,
             type_: "response".into(),
             command: "threads".into(),
             success: true,
@@ -142,10 +152,10 @@ impl<A: DebugAdapter> Debugger<A> {
         .unwrap();
     }
 
-    fn stack_trace(&mut self, request: StackTraceRequest) {
+    fn stack_trace(&mut self, request_seq: i64) {
         self.send_message(OutgoingMessage::StackTrace(StackTraceResponse {
             seq: -1,
-            request_seq: request.seq,
+            request_seq: request_seq,
             type_: "response".into(),
             command: "stack_trace".into(),
             success: true,
@@ -185,92 +195,60 @@ impl<A: DebugAdapter> Debugger<A> {
 mod tests {
     use super::*;
     use crate::debugger::adapter::DebugAdapterResult;
-    use debugserver_types::AttachRequestArguments;
-    use debugserver_types::InitializeRequest;
-    use debugserver_types::InitializeRequestArguments;
-    use debugserver_types::SetExceptionBreakpointsArguments;
+    use crate::debugger::dap_types::InitializeArguments;
+    use crate::debugger::dap_types::MessageEnvelope;
     use debugserver_types::SetExceptionBreakpointsResponse;
-    use debugserver_types::StackTraceArguments;
     use std::assert_matches::assert_matches;
     use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::rc::Rc;
 
-    fn initialize_request() -> DebugAdapterResult<IncomingMessage> {
-        Ok(IncomingMessage::Initialize(InitializeRequest {
+    fn initialize_request() -> DebugAdapterResult<MessageEnvelope> {
+        Ok(MessageEnvelope {
             seq: 5,
-            type_: "request".into(),
-            command: "initialize".into(),
-            arguments: InitializeRequestArguments {
-                client_id: Some("vscode".into()),
+            message: Message::Request(Request::Initialize(InitializeArguments {
                 client_name: Some("Visual Studio Code".into()),
-                adapter_id: "steampunk-6502".into(),
-                path_format: Some("path".into()),
-                lines_start_at_1: Some(true),
-                columns_start_at_1: Some(true),
-                supports_variable_type: Some(true),
-                supports_variable_paging: Some(true),
-                supports_run_in_terminal_request: Some(true),
-                locale: Some("en-us".into()),
-            },
-        }))
+            })),
+        })
     }
 
-    fn set_exception_breakpoints_request() -> DebugAdapterResult<IncomingMessage> {
-        Ok(IncomingMessage::SetExceptionBreakpoints(
-            SetExceptionBreakpointsRequest {
-                seq: 6,
-                type_: "request".into(),
-                command: "setExceptionBreakpoints".into(),
-                arguments: SetExceptionBreakpointsArguments {
-                    filters: vec![],
-                    exception_options: None,
-                },
-            },
-        ))
+    fn set_exception_breakpoints_request() -> DebugAdapterResult<MessageEnvelope> {
+        Ok(MessageEnvelope {
+            seq: 6,
+            message: Message::Request(Request::SetExceptionBreakpoints {}),
+        })
     }
 
-    fn attach_request() -> DebugAdapterResult<IncomingMessage> {
-        Ok(IncomingMessage::Attach(AttachRequest {
+    fn attach_request() -> DebugAdapterResult<MessageEnvelope> {
+        Ok(MessageEnvelope {
             seq: 8,
-            type_: "request".into(),
-            command: "attach".into(),
-            arguments: AttachRequestArguments::default(),
-        }))
+            message: Message::Request(Request::Attach {}),
+        })
     }
 
-    fn threads_request() -> DebugAdapterResult<IncomingMessage> {
-        Ok(IncomingMessage::Threads(ThreadsRequest {
+    fn threads_request() -> DebugAdapterResult<MessageEnvelope> {
+        Ok(MessageEnvelope {
             seq: 10,
-            type_: "request".into(),
-            command: "threads".into(),
-            arguments: None,
-        }))
+            message: Message::Request(Request::Threads {}),
+        })
     }
 
-    fn stack_trace_request() -> DebugAdapterResult<IncomingMessage> {
-        Ok(IncomingMessage::StackTrace(StackTraceRequest {
+    fn stack_trace_request() -> DebugAdapterResult<MessageEnvelope> {
+        Ok(MessageEnvelope {
             seq: 15,
-            type_: "request".into(),
-            command: "stackTrace".into(),
-            arguments: StackTraceArguments {
-                levels: Some(20),
-                start_frame: Some(0),
-                thread_id: 1,
-                format: None,
-            },
-        }))
+            message: Message::Request(Request::StackTrace {}),
+        })
     }
 
     #[derive(Default)]
     struct FakeDebugAdapterInternals {
-        receiver_queue: VecDeque<DebugAdapterResult<IncomingMessage>>,
+        receiver_queue: VecDeque<DebugAdapterResult<MessageEnvelope>>,
         sender_queue: VecDeque<OutgoingMessage>,
     }
 
     fn push_incoming(
         adapter_internals: &RefCell<FakeDebugAdapterInternals>,
-        message: DebugAdapterResult<IncomingMessage>,
+        message: DebugAdapterResult<MessageEnvelope>,
     ) {
         adapter_internals
             .borrow_mut()
@@ -298,7 +276,7 @@ mod tests {
     }
 
     impl DebugAdapter for FakeDebugAdapter {
-        fn try_receive_message(&self) -> DebugAdapterResult<IncomingMessage> {
+        fn try_receive_message(&self) -> DebugAdapterResult<MessageEnvelope> {
             self.internals
                 .borrow_mut()
                 .receiver_queue

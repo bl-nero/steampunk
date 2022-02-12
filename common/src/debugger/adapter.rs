@@ -1,10 +1,8 @@
-use crate::debugger::protocol::parse_message;
+use crate::debugger::dap_types::MessageEnvelope;
 use crate::debugger::protocol::raw_messages;
 use crate::debugger::protocol::send_raw_message;
 use crate::debugger::protocol::serialize_message;
-use crate::debugger::protocol::IncomingMessage;
 use crate::debugger::protocol::OutgoingMessage;
-use crate::debugger::protocol::ParseError;
 use crate::debugger::protocol::ProtocolError;
 use std::error::Error;
 use std::io::BufReader;
@@ -24,7 +22,7 @@ pub trait DebugAdapter {
     /// Attempts to receive a message from the debugger UI. Returns immediately
     /// with [`DebugAdapterError::TryRecvError(TryRecvError::Empty)`] if there
     /// are no pending messages.
-    fn try_receive_message(&self) -> DebugAdapterResult<IncomingMessage>;
+    fn try_receive_message(&self) -> DebugAdapterResult<MessageEnvelope>;
     fn send_message(&self, message: OutgoingMessage) -> DebugAdapterResult<()>;
 }
 
@@ -39,7 +37,7 @@ pub trait DebugAdapter {
 /// idea anyway.
 pub struct TcpDebugAdapter {
     writer_event_sender: mpsc::Sender<WriterThreadCommand>,
-    message_receiver: mpsc::Receiver<IncomingMessage>,
+    message_receiver: mpsc::Receiver<MessageEnvelope>,
 }
 
 impl TcpDebugAdapter {
@@ -55,7 +53,7 @@ impl TcpDebugAdapter {
 }
 
 impl DebugAdapter for TcpDebugAdapter {
-    fn try_receive_message(&self) -> DebugAdapterResult<IncomingMessage> {
+    fn try_receive_message(&self) -> DebugAdapterResult<MessageEnvelope> {
         self.message_receiver.try_recv().map_err(|e| e.into())
     }
 
@@ -74,7 +72,7 @@ pub enum DebugAdapterError {
     TryRecvError(#[from] TryRecvError),
 
     #[error("Unable to send message to debugger adapter: {0}")]
-    UnsupportedMessageType(#[from] SendError<WriterThreadCommand>),
+    SendError(#[from] SendError<WriterThreadCommand>),
 }
 
 /// Spawns a reader thread that listens, repeatedly accepts and handles TCP
@@ -82,7 +80,7 @@ pub enum DebugAdapterError {
 fn spawn_reader_thread(
     port: u16,
     writer_event_sender: mpsc::Sender<WriterThreadCommand>,
-) -> mpsc::Receiver<IncomingMessage> {
+) -> mpsc::Receiver<MessageEnvelope> {
     let (tx, rx) = mpsc::channel();
     thread::Builder::new()
         .name("debugger reader thread".into())
@@ -108,7 +106,7 @@ fn spawn_reader_thread(
 fn handle_connection(
     connection: TcpStream,
     writer_event_sender: &mpsc::Sender<WriterThreadCommand>,
-    incoming_message_sender: &mpsc::Sender<IncomingMessage>,
+    incoming_message_sender: &mpsc::Sender<MessageEnvelope>,
 ) -> Result<(), Box<dyn Error>> {
     let connection_for_writer = connection.try_clone()?;
     writer_event_sender.send(WriterThreadCommand::Connect(connection_for_writer))?;
@@ -123,19 +121,19 @@ enum InputHandlingError {
     ProtocolError(#[from] ProtocolError),
 
     #[error("Message parsing error: {0}")]
-    ParseError(#[from] ParseError),
+    ParseError(#[from] serde_json::Error),
 
     #[error("Error while sending message to the main thread: {0}")]
-    SendError(#[from] SendError<IncomingMessage>),
+    SendError(#[from] SendError<MessageEnvelope>),
 }
 
 fn handle_input(
     input: impl Read,
-    sender: &mpsc::Sender<IncomingMessage>,
+    sender: &mpsc::Sender<MessageEnvelope>,
 ) -> Result<(), InputHandlingError> {
     let mut reader = BufReader::new(input);
     for raw_message_result in raw_messages(&mut reader) {
-        let message = parse_message(raw_message_result?)?;
+        let message = serde_json::from_slice(&raw_message_result?)?;
         sender.send(message)?;
     }
     Ok(())
@@ -176,11 +174,10 @@ fn handle_writer_events<W: Write>(events: impl IntoIterator<Item = WriterThreadC
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::debugger::dap_types::InitializeArguments;
+    use crate::debugger::dap_types::Message;
+    use crate::debugger::dap_types::Request;
     use crate::debugger::protocol::ProtocolResult;
-    use debugserver_types::DisconnectArguments;
-    use debugserver_types::DisconnectRequest;
-    use debugserver_types::InitializeRequest;
-    use debugserver_types::InitializeRequestArguments;
     use debugserver_types::NextResponse;
     use std::assert_matches::assert_matches;
     use std::fs;
@@ -229,24 +226,20 @@ mod tests {
         // Receive 2 messages.
         assert_matches!(
             rx.try_recv(),
-            Ok(IncomingMessage::Initialize(InitializeRequest {
-                arguments: InitializeRequestArguments {
-                    client_id: Some(ref client_id),
-                    ref adapter_id,
-                    ..
-                },
+            Ok(MessageEnvelope {
+                message:
+                    Message::Request(Request::Initialize(InitializeArguments {
+                        client_name: Some(ref client_name),
+                    })),
                 ..
-            })) if client_id == "vscode" && adapter_id == "steampunk-6502"
+            }) if client_name == "Visual Studio Code"
         );
         assert_matches!(
             rx.try_recv(),
-            Ok(IncomingMessage::Disconnect(DisconnectRequest {
-                arguments: Some(DisconnectArguments {
-                    restart: Some(false),
-                    ..
-                }),
+            Ok(MessageEnvelope {
+                message: Message::Request(Request::Disconnect(_)),
                 ..
-            }))
+            })
         );
 
         // Stop at the 3rd one: end of stream.

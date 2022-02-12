@@ -1,17 +1,11 @@
-use debugserver_types::AttachRequest;
 use debugserver_types::AttachResponse;
-use debugserver_types::DisconnectRequest;
 use debugserver_types::EvaluateResponse;
-use debugserver_types::InitializeRequest;
 use debugserver_types::InitializeResponse;
 use debugserver_types::InitializedEvent;
 use debugserver_types::NextResponse;
-use debugserver_types::SetExceptionBreakpointsRequest;
 use debugserver_types::SetExceptionBreakpointsResponse;
-use debugserver_types::StackTraceRequest;
 use debugserver_types::StackTraceResponse;
 use debugserver_types::StoppedEvent;
-use debugserver_types::ThreadsRequest;
 use debugserver_types::ThreadsResponse;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -20,19 +14,6 @@ use std::io::BufRead;
 use std::io::Write;
 use std::iter;
 use std::num::ParseIntError;
-
-/// Incoming messages of the Debug Adapter Protocol.
-#[derive(Debug, PartialEq, Clone)]
-pub enum IncomingMessage {
-    Initialize(InitializeRequest),
-    SetExceptionBreakpoints(SetExceptionBreakpointsRequest),
-    Attach(AttachRequest),
-    Threads(ThreadsRequest),
-    StackTrace(StackTraceRequest),
-    Disconnect(DisconnectRequest),
-
-    Unknown(serde_json::Value),
-}
 
 /// Outgoing messages of the Debug Adapter Protocol.
 #[derive(Clone, PartialEq, Debug)]
@@ -79,54 +60,6 @@ pub fn raw_messages<'a>(
         Ok(None) => None,
         Err(e) => Some(Err(e)),
     })
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum ParseError {
-    #[error("Unable to parse debugger message: {0}")]
-    JsonParserError(#[from] serde_json::Error),
-
-    #[error("Unsupported message type: {0}")]
-    UnsupportedMessageType(serde_json::Value),
-
-    #[error("Unsupported command: {0}")]
-    UnsupportedCommand(serde_json::Value),
-}
-
-/// Parses a DAP message from a byte buffer.
-pub fn parse_message(raw_message: Vec<u8>) -> Result<IncomingMessage, ParseError> {
-    // Note: the `debugserver_types` crate doesn't play well with internally
-    // tagged types, which are used by the DAP protocol, so we need to jump
-    // through a couple of hoops here instead of using `serde`'s built-in
-    // mechanism.
-    // println!("-> {}", std::str::from_utf8(&raw_message).unwrap());
-    let message_value: serde_json::Value = serde_json::from_slice(&raw_message)?;
-    match &message_value["type"] {
-        serde_json::Value::String(s) if s == "request" => {}
-        unknown => return Err(ParseError::UnsupportedMessageType(unknown.clone())),
-    }
-    let command_value = &message_value["command"];
-    return match &command_value.as_str() {
-        Some("initialize") => Ok(IncomingMessage::Initialize(serde_json::from_value(
-            message_value,
-        )?)),
-        Some("setExceptionBreakpoints") => Ok(IncomingMessage::SetExceptionBreakpoints(
-            serde_json::from_value(message_value)?,
-        )),
-        Some("attach") => Ok(IncomingMessage::Attach(serde_json::from_value(
-            message_value,
-        )?)),
-        Some("threads") => Ok(IncomingMessage::Threads(serde_json::from_value(
-            message_value,
-        )?)),
-        Some("stackTrace") => Ok(IncomingMessage::StackTrace(serde_json::from_value(
-            message_value,
-        )?)),
-        Some("disconnect") => Ok(IncomingMessage::Disconnect(serde_json::from_value(
-            message_value,
-        )?)),
-        _ => Err(ParseError::UnsupportedCommand(message_value)),
-    };
 }
 
 /// Reads DAP headers from an input stream. Note that while the only header
@@ -211,15 +144,11 @@ pub fn serialize_message(message: &OutgoingMessage) -> Result<Vec<u8>, Serialize
 #[cfg(test)]
 mod tests {
     use super::*;
-    use debugserver_types::DisconnectArguments;
-    use debugserver_types::InitializeRequestArguments;
     use serde_json::json;
     use std::assert_matches::assert_matches;
-    use std::fs;
     use std::io::BufReader;
     use std::io::Read;
     use std::iter;
-    use std::path::Path;
 
     #[test]
     fn no_commands() {
@@ -377,89 +306,6 @@ mod tests {
     test_illegal_content_length!(content_length_not_a_number, "dummy");
     test_illegal_content_length!(content_length_negative, "-123");
     test_illegal_content_length!(content_length_empty, "");
-
-    fn read_test_data(name: &str) -> Vec<u8> {
-        fs::read(
-            Path::new("src")
-                .join("debugger")
-                .join("test_data")
-                .join(name),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn deserializes_messages() {
-        let initialize_request = parse_message(read_test_data("initialize_request.json"));
-        let set_exception_breakpoints_request =
-            parse_message(read_test_data("set_exception_breakpoints_request.json"));
-        let attach_request = parse_message(read_test_data("attach_request.json"));
-        let threads_request = parse_message(read_test_data("threads_request.json"));
-        let stack_trace_request = parse_message(read_test_data("stack_trace_request.json"));
-        let disconnect_request = parse_message(read_test_data("disconnect_request.json"));
-
-        assert_matches!(
-            initialize_request,
-            Ok(IncomingMessage::Initialize(InitializeRequest {
-                arguments: InitializeRequestArguments {
-                    client_id: Some(ref client_id),
-                    ref adapter_id,
-                    ..
-                },
-                ..
-            })) if client_id == "vscode" && adapter_id == "steampunk-6502"
-        );
-        assert_matches!(
-            set_exception_breakpoints_request,
-            Ok(IncomingMessage::SetExceptionBreakpoints(
-                SetExceptionBreakpointsRequest { command, .. }
-            )) if command == "setExceptionBreakpoints"
-        );
-        assert_matches!(
-            attach_request,
-            Ok(IncomingMessage::Attach(AttachRequest { command, .. })) if command == "attach"
-        );
-        assert_matches!(
-            threads_request,
-            Ok(IncomingMessage::Threads(ThreadsRequest { command, .. })) if command == "threads"
-        );
-        assert_matches!(
-            stack_trace_request,
-            Ok(IncomingMessage::StackTrace(StackTraceRequest {
-                command,
-                ..
-            })) if command == "stackTrace"
-        );
-        assert_matches!(
-            disconnect_request,
-            Ok(IncomingMessage::Disconnect(DisconnectRequest {
-                arguments: Some(DisconnectArguments {
-                    restart: Some(false),
-                    ..
-                }),
-                ..
-            }))
-        );
-    }
-
-    #[test]
-    fn message_deserialization_errors() {
-        let invalid_request = parse_message(String::from(r#"{"foo": "bar"}"#).into_bytes());
-        let unknown_command = parse_message(
-            String::from(r#"{"type": "request", "command": "beam me up"}"#).into_bytes(),
-        );
-        let empty_message = parse_message(vec![]);
-
-        invalid_request.unwrap_err();
-        assert_matches!(
-            unknown_command.unwrap_err(),
-            ParseError::UnsupportedCommand(value) if value == json!({
-                "type": "request",
-                "command": "beam me up",
-            }),
-        );
-        empty_message.unwrap_err();
-    }
 
     #[test]
     fn sends_messages() {

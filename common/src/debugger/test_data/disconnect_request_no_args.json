@@ -1,0 +1,5 @@
+{
+    "command": "disconnect",
+    "type": "request",
+    "seq": 2
+}
