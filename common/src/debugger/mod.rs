@@ -45,108 +45,84 @@ impl<A: DebugAdapter> Debugger<A> {
     }
 
     fn process_message(&mut self, envelope: MessageEnvelope) {
-        let message_seq = envelope.seq;
         match envelope.message {
-            Message::Request(Request::Initialize(args)) => self.initialize(message_seq, args),
-            Message::Request(Request::SetExceptionBreakpoints {}) => {
-                self.set_exception_breakpoints(message_seq)
-            }
-            Message::Request(Request::Attach {}) => self.attach(message_seq),
-            Message::Request(Request::Threads) => self.threads(message_seq),
-            Message::Request(Request::StackTrace {}) => self.stack_trace(message_seq),
+            Message::Request(request) => self.process_request(envelope.seq, request),
             other => eprintln!("Unsupported message: {:?}", other),
+        };
+    }
+
+    fn process_request(&mut self, request_seq: i64, request: Request) {
+        let (response, event) = match request {
+            Request::Initialize(args) => self.initialize(args),
+            Request::SetExceptionBreakpoints {} => self.set_exception_breakpoints(),
+            Request::Attach {} => self.attach(),
+            Request::Threads => self.threads(),
+            Request::StackTrace {} => self.stack_trace(),
+            Request::Disconnect(_) => self.disconnect(),
+        };
+        self.send_message(Message::Response(ResponseEnvelope {
+            request_seq,
+            success: true,
+            response,
+        }))
+        .unwrap();
+        if let Some(event) = event {
+            self.send_message(Message::Event(event)).unwrap();
         }
     }
 
-    fn initialize(&mut self, request_seq: i64, args: InitializeArguments) {
+    fn initialize(&self, args: InitializeArguments) -> (Response, Option<Event>) {
         eprintln!(
             "Initializing debugger session with {}",
             args.client_name.as_deref().unwrap_or("an unnamed client")
         );
-        self.send_message(MessageEnvelope {
-            seq: -1,
-            message: Message::Response(ResponseEnvelope {
-                request_seq,
-                success: true,
-                response: Response::Initialize,
-            }),
-        })
-        .unwrap();
-        self.send_message(MessageEnvelope {
-            seq: -1,
-            message: Message::Event(Event::Initialized),
-        })
-        .unwrap();
+        (Response::Initialize, Some(Event::Initialized))
     }
 
-    fn set_exception_breakpoints(&mut self, request_seq: i64) {
-        self.send_message(MessageEnvelope {
-            seq: -1,
-            message: Message::Response(ResponseEnvelope {
-                request_seq,
-                success: true,
-                response: Response::SetExceptionBreakpoints,
-            }),
-        })
-        .unwrap();
+    fn set_exception_breakpoints(&self) -> (Response, Option<Event>) {
+        (Response::SetExceptionBreakpoints, None)
     }
 
-    fn attach(&mut self, request_seq: i64) {
-        self.send_message(MessageEnvelope {
-            seq: -1,
-            message: Message::Response(ResponseEnvelope {
-                request_seq,
-                success: true,
-                response: Response::Attach,
-            }),
-        })
-        .unwrap();
-        self.send_message(MessageEnvelope {
-            seq: -1,
-            message: Message::Event(Event::Stopped(StoppedEvent {
+    fn attach(&self) -> (Response, Option<Event>) {
+        (
+            Response::Attach,
+            Some(Event::Stopped(StoppedEvent {
                 reason: StopReason::Entry,
                 thread_id: 1,
                 all_threads_stopped: true,
             })),
-        })
-        .unwrap();
+        )
     }
 
-    fn threads(&mut self, request_seq: i64) {
-        self.send_message(MessageEnvelope {
-            seq: -1,
-            message: Message::Response(ResponseEnvelope {
-                request_seq,
-                success: true,
-                response: Response::Threads(ThreadsResponse {
-                    threads: vec![Thread {
-                        id: 1,
-                        name: "main thread".to_string(),
-                    }],
-                }),
+    fn threads(&self) -> (Response, Option<Event>) {
+        (
+            Response::Threads(ThreadsResponse {
+                threads: vec![Thread {
+                    id: 1,
+                    name: "main thread".to_string(),
+                }],
             }),
-        })
-        .unwrap();
+            None,
+        )
     }
 
-    fn stack_trace(&mut self, request_seq: i64) {
-        self.send_message(MessageEnvelope {
-            seq: -1,
-            message: Message::Response(ResponseEnvelope {
-                request_seq,
-                success: true,
-                response: Response::StackTrace(StackTraceResponse {
-                    stack_frames: vec![],
-                    total_frames: 0,
-                }),
+    fn stack_trace(&self) -> (Response, Option<Event>) {
+        (
+            Response::StackTrace(StackTraceResponse {
+                stack_frames: vec![],
+                total_frames: 0,
             }),
-        })
-        .unwrap();
+            None,
+        )
     }
 
-    fn send_message(&mut self, mut message: MessageEnvelope) -> DebugAdapterResult<()> {
-        message.seq = self.next_sequence_number();
-        return self.adapter.send_message(message);
+    fn disconnect(&self) -> (Response, Option<Event>) {
+        todo!();
+    }
+
+    fn send_message(&mut self, message: Message) -> DebugAdapterResult<()> {
+        let seq = self.next_sequence_number();
+        return self.adapter.send_message(MessageEnvelope { seq, message });
     }
 
     fn next_sequence_number(&mut self) -> i64 {
