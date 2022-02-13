@@ -1,0 +1,17 @@
+{
+    "seq": 65,
+    "request_seq": 82,
+    "type": "response",
+    "command": "scopes",
+    "success": true,
+    "body": {
+        "scopes": [
+            {
+                "name": "Registers",
+                "presentationHint": "registers",
+                "variablesReference": 1,
+                "expensive": false
+            }
+        ]
+    }
+}

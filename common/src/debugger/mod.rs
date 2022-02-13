@@ -12,11 +12,17 @@ use crate::debugger::dap_types::MessageEnvelope;
 use crate::debugger::dap_types::Request;
 use crate::debugger::dap_types::Response;
 use crate::debugger::dap_types::ResponseEnvelope;
+use crate::debugger::dap_types::Scope;
+use crate::debugger::dap_types::ScopePresentationHint;
+use crate::debugger::dap_types::ScopesResponse;
+use crate::debugger::dap_types::StackFrame;
 use crate::debugger::dap_types::StackTraceResponse;
 use crate::debugger::dap_types::StopReason;
 use crate::debugger::dap_types::StoppedEvent;
 use crate::debugger::dap_types::Thread;
 use crate::debugger::dap_types::ThreadsResponse;
+use crate::debugger::dap_types::Variable;
+use crate::debugger::dap_types::VariablesResponse;
 use std::sync::mpsc::TryRecvError;
 
 /// A debugger for 6502-based machines. Uses Debug Adapter Protocol internally
@@ -58,6 +64,8 @@ impl<A: DebugAdapter> Debugger<A> {
             Request::Attach {} => self.attach(),
             Request::Threads => self.threads(),
             Request::StackTrace {} => self.stack_trace(),
+            Request::Scopes {} => self.scopes(),
+            Request::Variables {} => self.variables(),
             Request::Disconnect(_) => self.disconnect(),
         };
         self.send_message(Message::Response(ResponseEnvelope {
@@ -109,8 +117,40 @@ impl<A: DebugAdapter> Debugger<A> {
     fn stack_trace(&self) -> (Response, Option<Event>) {
         (
             Response::StackTrace(StackTraceResponse {
-                stack_frames: vec![],
-                total_frames: 0,
+                stack_frames: vec![StackFrame {
+                    id: 1,
+                    name: "".to_string(),
+                    line: 0,
+                    column: 0,
+                }],
+                total_frames: 1,
+            }),
+            None,
+        )
+    }
+
+    fn scopes(&self) -> (Response, Option<Event>) {
+        (
+            Response::Scopes(ScopesResponse {
+                scopes: vec![Scope {
+                    name: "Registers".to_string(),
+                    presentation_hint: ScopePresentationHint::Registers,
+                    variables_reference: 1,
+                    expensive: false,
+                }],
+            }),
+            None,
+        )
+    }
+
+    fn variables(&self) -> (Response, Option<Event>) {
+        (
+            Response::Variables(VariablesResponse {
+                variables: vec![Variable {
+                    name: "A".to_string(),
+                    value: "$FF".to_string(),
+                    variables_reference: 0,
+                }],
             }),
             None,
         )
@@ -179,6 +219,20 @@ mod tests {
         })
     }
 
+    fn scopes_request() -> DebugAdapterResult<MessageEnvelope> {
+        Ok(MessageEnvelope {
+            seq: 45,
+            message: Message::Request(Request::Scopes {}),
+        })
+    }
+
+    fn variables_request() -> DebugAdapterResult<MessageEnvelope> {
+        Ok(MessageEnvelope {
+            seq: 46,
+            message: Message::Request(Request::Variables {}),
+        })
+    }
+
     #[derive(Default)]
     struct FakeDebugAdapterInternals {
         receiver_queue: VecDeque<DebugAdapterResult<MessageEnvelope>>,
@@ -227,6 +281,24 @@ mod tests {
         }
     }
 
+    fn assert_responded_with(
+        adapter_internals: &RefCell<FakeDebugAdapterInternals>,
+        expected_response: Response,
+    ) {
+        assert_matches!(
+            pop_outgoing(adapter_internals),
+            Some(MessageEnvelope {
+                message: Message::Response(ResponseEnvelope {
+                    response,
+                    ..
+                }),
+                ..
+            }) if response == expected_response,
+            "Expected response: {:?}",
+            expected_response,
+        );
+    }
+
     #[test]
     fn initialization_sequence() {
         let (adapter, adapter_internals) = FakeDebugAdapter::new();
@@ -239,16 +311,7 @@ mod tests {
 
         debugger.process_meessages();
 
-        assert_matches!(
-            pop_outgoing(&*adapter_internals),
-            Some(MessageEnvelope {
-                message: Message::Response(ResponseEnvelope {
-                    response: Response::Initialize,
-                    ..
-                }),
-                ..
-            })
-        );
+        assert_responded_with(&*adapter_internals, Response::Initialize);
         assert_matches!(
             pop_outgoing(&*adapter_internals),
             Some(MessageEnvelope {
@@ -256,16 +319,7 @@ mod tests {
                 ..
             })
         );
-        assert_matches!(
-            pop_outgoing(&*adapter_internals),
-            Some(MessageEnvelope {
-                message: Message::Response(ResponseEnvelope {
-                    response: Response::Attach,
-                    ..
-                }),
-                ..
-            })
-        );
+        assert_responded_with(&*adapter_internals, Response::Attach);
         assert_matches!(
             pop_outgoing(&*adapter_internals),
             Some(MessageEnvelope {
@@ -277,41 +331,27 @@ mod tests {
                 ..
             })
         );
-        assert_matches!(
-            pop_outgoing(&*adapter_internals),
-            Some(MessageEnvelope {
-                message: Message::Response(ResponseEnvelope {
-                    response: Response::SetExceptionBreakpoints,
-                    ..
-                }),
-                ..
-            })
+        assert_responded_with(&*adapter_internals, Response::SetExceptionBreakpoints);
+        assert_responded_with(
+            &*adapter_internals,
+            Response::Threads(ThreadsResponse {
+                threads: vec![Thread {
+                    id: 1,
+                    name: "main thread".into(),
+                }],
+            }),
         );
-        assert_matches!(
-            pop_outgoing(&*adapter_internals),
-            Some(MessageEnvelope {
-                message: Message::Response(ResponseEnvelope {
-                    response: Response::Threads(ThreadsResponse { threads }),
-                    ..
-                }),
-                ..
-            }) if threads == vec![Thread {
-                id: 1,
-                name: "main thread".into(),
-            }]
-        );
-        assert_matches!(
-            pop_outgoing(&*adapter_internals),
-            Some(MessageEnvelope {
-                message: Message::Response(ResponseEnvelope {
-                    response: Response::StackTrace(StackTraceResponse {
-                        stack_frames,
-                        total_frames: 0
-                    }),
-                    ..
-                }),
-                ..
-            }) if stack_frames == vec![]
+        assert_responded_with(
+            &*adapter_internals,
+            Response::StackTrace(StackTraceResponse {
+                stack_frames: vec![StackFrame {
+                    id: 1,
+                    name: "".to_string(),
+                    line: 0,
+                    column: 0,
+                }],
+                total_frames: 1,
+            }),
         );
         assert_eq!(pop_outgoing(&*adapter_internals), None);
     }
@@ -345,6 +385,38 @@ mod tests {
                 seq: 3,
                 message: Message::Response(ResponseEnvelope { request_seq: 8, .. })
             })
+        );
+    }
+
+    #[test]
+    fn sends_registers() {
+        let (adapter, adapter_internals) = FakeDebugAdapter::new();
+        push_incoming(&*adapter_internals, scopes_request());
+        push_incoming(&*adapter_internals, variables_request());
+        let mut debugger = Debugger::new(adapter);
+
+        debugger.process_meessages();
+
+        assert_responded_with(
+            &*adapter_internals,
+            Response::Scopes(ScopesResponse {
+                scopes: vec![Scope {
+                    name: "Registers".to_string(),
+                    presentation_hint: ScopePresentationHint::Registers,
+                    variables_reference: 1,
+                    expensive: false,
+                }],
+            }),
+        );
+        assert_responded_with(
+            &*adapter_internals,
+            Response::Variables(VariablesResponse {
+                variables: vec![Variable {
+                    name: "A".to_string(),
+                    value: "$FF".to_string(),
+                    variables_reference: 0,
+                }],
+            }),
         );
     }
 }

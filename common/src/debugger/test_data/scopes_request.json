@@ -1,0 +1,8 @@
+{
+    "command": "scopes",
+    "arguments": {
+        "frameId": 1
+    },
+    "type": "request",
+    "seq": 7
+}

@@ -1,0 +1,16 @@
+{
+    "seq": 45,
+    "request_seq": 74,
+    "type": "response",
+    "command": "variables",
+    "success": true,
+    "body": {
+        "variables": [
+            {
+                "name": "A",
+                "value": "$43",
+                "variablesReference": 0
+            }
+        ]
+    }
+}

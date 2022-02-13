@@ -118,8 +118,8 @@ enum InputHandlingError {
     #[error("Protocol error: {0}")]
     ProtocolError(#[from] ProtocolError),
 
-    #[error("Message parsing error: {0}")]
-    ParseError(#[from] serde_json::Error),
+    #[error("Message parsing error: {0}. Original message:\n{1}\n")]
+    ParseError(serde_json::Error, String),
 
     #[error("Error while sending message to the main thread: {0}")]
     SendError(#[from] SendError<MessageEnvelope>),
@@ -131,7 +131,10 @@ fn handle_input(
 ) -> Result<(), InputHandlingError> {
     let mut reader = BufReader::new(input);
     for raw_message_result in raw_messages(&mut reader) {
-        let message = serde_json::from_slice(&raw_message_result?)?;
+        let raw_message = raw_message_result?;
+        let message = serde_json::from_slice(&raw_message).map_err(|e| {
+            InputHandlingError::ParseError(e, String::from_utf8(raw_message).unwrap())
+        })?;
         sender.send(message)?;
     }
     Ok(())
@@ -289,7 +292,7 @@ mod tests {
             .chain(&session_dump[..]);
 
         let err = handle_input(stream, &tx).unwrap_err();
-        assert_matches!(err, InputHandlingError::ParseError(_));
+        assert_matches!(err, InputHandlingError::ParseError(_, _));
 
         rx.try_recv().unwrap(); // Ignore the first message.
         rx.try_recv().unwrap(); // Ignore the second message.

@@ -37,6 +37,8 @@ pub enum Request {
     Attach {},
     Threads,
     StackTrace {},
+    Scopes {},
+    Variables {},
     Disconnect(Option<DisconnectArguments>),
 }
 
@@ -63,6 +65,8 @@ pub enum Response {
     Attach,
     Threads(ThreadsResponse),
     StackTrace(StackTraceResponse),
+    Scopes(ScopesResponse),
+    Variables(VariablesResponse),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -76,6 +80,41 @@ pub struct ThreadsResponse {
 pub struct StackTraceResponse {
     pub stack_frames: Vec<StackFrame>,
     pub total_frames: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopesResponse {
+    pub scopes: Vec<Scope>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Scope {
+    pub name: String,
+    pub presentation_hint: ScopePresentationHint,
+    pub variables_reference: i64,
+    pub expensive: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum ScopePresentationHint {
+    Registers,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct VariablesResponse {
+    pub variables: Vec<Variable>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Variable {
+    pub name: String,
+    pub value: String,
+    pub variables_reference: i64,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -101,7 +140,12 @@ pub enum StopReason {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct StackFrame {}
+pub struct StackFrame {
+    pub id: i64,
+    pub name: String,
+    pub line: i64,
+    pub column: i64,
+}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -174,6 +218,14 @@ mod tests {
             seq: 6,
             message: Message::Request(Request::StackTrace {}),
         },
+        scopes_request: MessageEnvelope {
+            seq: 7,
+            message: Message::Request(Request::Scopes {}),
+        },
+        variables_request: MessageEnvelope {
+            seq: 8,
+            message: Message::Request(Request::Variables {}),
+        },
         disconnect_request: MessageEnvelope {
             seq: 2,
             message: Message::Request(Request::Disconnect(Some(DisconnectArguments {}))),
@@ -226,8 +278,42 @@ mod tests {
                 request_seq: 19,
                 success: true,
                 response: Response::StackTrace(StackTraceResponse {
-                    stack_frames: vec![],
-                    total_frames: 0,
+                    stack_frames: vec![StackFrame {
+                        id: 1,
+                        name:"foo".to_string(),
+                        line: 0,
+                        column: 0,
+                    }],
+                    total_frames: 1,
+                }),
+            }),
+        },
+        scopes_response: MessageEnvelope {
+            seq: 65,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 82,
+                success: true,
+                response: Response::Scopes(ScopesResponse {
+                    scopes: vec![Scope {
+                        name: "Registers".to_string(),
+                        presentation_hint: ScopePresentationHint::Registers,
+                        variables_reference: 1,
+                        expensive: false,
+                    }]
+                }),
+            }),
+        },
+        variables_response: MessageEnvelope {
+            seq: 45,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 74,
+                success: true,
+                response: Response::Variables(VariablesResponse {
+                    variables: vec![Variable {
+                        name: "A".to_string(),
+                        value: "$43".to_string(),
+                        variables_reference: 0,
+                    }]
                 }),
             }),
         },

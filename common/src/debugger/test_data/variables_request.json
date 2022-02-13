@@ -1,0 +1,8 @@
+{
+    "command": "variables",
+    "arguments": {
+        "variablesReference": 1
+    },
+    "type": "request",
+    "seq": 8
+}
