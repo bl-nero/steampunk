@@ -34,17 +34,17 @@ pub trait DebugAdapter {
 /// any given time, but connecting with two debuggers at once would be a bad
 /// idea anyway.
 pub struct TcpDebugAdapter {
-    writer_event_sender: mpsc::Sender<WriterThreadCommand>,
+    writer_command_sender: mpsc::Sender<WriterThreadCommand>,
     message_receiver: mpsc::Receiver<MessageEnvelope>,
 }
 
 impl TcpDebugAdapter {
     /// Creates a new `TcpDebugAdapter` and starts listening on given port.
     pub fn new(port: u16) -> Self {
-        let writer_event_sender = spawn_writer_thread();
-        let message_receiver = spawn_reader_thread(port, writer_event_sender.clone());
+        let writer_command_sender = spawn_writer_thread();
+        let message_receiver = spawn_reader_thread(port, writer_command_sender.clone());
         Self {
-            writer_event_sender,
+            writer_command_sender,
             message_receiver,
         }
     }
@@ -56,7 +56,7 @@ impl DebugAdapter for TcpDebugAdapter {
     }
 
     fn send_message(&self, message: MessageEnvelope) -> DebugAdapterResult<()> {
-        self.writer_event_sender
+        self.writer_command_sender
             .send(WriterThreadCommand::SendMessage(message))
             .map_err(|e| e.into())
     }
@@ -77,7 +77,7 @@ pub enum DebugAdapterError {
 /// connections.
 fn spawn_reader_thread(
     port: u16,
-    writer_event_sender: mpsc::Sender<WriterThreadCommand>,
+    writer_command_sender: mpsc::Sender<WriterThreadCommand>,
 ) -> mpsc::Receiver<MessageEnvelope> {
     let (tx, rx) = mpsc::channel();
     thread::Builder::new()
@@ -92,7 +92,7 @@ fn spawn_reader_thread(
                 let (connection, address) =
                     listener.accept().expect("Unable to accept a connection");
                 eprintln!("Debugger connection accepted from {}", address);
-                if let Err(e) = handle_connection(connection, &writer_event_sender, &tx) {
+                if let Err(e) = handle_connection(connection, &writer_command_sender, &tx) {
                     eprintln!("Debugger connection error: {}", e);
                 }
             }
@@ -103,13 +103,13 @@ fn spawn_reader_thread(
 
 fn handle_connection(
     connection: TcpStream,
-    writer_event_sender: &mpsc::Sender<WriterThreadCommand>,
+    writer_command_sender: &mpsc::Sender<WriterThreadCommand>,
     incoming_message_sender: &mpsc::Sender<MessageEnvelope>,
 ) -> Result<(), Box<dyn Error>> {
     let connection_for_writer = connection.try_clone()?;
-    writer_event_sender.send(WriterThreadCommand::Connect(connection_for_writer))?;
+    writer_command_sender.send(WriterThreadCommand::Connect(connection_for_writer))?;
     handle_input(connection, &incoming_message_sender)?;
-    writer_event_sender.send(WriterThreadCommand::Disconnect)?;
+    writer_command_sender.send(WriterThreadCommand::Disconnect)?;
     Ok(())
 }
 
@@ -147,25 +147,48 @@ fn spawn_writer_thread() -> mpsc::Sender<WriterThreadCommand> {
     let (tx, rx) = mpsc::channel();
     thread::Builder::new()
         .name("debugger writer thread".into())
-        .spawn(|| handle_writer_events(rx))
+        .spawn(|| handle_writer_commands(rx))
         .expect("Unable to spawn the debugger writer thread");
     return tx;
 }
 
-fn handle_writer_events<W: Write>(events: impl IntoIterator<Item = WriterThreadCommand<W>>) {
+fn handle_writer_commands<W: Write>(commands: impl IntoIterator<Item = WriterThreadCommand<W>>) {
     let mut stream = None;
-    for event in events {
-        match event {
+    for command in commands {
+        match command {
             WriterThreadCommand::Connect(new_stream) => stream = Some(new_stream),
             WriterThreadCommand::SendMessage(message) => {
-                if let Some(ref mut stream) = stream {
-                    let raw_message = serde_json::to_vec(&message).unwrap();
-                    send_raw_message(raw_message, stream).unwrap();
+                if let Some(ref mut stream_ref) = stream {
+                    if let Err(e) = send_message(stream_ref, &message) {
+                        eprintln!("{}", e);
+                    }
+                } else {
+                    eprintln!("Debugger message dropped, no connection");
                 }
             }
             WriterThreadCommand::Disconnect => stream = None,
         }
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+enum WriterCommunicationError {
+    #[error("Unable to serialize debugger message: {0}")]
+    ProtocolError(#[from] serde_json::error::Error),
+
+    #[error("Unable to send debugger message: {0}")]
+    SendError(#[from] ProtocolError),
+}
+
+fn send_message<W: Write>(
+    stream: &mut W,
+    message: &MessageEnvelope,
+) -> Result<(), WriterCommunicationError> {
+    // Note: I haven't found a way to trigger a serialization
+    // error here, so this remains untested.
+    let raw_message = serde_json::to_vec(message)?;
+    send_raw_message(raw_message, stream)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -176,7 +199,6 @@ mod tests {
     use crate::debugger::dap_types::Request;
     use crate::debugger::dap_types::Response;
     use crate::debugger::dap_types::ResponseEnvelope;
-    use crate::debugger::protocol::ProtocolResult;
     use std::assert_matches::assert_matches;
     use std::fs;
     use std::path::Path;
@@ -192,15 +214,14 @@ mod tests {
         }
     }
 
-    fn into_json_value(raw_message_result: ProtocolResult<Vec<u8>>) -> serde_json::Value {
-        serde_json::from_slice(&raw_message_result.unwrap()).unwrap()
-    }
-
     fn message_seq_numbers_from_stream(stream: Vec<u8>) -> Vec<i64> {
         let mut stream_reader = stream.as_slice();
         raw_messages(&mut stream_reader)
-            .map(into_json_value)
-            .map(|resp| resp["seq"].as_i64().unwrap())
+            .map(|raw_message_result| {
+                let envelope: MessageEnvelope =
+                    serde_json::from_slice(&raw_message_result.unwrap()).unwrap();
+                envelope.seq
+            })
             .collect()
     }
 
@@ -286,16 +307,17 @@ mod tests {
     }
 
     #[test]
-    fn write_thread_handles_events() {
+    fn write_thread_handles_commands() {
         use WriterThreadCommand::*;
+
         let mut stream = vec![];
-        let events = vec![
+        let commands = vec![
             Connect(&mut stream),
             SendMessage(response_with_seq(4)),
             SendMessage(response_with_seq(5)),
         ];
 
-        handle_writer_events(events);
+        handle_writer_commands(commands);
 
         // Instead of inspecting the stream, which would be fragile and depend
         // on Serde implementation details, we'll parse the output and compare
@@ -304,11 +326,12 @@ mod tests {
     }
 
     #[test]
-    fn write_thread_ignores_events_between_connections() {
+    fn write_thread_ignores_commands_between_connections() {
         use WriterThreadCommand::*;
+
         let mut stream1 = vec![];
         let mut stream2 = vec![];
-        let events = vec![
+        let commands = vec![
             SendMessage(response_with_seq(1)),
             SendMessage(response_with_seq(2)),
             Connect(&mut stream1),
@@ -322,9 +345,21 @@ mod tests {
             SendMessage(response_with_seq(8)),
         ];
 
-        handle_writer_events(events);
+        handle_writer_commands(commands);
 
         assert_eq!(message_seq_numbers_from_stream(stream1), vec![3, 4]);
         assert_eq!(message_seq_numbers_from_stream(stream2), vec![7, 8]);
+    }
+
+    #[test]
+    fn write_thread_handles_errors() {
+        use WriterThreadCommand::*;
+
+        // Attempt to write to an empty slice, which should cause an error, but
+        // the error shouldn't result in a panic.
+        let stream1: &mut [u8] = &mut [];
+        let commands = vec![Connect(stream1), SendMessage(response_with_seq(1))];
+
+        handle_writer_commands(commands);
     }
 }
