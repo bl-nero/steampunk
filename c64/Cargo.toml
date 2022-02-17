@@ -20,6 +20,7 @@ rodio = "0.14.0"
 
 common = { path = "../common" }
 ya6502 = { path = "../ya6502" }
+delegate = "0.6.2"
 
 [build-dependencies]
 common = { path = "../common" }

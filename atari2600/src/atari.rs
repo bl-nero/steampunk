@@ -7,6 +7,8 @@ use crate::tia;
 use crate::tia::Tia;
 use common::app::FrameStatus;
 use common::app::Machine;
+use common::app::MachineInspector;
+use delegate::delegate;
 use enum_map::{enum_map, Enum, EnumMap};
 use image;
 use image::RgbaImage;
@@ -71,6 +73,21 @@ impl Machine for Atari {
 
     fn display_state(&self) -> String {
         format!("{}\n{}", self.cpu(), self.cpu().memory())
+    }
+}
+
+impl MachineInspector for Atari {
+    delegate! {
+        to self.cpu {
+            fn reg_pc(&self) -> u16;
+            fn reg_a(&self) -> u8;
+            fn reg_x(&self) -> u8;
+            fn reg_y(&self) -> u8;
+            fn reg_sp(&self) -> u8;
+
+            #[call(flags)]
+            fn cpu_flags(&self) -> u8;
+        }
     }
 }
 

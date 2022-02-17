@@ -1,6 +1,7 @@
 use crate::debugger::adapter::DebugAdapter;
 use crate::debugger::Debugger;
 use image::RgbaImage;
+use mockall::automock;
 use piston::{Event, EventLoop, WindowSettings};
 use piston_window::{
     Filter, G2d, G2dTexture, G2dTextureContext, GfxDevice, PistonWindow, Texture, TextureSettings,
@@ -11,11 +12,22 @@ use std::sync::Arc;
 
 /// A generic interface that provides basic operations common to all emulated
 /// machines.
-pub trait Machine {
+pub trait Machine: MachineInspector {
     fn reset(&mut self);
     fn tick(&mut self) -> MachineTickResult;
     fn frame_image(&self) -> &RgbaImage;
     fn display_state(&self) -> String;
+}
+
+/// An interface for inspecting machine's internal state for debugging purposes.
+#[automock]
+pub trait MachineInspector {
+    fn reg_pc(&self) -> u16;
+    fn reg_a(&self) -> u8;
+    fn reg_x(&self) -> u8;
+    fn reg_y(&self) -> u8;
+    fn reg_sp(&self) -> u8;
+    fn cpu_flags(&self) -> u8;
 }
 
 pub type MachineTickResult = Result<FrameStatus, Box<dyn Error>>;
@@ -58,7 +70,7 @@ impl<'a, M: Machine, A: DebugAdapter> MachineController<'a, M, A> {
 
     pub fn run_until_end_of_frame(&mut self) {
         if let Some(debugger) = &mut self.debugger {
-            debugger.process_meessages();
+            debugger.process_meessages(self.machine);
         }
         while self.running && !self.interrupted.load(Ordering::Relaxed) {
             match self.machine.tick() {
@@ -252,6 +264,27 @@ mod tests {
         }
         fn display_state(&self) -> String {
             format!("x={}", self.x)
+        }
+    }
+
+    impl MachineInspector for TestMachine {
+        fn reg_pc(&self) -> u16 {
+            0
+        }
+        fn reg_a(&self) -> u8 {
+            0
+        }
+        fn reg_x(&self) -> u8 {
+            0
+        }
+        fn reg_y(&self) -> u8 {
+            0
+        }
+        fn reg_sp(&self) -> u8 {
+            0
+        }
+        fn cpu_flags(&self) -> u8 {
+            0
         }
     }
 

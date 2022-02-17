@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod dap_types;
 mod protocol;
 
+use crate::app::MachineInspector;
 use crate::debugger::adapter::DebugAdapter;
 use crate::debugger::adapter::DebugAdapterError;
 use crate::debugger::adapter::DebugAdapterResult;
@@ -40,24 +41,29 @@ impl<A: DebugAdapter> Debugger<A> {
         }
     }
 
-    pub fn process_meessages(&mut self) {
+    pub fn process_meessages(&mut self, inspector: &impl MachineInspector) {
         loop {
             match self.adapter.try_receive_message() {
-                Ok(envelope) => self.process_message(envelope),
+                Ok(envelope) => self.process_message(envelope, inspector),
                 Err(DebugAdapterError::TryRecvError(TryRecvError::Empty)) => return,
                 Err(e) => panic!("{}", e),
             }
         }
     }
 
-    fn process_message(&mut self, envelope: MessageEnvelope) {
+    fn process_message(&mut self, envelope: MessageEnvelope, inspector: &impl MachineInspector) {
         match envelope.message {
-            Message::Request(request) => self.process_request(envelope.seq, request),
+            Message::Request(request) => self.process_request(envelope.seq, request, inspector),
             other => eprintln!("Unsupported message: {:?}", other),
         };
     }
 
-    fn process_request(&mut self, request_seq: i64, request: Request) {
+    fn process_request(
+        &mut self,
+        request_seq: i64,
+        request: Request,
+        inspector: &impl MachineInspector,
+    ) {
         let (response, event) = match request {
             Request::Initialize(args) => self.initialize(args),
             Request::SetExceptionBreakpoints {} => self.set_exception_breakpoints(),
@@ -65,7 +71,7 @@ impl<A: DebugAdapter> Debugger<A> {
             Request::Threads => self.threads(),
             Request::StackTrace {} => self.stack_trace(),
             Request::Scopes {} => self.scopes(),
-            Request::Variables {} => self.variables(),
+            Request::Variables {} => self.variables(inspector),
             Request::Disconnect(_) => self.disconnect(),
         };
         self.send_message(Message::Response(ResponseEnvelope {
@@ -143,14 +149,21 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn variables(&self) -> (Response, Option<Event>) {
+    fn variables(&self, inspector: &impl MachineInspector) -> (Response, Option<Event>) {
         (
             Response::Variables(VariablesResponse {
-                variables: vec![Variable {
-                    name: "A".to_string(),
-                    value: "$FF".to_string(),
-                    variables_reference: 0,
-                }],
+                variables: vec![
+                    byte_variable("A", inspector.reg_a()),
+                    byte_variable("X", inspector.reg_x()),
+                    byte_variable("Y", inspector.reg_y()),
+                    byte_variable("SP", inspector.reg_sp()),
+                    Variable {
+                        name: "PC".to_string(),
+                        value: format_word(inspector.reg_pc()),
+                        variables_reference: 0,
+                    },
+                    byte_variable("FLAGS", inspector.cpu_flags()),
+                ],
             }),
             None,
         )
@@ -171,9 +184,26 @@ impl<A: DebugAdapter> Debugger<A> {
     }
 }
 
+fn format_byte(val: u8) -> String {
+    format!("${:02X}", val)
+}
+
+fn format_word(val: u16) -> String {
+    format!("${:04X}", val)
+}
+
+fn byte_variable(name: &str, value: u8) -> Variable {
+    Variable {
+        name: name.to_string(),
+        value: format_byte(value),
+        variables_reference: 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::MockMachineInspector;
     use crate::debugger::adapter::DebugAdapterResult;
     use crate::debugger::dap_types::InitializeArguments;
     use crate::debugger::dap_types::MessageEnvelope;
@@ -301,6 +331,7 @@ mod tests {
 
     #[test]
     fn initialization_sequence() {
+        let inspector = MockMachineInspector::new();
         let (adapter, adapter_internals) = FakeDebugAdapter::new();
         push_incoming(&*adapter_internals, initialize_request());
         push_incoming(&*adapter_internals, attach_request());
@@ -309,7 +340,7 @@ mod tests {
         push_incoming(&*adapter_internals, stack_trace_request());
         let mut debugger = Debugger::new(adapter);
 
-        debugger.process_meessages();
+        debugger.process_meessages(&inspector);
 
         assert_responded_with(&*adapter_internals, Response::Initialize);
         assert_matches!(
@@ -358,12 +389,13 @@ mod tests {
 
     #[test]
     fn uses_sequence_numbers() {
+        let inspector = MockMachineInspector::new();
         let (adapter, adapter_internals) = FakeDebugAdapter::new();
         push_incoming(&*adapter_internals, initialize_request());
         push_incoming(&*adapter_internals, attach_request());
         let mut debugger = Debugger::new(adapter);
 
-        debugger.process_meessages();
+        debugger.process_meessages(&inspector);
 
         // TODO: The initialization sequence isn't really good to verify this.
         // Let's use some repeatable messages of the same type.
@@ -390,12 +422,19 @@ mod tests {
 
     #[test]
     fn sends_registers() {
+        let mut inspector = MockMachineInspector::new();
         let (adapter, adapter_internals) = FakeDebugAdapter::new();
         push_incoming(&*adapter_internals, scopes_request());
         push_incoming(&*adapter_internals, variables_request());
         let mut debugger = Debugger::new(adapter);
 
-        debugger.process_meessages();
+        inspector.expect_reg_a().return_const(0x04);
+        inspector.expect_reg_x().return_const(0x13);
+        inspector.expect_reg_y().return_const(0x22);
+        inspector.expect_reg_sp().return_const(0x31);
+        inspector.expect_reg_pc().return_const(0x0ABCu16);
+        inspector.expect_cpu_flags().return_const(0x40);
+        debugger.process_meessages(&inspector);
 
         assert_responded_with(
             &*adapter_internals,
@@ -411,11 +450,38 @@ mod tests {
         assert_responded_with(
             &*adapter_internals,
             Response::Variables(VariablesResponse {
-                variables: vec![Variable {
-                    name: "A".to_string(),
-                    value: "$FF".to_string(),
-                    variables_reference: 0,
-                }],
+                variables: vec![
+                    Variable {
+                        name: "A".to_string(),
+                        value: "$04".to_string(),
+                        variables_reference: 0,
+                    },
+                    Variable {
+                        name: "X".to_string(),
+                        value: "$13".to_string(),
+                        variables_reference: 0,
+                    },
+                    Variable {
+                        name: "Y".to_string(),
+                        value: "$22".to_string(),
+                        variables_reference: 0,
+                    },
+                    Variable {
+                        name: "SP".to_string(),
+                        value: "$31".to_string(),
+                        variables_reference: 0,
+                    },
+                    Variable {
+                        name: "PC".to_string(),
+                        value: "$0ABC".to_string(),
+                        variables_reference: 0,
+                    },
+                    Variable {
+                        name: "FLAGS".to_string(),
+                        value: "$40".to_string(),
+                        variables_reference: 0,
+                    },
+                ],
             }),
         );
     }

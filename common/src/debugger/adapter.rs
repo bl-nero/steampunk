@@ -132,6 +132,7 @@ fn handle_input(
     let mut reader = BufReader::new(input);
     for raw_message_result in raw_messages(&mut reader) {
         let raw_message = raw_message_result?;
+        // println!("-> {}", std::str::from_utf8(&raw_message).unwrap());
         let message = serde_json::from_slice(&raw_message).map_err(|e| {
             InputHandlingError::ParseError(e, String::from_utf8(raw_message).unwrap())
         })?;

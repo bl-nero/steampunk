@@ -145,6 +145,30 @@ impl<M: Memory + Debug> Cpu<M> {
         &mut self.memory
     }
 
+    pub fn reg_pc(&self) -> u16 {
+        self.reg_pc
+    }
+
+    pub fn reg_a(&self) -> u8 {
+        self.reg_a
+    }
+
+    pub fn reg_x(&self) -> u8 {
+        self.reg_x
+    }
+
+    pub fn reg_y(&self) -> u8 {
+        self.reg_y
+    }
+
+    pub fn reg_sp(&self) -> u8 {
+        self.reg_sp
+    }
+
+    pub fn flags(&self) -> u8 {
+        self.flags
+    }
+
     /// Start the CPU reset sequence. It will last for the next 8 cycles. During
     /// initialization, the CPU reads an address from 0xFFFC and stores it in
     /// the `PC` register. The subsequent [`tick`](#method.tick) will

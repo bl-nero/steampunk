@@ -7,6 +7,8 @@ use crate::sid::Sid;
 use crate::Vic;
 use common::app::FrameStatus;
 use common::app::Machine;
+use common::app::MachineInspector;
+use delegate::delegate;
 use image::RgbaImage;
 use std::cell::RefCell;
 use std::error::Error;
@@ -56,6 +58,21 @@ impl Machine for C64 {
 
     fn display_state(&self) -> String {
         format!("{}\n{}", self.cpu, self.cpu.memory())
+    }
+}
+
+impl MachineInspector for C64 {
+    delegate! {
+        to self.cpu {
+            fn reg_pc(&self) -> u16;
+            fn reg_a(&self) -> u8;
+            fn reg_x(&self) -> u8;
+            fn reg_y(&self) -> u8;
+            fn reg_sp(&self) -> u8;
+
+            #[call(flags)]
+            fn cpu_flags(&self) -> u8;
+        }
     }
 }
 
