@@ -2,6 +2,10 @@ use crate::debugger::dap_types::MessageEnvelope;
 use crate::debugger::protocol::raw_messages;
 use crate::debugger::protocol::send_raw_message;
 use crate::debugger::protocol::ProtocolError;
+use crate::debugger::Message;
+use crate::debugger::Request;
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::error::Error;
 use std::io::BufReader;
 use std::io::Read;
@@ -9,6 +13,7 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::net::TcpListener;
 use std::net::TcpStream;
+use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::mpsc::SendError;
 use std::sync::mpsc::TryRecvError;
@@ -193,6 +198,42 @@ fn send_message<W: Write>(
     let raw_message = serde_json::to_vec(message)?;
     send_raw_message(raw_message, stream)?;
     Ok(())
+}
+
+#[derive(Default, Clone)]
+pub struct FakeDebugAdapter {
+    receiver_queue: Rc<RefCell<VecDeque<DebugAdapterResult<MessageEnvelope>>>>,
+    sender_queue: Rc<RefCell<VecDeque<MessageEnvelope>>>,
+}
+
+impl FakeDebugAdapter {
+    pub fn push_incoming(&self, message: DebugAdapterResult<MessageEnvelope>) {
+        self.receiver_queue.borrow_mut().push_back(message);
+    }
+
+    pub fn pop_outgoing(&self) -> Option<MessageEnvelope> {
+        self.sender_queue.borrow_mut().pop_front()
+    }
+
+    pub fn push_request(&self, request: Request) {
+        self.push_incoming(Ok(MessageEnvelope {
+            seq: 123,
+            message: Message::Request(request),
+        }));
+    }
+}
+
+impl DebugAdapter for FakeDebugAdapter {
+    fn try_receive_message(&self) -> DebugAdapterResult<MessageEnvelope> {
+        self.receiver_queue
+            .borrow_mut()
+            .pop_front()
+            .unwrap_or(Err(TryRecvError::Empty.into()))
+    }
+
+    fn send_message(&self, message: MessageEnvelope) -> DebugAdapterResult<()> {
+        Ok(self.sender_queue.borrow_mut().push_back(message))
+    }
 }
 
 #[cfg(test)]

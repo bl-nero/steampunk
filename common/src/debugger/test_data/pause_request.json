@@ -1,0 +1,8 @@
+{
+    "command": "pause",
+    "arguments": {
+        "threadId": 1
+    },
+    "type": "request",
+    "seq": 10
+}

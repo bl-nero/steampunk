@@ -1,11 +1,14 @@
 pub mod adapter;
 pub mod dap_types;
+
+mod core;
 mod protocol;
 
 use crate::app::MachineInspector;
 use crate::debugger::adapter::DebugAdapter;
 use crate::debugger::adapter::DebugAdapterError;
 use crate::debugger::adapter::DebugAdapterResult;
+use crate::debugger::core::DebuggerCore;
 use crate::debugger::dap_types::Event;
 use crate::debugger::dap_types::InitializeArguments;
 use crate::debugger::dap_types::Message;
@@ -31,6 +34,7 @@ use std::sync::mpsc::TryRecvError;
 pub struct Debugger<A: DebugAdapter> {
     adapter: A,
     sequence_number: i64,
+    core: DebuggerCore,
 }
 
 impl<A: DebugAdapter> Debugger<A> {
@@ -38,7 +42,12 @@ impl<A: DebugAdapter> Debugger<A> {
         Self {
             adapter,
             sequence_number: 0,
+            core: DebuggerCore::new(),
         }
+    }
+
+    pub fn paused(&self) -> bool {
+        self.core.paused()
     }
 
     pub fn process_meessages(&mut self, inspector: &impl MachineInspector) {
@@ -72,6 +81,10 @@ impl<A: DebugAdapter> Debugger<A> {
             Request::StackTrace {} => self.stack_trace(),
             Request::Scopes {} => self.scopes(),
             Request::Variables {} => self.variables(inspector),
+
+            Request::Continue {} => self.resume(),
+            Request::Pause {} => self.pause(),
+
             Request::Disconnect(_) => self.disconnect(),
         };
         self.send_message(Message::Response(ResponseEnvelope {
@@ -169,6 +182,23 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
+    fn resume(&mut self) -> (Response, Option<Event>) {
+        self.core.resume();
+        (Response::Continue {}, None)
+    }
+
+    fn pause(&mut self) -> (Response, Option<Event>) {
+        self.core.pause();
+        (
+            Response::Pause {},
+            Some(Event::Stopped(StoppedEvent {
+                reason: StopReason::Pause,
+                thread_id: 1,
+                all_threads_stopped: true,
+            })),
+        )
+    }
+
     fn disconnect(&self) -> (Response, Option<Event>) {
         todo!();
     }
@@ -205,118 +235,14 @@ mod tests {
     use super::*;
     use crate::app::MockMachineInspector;
     use crate::debugger::adapter::DebugAdapterResult;
+    use crate::debugger::adapter::FakeDebugAdapter;
     use crate::debugger::dap_types::InitializeArguments;
     use crate::debugger::dap_types::MessageEnvelope;
     use std::assert_matches::assert_matches;
-    use std::cell::RefCell;
-    use std::collections::VecDeque;
-    use std::rc::Rc;
 
-    fn initialize_request() -> DebugAdapterResult<MessageEnvelope> {
-        Ok(MessageEnvelope {
-            seq: 5,
-            message: Message::Request(Request::Initialize(InitializeArguments {
-                client_name: Some("Visual Studio Code".into()),
-            })),
-        })
-    }
-
-    fn set_exception_breakpoints_request() -> DebugAdapterResult<MessageEnvelope> {
-        Ok(MessageEnvelope {
-            seq: 6,
-            message: Message::Request(Request::SetExceptionBreakpoints {}),
-        })
-    }
-
-    fn attach_request() -> DebugAdapterResult<MessageEnvelope> {
-        Ok(MessageEnvelope {
-            seq: 8,
-            message: Message::Request(Request::Attach {}),
-        })
-    }
-
-    fn threads_request() -> DebugAdapterResult<MessageEnvelope> {
-        Ok(MessageEnvelope {
-            seq: 10,
-            message: Message::Request(Request::Threads {}),
-        })
-    }
-
-    fn stack_trace_request() -> DebugAdapterResult<MessageEnvelope> {
-        Ok(MessageEnvelope {
-            seq: 15,
-            message: Message::Request(Request::StackTrace {}),
-        })
-    }
-
-    fn scopes_request() -> DebugAdapterResult<MessageEnvelope> {
-        Ok(MessageEnvelope {
-            seq: 45,
-            message: Message::Request(Request::Scopes {}),
-        })
-    }
-
-    fn variables_request() -> DebugAdapterResult<MessageEnvelope> {
-        Ok(MessageEnvelope {
-            seq: 46,
-            message: Message::Request(Request::Variables {}),
-        })
-    }
-
-    #[derive(Default)]
-    struct FakeDebugAdapterInternals {
-        receiver_queue: VecDeque<DebugAdapterResult<MessageEnvelope>>,
-        sender_queue: VecDeque<MessageEnvelope>,
-    }
-
-    fn push_incoming(
-        adapter_internals: &RefCell<FakeDebugAdapterInternals>,
-        message: DebugAdapterResult<MessageEnvelope>,
-    ) {
-        adapter_internals
-            .borrow_mut()
-            .receiver_queue
-            .push_back(message);
-    }
-
-    fn pop_outgoing(
-        adapter_internals: &RefCell<FakeDebugAdapterInternals>,
-    ) -> Option<MessageEnvelope> {
-        adapter_internals.borrow_mut().sender_queue.pop_front()
-    }
-
-    #[derive(Default)]
-    struct FakeDebugAdapter {
-        internals: Rc<RefCell<FakeDebugAdapterInternals>>,
-    }
-
-    impl FakeDebugAdapter {
-        fn new() -> (Self, Rc<RefCell<FakeDebugAdapterInternals>>) {
-            let adapter = Self::default();
-            let internals = adapter.internals.clone();
-            return (adapter, internals);
-        }
-    }
-
-    impl DebugAdapter for FakeDebugAdapter {
-        fn try_receive_message(&self) -> DebugAdapterResult<MessageEnvelope> {
-            self.internals
-                .borrow_mut()
-                .receiver_queue
-                .pop_front()
-                .unwrap_or(Err(TryRecvError::Empty.into()))
-        }
-        fn send_message(&self, message: MessageEnvelope) -> DebugAdapterResult<()> {
-            Ok(self.internals.borrow_mut().sender_queue.push_back(message))
-        }
-    }
-
-    fn assert_responded_with(
-        adapter_internals: &RefCell<FakeDebugAdapterInternals>,
-        expected_response: Response,
-    ) {
+    fn assert_responded_with(adapter: &FakeDebugAdapter, expected_response: Response) {
         assert_matches!(
-            pop_outgoing(adapter_internals),
+            adapter.pop_outgoing(),
             Some(MessageEnvelope {
                 message: Message::Response(ResponseEnvelope {
                     response,
@@ -329,42 +255,47 @@ mod tests {
         );
     }
 
+    fn assert_emitted(adapter: &FakeDebugAdapter, expected_event: Event) {
+        assert_matches!(
+            adapter.pop_outgoing(),
+            Some(MessageEnvelope {
+                message: Message::Event(event),
+                ..
+            }) if event == expected_event,
+            "Expected event: {:?}",
+            expected_event,
+        );
+    }
+
     #[test]
     fn initialization_sequence() {
         let inspector = MockMachineInspector::new();
-        let (adapter, adapter_internals) = FakeDebugAdapter::new();
-        push_incoming(&*adapter_internals, initialize_request());
-        push_incoming(&*adapter_internals, attach_request());
-        push_incoming(&*adapter_internals, set_exception_breakpoints_request());
-        push_incoming(&*adapter_internals, threads_request());
-        push_incoming(&*adapter_internals, stack_trace_request());
-        let mut debugger = Debugger::new(adapter);
+        let adapter = FakeDebugAdapter::default();
+        adapter.push_request(Request::Initialize(InitializeArguments {
+            client_name: Some("Visual Studio Code".into()),
+        }));
+        adapter.push_request(Request::Attach {});
+        adapter.push_request(Request::SetExceptionBreakpoints {});
+        adapter.push_request(Request::Threads {});
+        adapter.push_request(Request::StackTrace {});
+        let mut debugger = Debugger::new(adapter.clone());
 
         debugger.process_meessages(&inspector);
 
-        assert_responded_with(&*adapter_internals, Response::Initialize);
-        assert_matches!(
-            pop_outgoing(&*adapter_internals),
-            Some(MessageEnvelope {
-                message: Message::Event(Event::Initialized),
-                ..
-            })
+        assert_responded_with(&adapter, Response::Initialize);
+        assert_emitted(&adapter, Event::Initialized);
+        assert_responded_with(&adapter, Response::Attach);
+        assert_emitted(
+            &adapter,
+            Event::Stopped(StoppedEvent {
+                thread_id: 1,
+                reason: StopReason::Entry,
+                all_threads_stopped: true,
+            }),
         );
-        assert_responded_with(&*adapter_internals, Response::Attach);
-        assert_matches!(
-            pop_outgoing(&*adapter_internals),
-            Some(MessageEnvelope {
-                message: Message::Event(Event::Stopped(StoppedEvent {
-                    thread_id: 1,
-                    reason: StopReason::Entry,
-                    all_threads_stopped: true,
-                })),
-                ..
-            })
-        );
-        assert_responded_with(&*adapter_internals, Response::SetExceptionBreakpoints);
+        assert_responded_with(&adapter, Response::SetExceptionBreakpoints);
         assert_responded_with(
-            &*adapter_internals,
+            &adapter,
             Response::Threads(ThreadsResponse {
                 threads: vec![Thread {
                     id: 1,
@@ -373,7 +304,7 @@ mod tests {
             }),
         );
         assert_responded_with(
-            &*adapter_internals,
+            &adapter,
             Response::StackTrace(StackTraceResponse {
                 stack_frames: vec![StackFrame {
                     id: 1,
@@ -384,49 +315,64 @@ mod tests {
                 total_frames: 1,
             }),
         );
-        assert_eq!(pop_outgoing(&*adapter_internals), None);
+        assert_eq!(adapter.pop_outgoing(), None);
     }
 
     #[test]
     fn uses_sequence_numbers() {
         let inspector = MockMachineInspector::new();
-        let (adapter, adapter_internals) = FakeDebugAdapter::new();
-        push_incoming(&*adapter_internals, initialize_request());
-        push_incoming(&*adapter_internals, attach_request());
-        let mut debugger = Debugger::new(adapter);
+        let adapter = FakeDebugAdapter::default();
+        adapter.push_incoming(Ok(MessageEnvelope {
+            seq: 5,
+            message: Message::Request(Request::Initialize(InitializeArguments {
+                client_name: Some("Visual Studio Code".into()),
+            })),
+        }));
+        adapter.push_incoming(Ok(MessageEnvelope {
+            seq: 8,
+            message: Message::Request(Request::Threads {}),
+        }));
+        adapter.push_incoming(Ok(MessageEnvelope {
+            seq: 9,
+            message: Message::Request(Request::Threads {}),
+        }));
+        let mut debugger = Debugger::new(adapter.clone());
 
         debugger.process_meessages(&inspector);
 
-        // TODO: The initialization sequence isn't really good to verify this.
-        // Let's use some repeatable messages of the same type.
         assert_matches!(
-            pop_outgoing(&*adapter_internals),
+            adapter.pop_outgoing(),
             Some(MessageEnvelope {
                 seq: 1,
                 message: Message::Response(ResponseEnvelope { request_seq: 5, .. }),
                 ..
             })
         );
+        assert_matches!(adapter.pop_outgoing(), Some(MessageEnvelope { seq: 2, .. }));
         assert_matches!(
-            pop_outgoing(&*adapter_internals),
-            Some(MessageEnvelope { seq: 2, .. })
-        );
-        assert_matches!(
-            pop_outgoing(&*adapter_internals),
+            adapter.pop_outgoing(),
             Some(MessageEnvelope {
                 seq: 3,
                 message: Message::Response(ResponseEnvelope { request_seq: 8, .. })
             })
         );
+        assert_matches!(
+            adapter.pop_outgoing(),
+            Some(MessageEnvelope {
+                seq: 4,
+                message: Message::Response(ResponseEnvelope { request_seq: 9, .. })
+            })
+        );
+        assert_eq!(adapter.pop_outgoing(), None);
     }
 
     #[test]
     fn sends_registers() {
         let mut inspector = MockMachineInspector::new();
-        let (adapter, adapter_internals) = FakeDebugAdapter::new();
-        push_incoming(&*adapter_internals, scopes_request());
-        push_incoming(&*adapter_internals, variables_request());
-        let mut debugger = Debugger::new(adapter);
+        let adapter = FakeDebugAdapter::default();
+        adapter.push_request(Request::Scopes {});
+        adapter.push_request(Request::Variables {});
+        let mut debugger = Debugger::new(adapter.clone());
 
         inspector.expect_reg_a().return_const(0x04);
         inspector.expect_reg_x().return_const(0x13);
@@ -437,7 +383,7 @@ mod tests {
         debugger.process_meessages(&inspector);
 
         assert_responded_with(
-            &*adapter_internals,
+            &adapter,
             Response::Scopes(ScopesResponse {
                 scopes: vec![Scope {
                     name: "Registers".to_string(),
@@ -448,7 +394,7 @@ mod tests {
             }),
         );
         assert_responded_with(
-            &*adapter_internals,
+            &adapter,
             Response::Variables(VariablesResponse {
                 variables: vec![
                     Variable {
@@ -484,5 +430,35 @@ mod tests {
                 ],
             }),
         );
+        assert_eq!(adapter.pop_outgoing(), None);
+    }
+
+    #[test]
+    fn continue_and_pause() {
+        let inspector = MockMachineInspector::new();
+        let adapter = FakeDebugAdapter::default();
+        adapter.push_request(Request::Continue {});
+        let mut debugger = Debugger::new(adapter.clone());
+        assert!(debugger.paused());
+
+        debugger.process_meessages(&inspector);
+
+        assert_responded_with(&adapter, Response::Continue {});
+        assert!(!debugger.paused());
+
+        adapter.push_request(Request::Pause {});
+        debugger.process_meessages(&inspector);
+
+        assert_responded_with(&adapter, Response::Pause {});
+        assert_emitted(
+            &adapter,
+            Event::Stopped(StoppedEvent {
+                thread_id: 1,
+                reason: StopReason::Pause,
+                all_threads_stopped: true,
+            }),
+        );
+        assert!(debugger.paused());
+        assert_eq!(adapter.pop_outgoing(), None);
     }
 }

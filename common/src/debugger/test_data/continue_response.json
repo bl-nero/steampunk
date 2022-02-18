@@ -1,0 +1,8 @@
+{
+    "seq": 11,
+    "type": "response",
+    "request_seq": 9,
+    "success": true,
+    "command": "continue",
+    "body": {}
+}

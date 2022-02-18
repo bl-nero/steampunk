@@ -72,7 +72,7 @@ impl<'a, M: Machine, A: DebugAdapter> MachineController<'a, M, A> {
         if let Some(debugger) = &mut self.debugger {
             debugger.process_meessages(self.machine);
         }
-        while self.running && !self.interrupted.load(Ordering::Relaxed) {
+        while self.running() {
             match self.machine.tick() {
                 Ok(FrameStatus::Pending) => {}
                 Ok(FrameStatus::Complete) => return,
@@ -83,6 +83,15 @@ impl<'a, M: Machine, A: DebugAdapter> MachineController<'a, M, A> {
                 }
             }
         }
+    }
+
+    fn running(&self) -> bool {
+        self.running
+            && !self.interrupted.load(Ordering::Relaxed)
+            && match &self.debugger {
+                Some(debugger) => !debugger.paused(),
+                None => true,
+            }
     }
 
     pub fn frame_image(&self) -> &RgbaImage {
@@ -205,7 +214,8 @@ impl View {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::debugger::adapter::TcpDebugAdapter;
+    use crate::debugger::adapter::FakeDebugAdapter;
+    use crate::debugger::dap_types::Request;
     use image::Pixel;
     use image::Rgba;
     use std::fmt;
@@ -292,7 +302,7 @@ mod tests {
     fn machine_controller_generates_frame() {
         let mut machine = TestMachine::new();
         let mut controller =
-            MachineController::new(&mut machine, None::<Debugger<TcpDebugAdapter>>);
+            MachineController::new(&mut machine, None::<Debugger<FakeDebugAdapter>>);
         controller.reset();
 
         controller.run_until_end_of_frame();
@@ -312,7 +322,7 @@ mod tests {
     fn machine_controller_resets() {
         let mut machine = TestMachine::new();
         let mut controller =
-            MachineController::new(&mut machine, None::<Debugger<TcpDebugAdapter>>);
+            MachineController::new(&mut machine, None::<Debugger<FakeDebugAdapter>>);
         controller.reset();
         controller.run_until_end_of_frame();
         controller.reset();
@@ -327,7 +337,7 @@ mod tests {
     fn machine_controller_produces_images_until_interrupted() {
         let mut machine = TestMachine::new();
         let mut controller =
-            MachineController::new(&mut machine, None::<Debugger<TcpDebugAdapter>>);
+            MachineController::new(&mut machine, None::<Debugger<FakeDebugAdapter>>);
         controller.reset();
 
         controller.run_until_end_of_frame();
@@ -350,7 +360,7 @@ mod tests {
     fn machine_controller_halts_on_error_until_reset() {
         let mut machine = TestMachine::new();
         let mut controller =
-            MachineController::new(&mut machine, None::<Debugger<TcpDebugAdapter>>);
+            MachineController::new(&mut machine, None::<Debugger<FakeDebugAdapter>>);
         controller.reset();
 
         controller.run_until_end_of_frame();
@@ -364,6 +374,28 @@ mod tests {
         );
 
         controller.reset();
+        controller.run_until_end_of_frame();
+        assert_eq!(
+            controller.frame_image().clone().into_raw(),
+            RgbaImage::from_pixel(3, 1, Rgba::from_channels(1, 1, 1, 255)).into_raw(),
+        );
+    }
+
+    #[test]
+    fn machine_controller_is_paused_and_resumed_by_debugger() {
+        let debug_adapter = FakeDebugAdapter::default();
+        let mut machine = TestMachine::new();
+        let mut controller =
+            MachineController::new(&mut machine, Some(Debugger::new(debug_adapter.clone())));
+        controller.reset();
+
+        controller.run_until_end_of_frame();
+        assert_eq!(
+            controller.frame_image().clone().into_raw(),
+            RgbaImage::from_pixel(3, 1, Rgba::from_channels(0, 0, 0, 0)).into_raw(),
+        );
+
+        debug_adapter.push_request(Request::Continue {});
         controller.run_until_end_of_frame();
         assert_eq!(
             controller.frame_image().clone().into_raw(),

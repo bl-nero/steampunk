@@ -39,6 +39,10 @@ pub enum Request {
     StackTrace {},
     Scopes {},
     Variables {},
+
+    Continue {},
+    Pause {},
+
     Disconnect(Option<DisconnectArguments>),
 }
 
@@ -67,6 +71,9 @@ pub enum Response {
     StackTrace(StackTraceResponse),
     Scopes(ScopesResponse),
     Variables(VariablesResponse),
+
+    Continue {},
+    Pause,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -136,6 +143,7 @@ pub struct StoppedEvent {
 #[serde(rename_all = "camelCase")]
 pub enum StopReason {
     Entry,
+    Pause,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -226,6 +234,14 @@ mod tests {
             seq: 8,
             message: Message::Request(Request::Variables {}),
         },
+        continue_request: MessageEnvelope {
+            seq: 10,
+            message: Message::Request(Request::Continue {}),
+        },
+        pause_request: MessageEnvelope {
+            seq: 10,
+            message: Message::Request(Request::Pause {}),
+        },
         disconnect_request: MessageEnvelope {
             seq: 2,
             message: Message::Request(Request::Disconnect(Some(DisconnectArguments {}))),
@@ -315,6 +331,22 @@ mod tests {
                         variables_reference: 0,
                     }]
                 }),
+            }),
+        },
+        continue_response: MessageEnvelope {
+            seq: 11,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 9,
+                success: true,
+                response: Response::Continue{},
+            }),
+        },
+        pause_response: MessageEnvelope {
+            seq: 12,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 10,
+                success: true,
+                response: Response::Pause,
             }),
         },
 
