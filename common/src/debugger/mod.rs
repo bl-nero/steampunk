@@ -37,7 +37,7 @@ pub struct Debugger<A: DebugAdapter> {
     core: DebuggerCore,
 }
 
-type RequestOutcome<'a, A: DebugAdapter> = (
+type RequestOutcome<A> = (
     Response,
     Option<Box<dyn FnOnce(&mut Debugger<A>) -> DebugAdapterResult<()>>>,
 );
@@ -107,7 +107,7 @@ impl<A: DebugAdapter> Debugger<A> {
         self.send_message(Message::Event(event))
     }
 
-    fn initialize<'a>(&'a self, args: InitializeArguments) -> RequestOutcome<'a, A> {
+    fn initialize(&self, args: InitializeArguments) -> RequestOutcome<A> {
         eprintln!(
             "Initializing debugger session with {}",
             args.client_name.as_deref().unwrap_or("an unnamed client")
@@ -118,11 +118,11 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn set_exception_breakpoints<'a>(&'a self) -> RequestOutcome<'a, A> {
+    fn set_exception_breakpoints(&self) -> RequestOutcome<A> {
         (Response::SetExceptionBreakpoints, None)
     }
 
-    fn attach<'a>(&'a self) -> RequestOutcome<'a, A> {
+    fn attach(&self) -> RequestOutcome<A> {
         (
             Response::Attach,
             Some(Box::new(|me| {
@@ -135,7 +135,7 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn threads<'a>(&'a self) -> RequestOutcome<'a, A> {
+    fn threads(&self) -> RequestOutcome<A> {
         (
             Response::Threads(ThreadsResponse {
                 threads: vec![Thread {
@@ -147,7 +147,7 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn stack_trace<'a>(&'a self) -> RequestOutcome<'a, A> {
+    fn stack_trace(&self) -> RequestOutcome<A> {
         (
             Response::StackTrace(StackTraceResponse {
                 stack_frames: vec![StackFrame {
@@ -162,7 +162,7 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn scopes<'a>(&'a self) -> RequestOutcome<'a, A> {
+    fn scopes(&self) -> RequestOutcome<A> {
         (
             Response::Scopes(ScopesResponse {
                 scopes: vec![Scope {
@@ -176,7 +176,7 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn variables<'a>(&'a self, inspector: &impl MachineInspector) -> RequestOutcome<'a, A> {
+    fn variables(&self, inspector: &impl MachineInspector) -> RequestOutcome<A> {
         (
             Response::Variables(VariablesResponse {
                 variables: vec![
@@ -196,12 +196,12 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn resume<'a>(&'a mut self) -> RequestOutcome<'a, A> {
+    fn resume(&mut self) -> RequestOutcome<A> {
         self.core.resume();
         (Response::Continue {}, None)
     }
 
-    fn pause<'a>(&'a mut self) -> RequestOutcome<'a, A> {
+    fn pause(&mut self) -> RequestOutcome<A> {
         self.core.pause();
         (
             Response::Pause {},
@@ -215,7 +215,8 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn disconnect<'a>(&'a self) -> RequestOutcome<'a, A> {
+    fn disconnect(&mut self) -> RequestOutcome<A> {
+        self.core.resume();
         (
             Response::Disconnect,
             Some(Box::new(|me| me.adapter.disconnect())),
@@ -253,7 +254,6 @@ fn byte_variable(name: &str, value: u8) -> Variable {
 mod tests {
     use super::*;
     use crate::app::MockMachineInspector;
-    use crate::debugger::adapter::DebugAdapterResult;
     use crate::debugger::adapter::FakeDebugAdapter;
     use crate::debugger::dap_types::InitializeArguments;
     use crate::debugger::dap_types::MessageEnvelope;
@@ -396,6 +396,7 @@ mod tests {
 
         assert_responded_with(&adapter, Response::Disconnect);
         assert!(adapter.disconnected());
+        assert!(!debugger.paused());
     }
 
     #[test]
