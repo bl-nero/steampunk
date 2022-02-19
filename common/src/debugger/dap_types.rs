@@ -74,6 +74,8 @@ pub enum Response {
 
     Continue {},
     Pause,
+
+    Disconnect,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -347,6 +349,14 @@ mod tests {
                 request_seq: 10,
                 success: true,
                 response: Response::Pause,
+            }),
+        },
+        disconnect_response: MessageEnvelope {
+            seq: 64,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 89,
+                success: true,
+                response: Response::Disconnect,
             }),
         },
 

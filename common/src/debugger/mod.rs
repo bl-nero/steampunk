@@ -37,6 +37,11 @@ pub struct Debugger<A: DebugAdapter> {
     core: DebuggerCore,
 }
 
+type RequestOutcome<'a, A: DebugAdapter> = (
+    Response,
+    Option<Box<dyn FnOnce(&mut Debugger<A>) -> DebugAdapterResult<()>>>,
+);
+
 impl<A: DebugAdapter> Debugger<A> {
     pub fn new(adapter: A) -> Self {
         Self {
@@ -73,7 +78,7 @@ impl<A: DebugAdapter> Debugger<A> {
         request: Request,
         inspector: &impl MachineInspector,
     ) {
-        let (response, event) = match request {
+        let (response, continuation) = match request {
             Request::Initialize(args) => self.initialize(args),
             Request::SetExceptionBreakpoints {} => self.set_exception_breakpoints(),
             Request::Attach {} => self.attach(),
@@ -93,35 +98,44 @@ impl<A: DebugAdapter> Debugger<A> {
             response,
         }))
         .unwrap();
-        if let Some(event) = event {
-            self.send_message(Message::Event(event)).unwrap();
+        if let Some(continuation) = continuation {
+            continuation(self).unwrap();
         }
     }
 
-    fn initialize(&self, args: InitializeArguments) -> (Response, Option<Event>) {
+    fn send_event(&mut self, event: Event) -> DebugAdapterResult<()> {
+        self.send_message(Message::Event(event))
+    }
+
+    fn initialize<'a>(&'a self, args: InitializeArguments) -> RequestOutcome<'a, A> {
         eprintln!(
             "Initializing debugger session with {}",
             args.client_name.as_deref().unwrap_or("an unnamed client")
         );
-        (Response::Initialize, Some(Event::Initialized))
+        (
+            Response::Initialize,
+            Some(Box::new(|me| me.send_event(Event::Initialized))),
+        )
     }
 
-    fn set_exception_breakpoints(&self) -> (Response, Option<Event>) {
+    fn set_exception_breakpoints<'a>(&'a self) -> RequestOutcome<'a, A> {
         (Response::SetExceptionBreakpoints, None)
     }
 
-    fn attach(&self) -> (Response, Option<Event>) {
+    fn attach<'a>(&'a self) -> RequestOutcome<'a, A> {
         (
             Response::Attach,
-            Some(Event::Stopped(StoppedEvent {
-                reason: StopReason::Entry,
-                thread_id: 1,
-                all_threads_stopped: true,
+            Some(Box::new(|me| {
+                me.send_event(Event::Stopped(StoppedEvent {
+                    reason: StopReason::Entry,
+                    thread_id: 1,
+                    all_threads_stopped: true,
+                }))
             })),
         )
     }
 
-    fn threads(&self) -> (Response, Option<Event>) {
+    fn threads<'a>(&'a self) -> RequestOutcome<'a, A> {
         (
             Response::Threads(ThreadsResponse {
                 threads: vec![Thread {
@@ -133,7 +147,7 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn stack_trace(&self) -> (Response, Option<Event>) {
+    fn stack_trace<'a>(&'a self) -> RequestOutcome<'a, A> {
         (
             Response::StackTrace(StackTraceResponse {
                 stack_frames: vec![StackFrame {
@@ -148,7 +162,7 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn scopes(&self) -> (Response, Option<Event>) {
+    fn scopes<'a>(&'a self) -> RequestOutcome<'a, A> {
         (
             Response::Scopes(ScopesResponse {
                 scopes: vec![Scope {
@@ -162,7 +176,7 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn variables(&self, inspector: &impl MachineInspector) -> (Response, Option<Event>) {
+    fn variables<'a>(&'a self, inspector: &impl MachineInspector) -> RequestOutcome<'a, A> {
         (
             Response::Variables(VariablesResponse {
                 variables: vec![
@@ -182,25 +196,30 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn resume(&mut self) -> (Response, Option<Event>) {
+    fn resume<'a>(&'a mut self) -> RequestOutcome<'a, A> {
         self.core.resume();
         (Response::Continue {}, None)
     }
 
-    fn pause(&mut self) -> (Response, Option<Event>) {
+    fn pause<'a>(&'a mut self) -> RequestOutcome<'a, A> {
         self.core.pause();
         (
             Response::Pause {},
-            Some(Event::Stopped(StoppedEvent {
-                reason: StopReason::Pause,
-                thread_id: 1,
-                all_threads_stopped: true,
+            Some(Box::new(|me| {
+                me.send_event(Event::Stopped(StoppedEvent {
+                    reason: StopReason::Pause,
+                    thread_id: 1,
+                    all_threads_stopped: true,
+                }))
             })),
         )
     }
 
-    fn disconnect(&self) -> (Response, Option<Event>) {
-        todo!();
+    fn disconnect<'a>(&'a self) -> RequestOutcome<'a, A> {
+        (
+            Response::Disconnect,
+            Some(Box::new(|me| me.adapter.disconnect())),
+        )
     }
 
     fn send_message(&mut self, message: Message) -> DebugAdapterResult<()> {
@@ -364,6 +383,19 @@ mod tests {
             })
         );
         assert_eq!(adapter.pop_outgoing(), None);
+    }
+
+    #[test]
+    fn disconnects() {
+        let inspector = MockMachineInspector::new();
+        let adapter = FakeDebugAdapter::default();
+        adapter.push_request(Request::Disconnect(None));
+        adapter.expect_disconnect();
+        let mut debugger = Debugger::new(adapter.clone());
+        debugger.process_meessages(&inspector);
+
+        assert_responded_with(&adapter, Response::Disconnect);
+        assert!(adapter.disconnected());
     }
 
     #[test]

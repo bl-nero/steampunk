@@ -27,6 +27,7 @@ pub trait DebugAdapter {
     /// are no pending messages.
     fn try_receive_message(&self) -> DebugAdapterResult<MessageEnvelope>;
     fn send_message(&self, message: MessageEnvelope) -> DebugAdapterResult<()>;
+    fn disconnect(&self) -> DebugAdapterResult<()>;
 }
 
 /// Uses Debug Adapter Protocol over a TCP socket to communicate to a debugger
@@ -64,6 +65,15 @@ impl DebugAdapter for TcpDebugAdapter {
         self.writer_command_sender
             .send(WriterThreadCommand::SendMessage(message))
             .map_err(|e| e.into())
+    }
+
+    /// Tells the writer thread to disconnect. Note: we don't really have an
+    /// easy way to disconnect both ends of the connection, so let's just hope
+    /// that the remote side closes the other one.
+    fn disconnect(&self) -> DebugAdapterResult<()> {
+        self.writer_command_sender
+            .send(WriterThreadCommand::Disconnect)?;
+        Ok(())
     }
 }
 
@@ -202,17 +212,24 @@ fn send_message<W: Write>(
 
 #[derive(Default, Clone)]
 pub struct FakeDebugAdapter {
-    receiver_queue: Rc<RefCell<VecDeque<DebugAdapterResult<MessageEnvelope>>>>,
-    sender_queue: Rc<RefCell<VecDeque<MessageEnvelope>>>,
+    pimpl: Rc<RefCell<FakeDebugAdapterImpl>>,
+}
+
+#[derive(Default)]
+struct FakeDebugAdapterImpl {
+    expects_disconnect: bool,
+    disconnected: bool,
+    receiver_queue: VecDeque<DebugAdapterResult<MessageEnvelope>>,
+    sender_queue: VecDeque<MessageEnvelope>,
 }
 
 impl FakeDebugAdapter {
     pub fn push_incoming(&self, message: DebugAdapterResult<MessageEnvelope>) {
-        self.receiver_queue.borrow_mut().push_back(message);
+        self.pimpl.borrow_mut().receiver_queue.push_back(message);
     }
 
     pub fn pop_outgoing(&self) -> Option<MessageEnvelope> {
-        self.sender_queue.borrow_mut().pop_front()
+        self.pimpl.borrow_mut().sender_queue.pop_front()
     }
 
     pub fn push_request(&self, request: Request) {
@@ -221,18 +238,36 @@ impl FakeDebugAdapter {
             message: Message::Request(request),
         }));
     }
+
+    pub fn expect_disconnect(&self) {
+        self.pimpl.borrow_mut().expects_disconnect = true;
+    }
+
+    pub fn disconnected(&self) -> bool {
+        self.pimpl.borrow().disconnected
+    }
 }
 
 impl DebugAdapter for FakeDebugAdapter {
     fn try_receive_message(&self) -> DebugAdapterResult<MessageEnvelope> {
-        self.receiver_queue
+        self.pimpl
             .borrow_mut()
+            .receiver_queue
             .pop_front()
             .unwrap_or(Err(TryRecvError::Empty.into()))
     }
 
     fn send_message(&self, message: MessageEnvelope) -> DebugAdapterResult<()> {
-        Ok(self.sender_queue.borrow_mut().push_back(message))
+        let mut pimpl = self.pimpl.borrow_mut();
+        assert!(!pimpl.disconnected);
+        Ok(pimpl.sender_queue.push_back(message))
+    }
+
+    fn disconnect(&self) -> DebugAdapterResult<()> {
+        let mut pimpl = self.pimpl.borrow_mut();
+        assert!(pimpl.expects_disconnect);
+        pimpl.disconnected = true;
+        Ok(())
     }
 }
 
