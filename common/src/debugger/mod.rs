@@ -89,6 +89,9 @@ impl<A: DebugAdapter> Debugger<A> {
 
             Request::Continue {} => self.resume(),
             Request::Pause {} => self.pause(),
+            Request::Next {} => todo!(),
+            Request::StepIn {} => todo!(),
+            Request::StepOut {} => todo!(),
 
             Request::Disconnect(_) => self.disconnect(),
         };

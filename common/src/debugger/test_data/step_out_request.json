@@ -1,0 +1,8 @@
+{
+    "command": "stepOut",
+    "arguments": {
+        "threadId": 1
+    },
+    "type": "request",
+    "seq": 9
+}

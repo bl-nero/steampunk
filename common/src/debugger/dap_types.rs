@@ -42,6 +42,9 @@ pub enum Request {
 
     Continue {},
     Pause {},
+    Next {},
+    StepIn {},
+    StepOut {},
 
     Disconnect(Option<DisconnectArguments>),
 }
@@ -74,6 +77,9 @@ pub enum Response {
 
     Continue {},
     Pause,
+    Next,
+    StepIn,
+    StepOut,
 
     Disconnect,
 }
@@ -244,6 +250,18 @@ mod tests {
             seq: 10,
             message: Message::Request(Request::Pause {}),
         },
+        next_request: MessageEnvelope {
+            seq: 9,
+            message: Message::Request(Request::Next {}),
+        },
+        step_in_request: MessageEnvelope {
+            seq: 9,
+            message: Message::Request(Request::StepIn {}),
+        },
+        step_out_request: MessageEnvelope {
+            seq: 9,
+            message: Message::Request(Request::StepOut {}),
+        },
         disconnect_request: MessageEnvelope {
             seq: 2,
             message: Message::Request(Request::Disconnect(Some(DisconnectArguments {}))),
@@ -349,6 +367,30 @@ mod tests {
                 request_seq: 10,
                 success: true,
                 response: Response::Pause,
+            }),
+        },
+        next_response: MessageEnvelope {
+            seq: 78,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 87,
+                success: true,
+                response: Response::Next,
+            }),
+        },
+        step_in_response: MessageEnvelope {
+            seq: 61,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 13,
+                success: true,
+                response: Response::StepIn,
+            }),
+        },
+        step_out_response: MessageEnvelope {
+            seq: 74,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 72,
+                success: true,
+                response: Response::StepOut,
             }),
         },
         disconnect_response: MessageEnvelope {

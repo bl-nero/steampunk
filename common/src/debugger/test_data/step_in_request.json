@@ -1,0 +1,8 @@
+{
+    "command": "stepIn",
+    "arguments": {
+        "threadId": 1
+    },
+    "type": "request",
+    "seq": 9
+}
