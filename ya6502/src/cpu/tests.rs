@@ -3,32 +3,11 @@
 extern crate test;
 
 use super::*;
+use crate::cpu_with_code;
 use crate::memory::Ram;
+use crate::test_utils::cpu_with_program;
+use crate::test_utils::reset;
 use test::Bencher;
-
-fn reset<M: Memory + Debug>(cpu: &mut Cpu<M>) {
-    cpu.reset();
-    cpu.ticks(7).unwrap();
-}
-
-fn cpu_with_program(program: &[u8]) -> Cpu<Ram> {
-    let mut memory = Box::new(Ram::with_test_program(program));
-    // Add a HLT instruction that makes sure we got the timing right and don't
-    // execute one instruction too many.
-    memory.bytes[0xF000 + program.len()] = opcodes::HLT1;
-    let mut cpu = Cpu::new(memory);
-    reset(&mut cpu);
-    return cpu;
-}
-
-macro_rules! cpu_with_code {
-    ($($tokens:tt)*) => {
-        cpu_with_program(&assemble6502!({
-            start: 0xF000,
-            code: {$($tokens)*}
-        }))
-    };
-}
 
 fn reversed_stack(cpu: &Cpu<Ram>) -> Vec<u8> {
     cpu.memory.bytes[(cpu.stack_pointer() as usize + 1)..=0x1FF]

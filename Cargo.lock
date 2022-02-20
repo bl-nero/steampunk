@@ -316,7 +316,6 @@ dependencies = [
  "image-diff",
  "itertools",
  "lazy_static",
- "mockall",
  "piston",
  "piston2d-graphics",
  "piston_window",
@@ -2550,6 +2549,7 @@ name = "ya6502"
 version = "0.1.0"
 dependencies = [
  "itertools",
+ "mockall",
  "rand",
  "rustasm6502",
 ]

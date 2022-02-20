@@ -8,3 +8,4 @@ extern crate rustasm6502;
 
 pub mod cpu;
 pub mod memory;
+pub mod test_utils;

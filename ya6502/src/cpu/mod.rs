@@ -4,6 +4,7 @@ pub mod opcodes;
 mod tests;
 
 use crate::memory::{Memory, ReadError, ReadResult};
+use mockall::automock;
 use rand::Rng;
 use std::error;
 use std::fmt;
@@ -143,30 +144,6 @@ impl<M: Memory + Debug> Cpu<M> {
 
     pub fn mut_memory(&mut self) -> &mut M {
         &mut self.memory
-    }
-
-    pub fn reg_pc(&self) -> u16 {
-        self.reg_pc
-    }
-
-    pub fn reg_a(&self) -> u8 {
-        self.reg_a
-    }
-
-    pub fn reg_x(&self) -> u8 {
-        self.reg_x
-    }
-
-    pub fn reg_y(&self) -> u8 {
-        self.reg_y
-    }
-
-    pub fn reg_sp(&self) -> u8 {
-        self.reg_sp
-    }
-
-    pub fn flags(&self) -> u8 {
-        self.flags
     }
 
     /// Start the CPU reset sequence. It will last for the next 8 cycles. During
@@ -1580,8 +1557,7 @@ impl<M: Memory + Debug> Cpu<M> {
         u16::from_le_bytes([self.bal, self.bah])
     }
 
-    #[cfg(test)]
-    fn ticks(&mut self, n_ticks: u32) -> TickResult {
+    pub fn ticks(&mut self, n_ticks: u32) -> TickResult {
         for _ in 0..n_ticks {
             self.tick()?;
         }
@@ -1602,5 +1578,42 @@ impl<M: Memory> fmt::Display for Cpu<M> {
             self.reg_pc,
             flags::flags_to_string(self.flags)
         )
+    }
+}
+
+/// An interface for inspecting machine's internal state for debugging purposes.
+#[automock]
+pub trait MachineInspector {
+    fn reg_pc(&self) -> u16;
+    fn reg_a(&self) -> u8;
+    fn reg_x(&self) -> u8;
+    fn reg_y(&self) -> u8;
+    fn reg_sp(&self) -> u8;
+    fn flags(&self) -> u8;
+}
+
+impl<M: Memory> MachineInspector for Cpu<M> {
+    fn reg_pc(&self) -> u16 {
+        self.reg_pc
+    }
+
+    fn reg_a(&self) -> u8 {
+        self.reg_a
+    }
+
+    fn reg_x(&self) -> u8 {
+        self.reg_x
+    }
+
+    fn reg_y(&self) -> u8 {
+        self.reg_y
+    }
+
+    fn reg_sp(&self) -> u8 {
+        self.reg_sp
+    }
+
+    fn flags(&self) -> u8 {
+        self.flags
     }
 }

@@ -7,13 +7,13 @@ use crate::tia;
 use crate::tia::Tia;
 use common::app::FrameStatus;
 use common::app::Machine;
-use common::app::MachineInspector;
 use delegate::delegate;
 use enum_map::{enum_map, Enum, EnumMap};
 use image;
 use image::RgbaImage;
 use std::error;
 use ya6502::cpu::Cpu;
+use ya6502::cpu::MachineInspector;
 use ya6502::memory::Ram;
 use ya6502::memory::Rom;
 
@@ -84,9 +84,7 @@ impl MachineInspector for Atari {
             fn reg_x(&self) -> u8;
             fn reg_y(&self) -> u8;
             fn reg_sp(&self) -> u8;
-
-            #[call(flags)]
-            fn cpu_flags(&self) -> u8;
+            fn flags(&self) -> u8;
         }
     }
 }

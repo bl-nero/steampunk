@@ -1,7 +1,6 @@
 use crate::debugger::adapter::DebugAdapter;
 use crate::debugger::Debugger;
 use image::RgbaImage;
-use mockall::automock;
 use piston::{Event, EventLoop, WindowSettings};
 use piston_window::{
     Filter, G2d, G2dTexture, G2dTextureContext, GfxDevice, PistonWindow, Texture, TextureSettings,
@@ -9,6 +8,7 @@ use piston_window::{
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use ya6502::cpu::MachineInspector;
 
 /// A generic interface that provides basic operations common to all emulated
 /// machines.
@@ -17,17 +17,6 @@ pub trait Machine: MachineInspector {
     fn tick(&mut self) -> MachineTickResult;
     fn frame_image(&self) -> &RgbaImage;
     fn display_state(&self) -> String;
-}
-
-/// An interface for inspecting machine's internal state for debugging purposes.
-#[automock]
-pub trait MachineInspector {
-    fn reg_pc(&self) -> u16;
-    fn reg_a(&self) -> u8;
-    fn reg_x(&self) -> u8;
-    fn reg_y(&self) -> u8;
-    fn reg_sp(&self) -> u8;
-    fn cpu_flags(&self) -> u8;
 }
 
 pub type MachineTickResult = Result<FrameStatus, Box<dyn Error>>;
@@ -293,7 +282,7 @@ mod tests {
         fn reg_sp(&self) -> u8 {
             0
         }
-        fn cpu_flags(&self) -> u8 {
+        fn flags(&self) -> u8 {
             0
         }
     }

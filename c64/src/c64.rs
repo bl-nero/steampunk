@@ -7,7 +7,6 @@ use crate::sid::Sid;
 use crate::Vic;
 use common::app::FrameStatus;
 use common::app::Machine;
-use common::app::MachineInspector;
 use delegate::delegate;
 use image::RgbaImage;
 use std::cell::RefCell;
@@ -16,6 +15,7 @@ use std::fs;
 use std::path::Path;
 use std::rc::Rc;
 use ya6502::cpu::Cpu;
+use ya6502::cpu::MachineInspector;
 use ya6502::memory::Ram;
 use ya6502::memory::Rom;
 
@@ -69,9 +69,7 @@ impl MachineInspector for C64 {
             fn reg_x(&self) -> u8;
             fn reg_y(&self) -> u8;
             fn reg_sp(&self) -> u8;
-
-            #[call(flags)]
-            fn cpu_flags(&self) -> u8;
+            fn flags(&self) -> u8;
         }
     }
 }

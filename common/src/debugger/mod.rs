@@ -4,7 +4,6 @@ pub mod dap_types;
 mod core;
 mod protocol;
 
-use crate::app::MachineInspector;
 use crate::debugger::adapter::DebugAdapter;
 use crate::debugger::adapter::DebugAdapterError;
 use crate::debugger::adapter::DebugAdapterResult;
@@ -28,6 +27,7 @@ use crate::debugger::dap_types::ThreadsResponse;
 use crate::debugger::dap_types::Variable;
 use crate::debugger::dap_types::VariablesResponse;
 use std::sync::mpsc::TryRecvError;
+use ya6502::cpu::MachineInspector;
 
 /// A debugger for 6502-based machines. Uses Debug Adapter Protocol internally
 /// to communicate with a debugger UI.
@@ -192,7 +192,7 @@ impl<A: DebugAdapter> Debugger<A> {
                         value: format_word(inspector.reg_pc()),
                         variables_reference: 0,
                     },
-                    byte_variable("FLAGS", inspector.cpu_flags()),
+                    byte_variable("FLAGS", inspector.flags()),
                 ],
             }),
             None,
@@ -256,11 +256,11 @@ fn byte_variable(name: &str, value: u8) -> Variable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::MockMachineInspector;
     use crate::debugger::adapter::FakeDebugAdapter;
     use crate::debugger::dap_types::InitializeArguments;
     use crate::debugger::dap_types::MessageEnvelope;
     use std::assert_matches::assert_matches;
+    use ya6502::cpu::MockMachineInspector;
 
     fn assert_responded_with(adapter: &FakeDebugAdapter, expected_response: Response) {
         assert_matches!(
@@ -415,7 +415,7 @@ mod tests {
         inspector.expect_reg_y().return_const(0x22);
         inspector.expect_reg_sp().return_const(0x31);
         inspector.expect_reg_pc().return_const(0x0ABCu16);
-        inspector.expect_cpu_flags().return_const(0x40);
+        inspector.expect_flags().return_const(0x40);
         debugger.process_meessages(&inspector);
 
         assert_responded_with(
