@@ -55,6 +55,18 @@ impl<A: DebugAdapter> Debugger<A> {
         self.core.paused()
     }
 
+    pub fn update(&mut self, inspector: &impl MachineInspector) -> DebugAdapterResult<()> {
+        self.core.update(inspector);
+        if self.core.has_just_paused() {
+            self.send_event(Event::Stopped(StoppedEvent {
+                thread_id: 1,
+                reason: StopReason::Step,
+                all_threads_stopped: true,
+            }))?;
+        }
+        Ok(())
+    }
+
     pub fn process_meessages(&mut self, inspector: &impl MachineInspector) {
         loop {
             match self.adapter.try_receive_message() {
@@ -90,7 +102,7 @@ impl<A: DebugAdapter> Debugger<A> {
             Request::Continue {} => self.resume(),
             Request::Pause {} => self.pause(),
             Request::Next {} => todo!(),
-            Request::StepIn {} => todo!(),
+            Request::StepIn {} => self.step_in(),
             Request::StepOut {} => todo!(),
 
             Request::Disconnect(_) => self.disconnect(),
@@ -218,6 +230,11 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
+    fn step_in(&mut self) -> RequestOutcome<A> {
+        self.core.step_in();
+        (Response::StepIn {}, None)
+    }
+
     fn disconnect(&mut self) -> RequestOutcome<A> {
         self.core.resume();
         (
@@ -261,6 +278,7 @@ mod tests {
     use crate::debugger::dap_types::MessageEnvelope;
     use std::assert_matches::assert_matches;
     use ya6502::cpu::MockMachineInspector;
+    use ya6502::cpu_with_code;
 
     fn assert_responded_with(adapter: &FakeDebugAdapter, expected_response: Response) {
         assert_matches!(
@@ -496,5 +514,37 @@ mod tests {
         );
         assert!(debugger.paused());
         assert_eq!(adapter.pop_outgoing(), None);
+    }
+
+    #[test]
+    fn step_in() {
+        let mut cpu = cpu_with_code! {
+                nop
+        };
+
+        let adapter = FakeDebugAdapter::default();
+        adapter.push_request(Request::StepIn {});
+        let mut debugger = Debugger::new(adapter.clone());
+
+        debugger.process_meessages(&cpu);
+
+        assert_responded_with(&adapter, Response::StepIn {});
+        assert!(!debugger.paused());
+
+        cpu.tick().unwrap();
+        debugger.update(&cpu).unwrap();
+        cpu.tick().unwrap();
+        assert_eq!(adapter.pop_outgoing(), None);
+
+        debugger.update(&cpu).unwrap();
+        assert!(debugger.paused());
+        assert_emitted(
+            &adapter,
+            Event::Stopped(StoppedEvent {
+                thread_id: 1,
+                reason: StopReason::Step,
+                all_threads_stopped: true,
+            }),
+        )
     }
 }

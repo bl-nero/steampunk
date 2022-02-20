@@ -62,7 +62,7 @@ impl<'a, M: Machine, A: DebugAdapter> MachineController<'a, M, A> {
             debugger.process_meessages(self.machine);
         }
         while self.running() {
-            match self.machine.tick() {
+            match self.tick() {
                 Ok(FrameStatus::Pending) => {}
                 Ok(FrameStatus::Complete) => return,
                 Err(e) => {
@@ -81,6 +81,14 @@ impl<'a, M: Machine, A: DebugAdapter> MachineController<'a, M, A> {
                 Some(debugger) => !debugger.paused(),
                 None => true,
             }
+    }
+
+    fn tick(&mut self) -> MachineTickResult {
+        let tick_result = self.machine.tick();
+        if let Some(debugger) = &mut self.debugger {
+            debugger.update(self.machine)?;
+        }
+        tick_result
     }
 
     pub fn frame_image(&self) -> &RgbaImage {
@@ -285,6 +293,9 @@ mod tests {
         fn flags(&self) -> u8 {
             0
         }
+        fn at_instruction_start(&self) -> bool {
+            true
+        }
     }
 
     #[test]
@@ -389,6 +400,24 @@ mod tests {
         assert_eq!(
             controller.frame_image().clone().into_raw(),
             RgbaImage::from_pixel(3, 1, Rgba::from_channels(1, 1, 1, 255)).into_raw(),
+        );
+    }
+
+    #[test]
+    fn debugger_stepping() {
+        let debug_adapter = FakeDebugAdapter::default();
+        let mut machine = TestMachine::new();
+        let mut controller =
+            MachineController::new(&mut machine, Some(Debugger::new(debug_adapter.clone())));
+        controller.reset();
+
+        debug_adapter.push_request(Request::StepIn {});
+        controller.run_until_end_of_frame();
+        // We should have stopped after the first instruction, after filling
+        // only one pixel.
+        assert_eq!(
+            controller.frame_image().clone().into_raw(),
+            vec![1, 1, 1, 255, 0, 0, 0, 0, 0, 0, 0, 0],
         );
     }
 }

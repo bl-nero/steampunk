@@ -152,6 +152,7 @@ pub struct StoppedEvent {
 pub enum StopReason {
     Entry,
     Pause,
+    Step,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

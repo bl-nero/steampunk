@@ -36,6 +36,8 @@ pub struct Atari {
     audio_consumer: AudioConsumer,
     switch_positions: EnumMap<Switch, SwitchPosition>,
     joysticks: EnumMap<JoystickPort, Joystick>,
+
+    at_cpu_cycle: bool,
 }
 
 impl Machine for Atari {
@@ -44,7 +46,8 @@ impl Machine for Atari {
     /// `TickResult::Error`.
     fn tick(&mut self) -> Result<FrameStatus, Box<dyn error::Error>> {
         let tia_result = self.mut_tia().tick();
-        if tia_result.cpu_tick {
+        self.at_cpu_cycle = tia_result.cpu_tick;
+        if self.at_cpu_cycle {
             if let Err(e) = self.cpu.tick() {
                 return Err(e);
             }
@@ -87,6 +90,10 @@ impl MachineInspector for Atari {
             fn flags(&self) -> u8;
         }
     }
+
+    fn at_instruction_start(&self) -> bool {
+        self.at_cpu_cycle && self.cpu.at_instruction_start()
+    }
 }
 
 impl Atari {
@@ -101,7 +108,10 @@ impl Atari {
             audio_consumer,
             switch_positions: enum_map! { _ => SwitchPosition::Up },
             joysticks: enum_map! { _ => Joystick::new() },
+
+            at_cpu_cycle: false,
         };
+
         atari.update_switches_riot_port();
         atari.update_joystick_ports();
         return atari;
@@ -484,6 +494,17 @@ mod tests {
         let mut atari = atari_with_rom("sprites.bin");
         assert_produces_frame(&mut atari, "sprites_1.png", "sprites_1");
         assert_produces_frame(&mut atari, "sprites_2.png", "sprites_2");
+    }
+
+    #[test]
+    fn next_instruction_detection() {
+        // Make sure that we only report it once per machine cycle.
+        let mut atari = atari_with_rom("horizontal_stripes.bin");
+        while !atari.at_instruction_start() {
+            atari.tick().unwrap();
+        }
+        atari.tick().unwrap();
+        assert!(!atari.at_instruction_start());
     }
 
     #[bench]

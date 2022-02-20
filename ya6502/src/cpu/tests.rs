@@ -1537,6 +1537,40 @@ fn irq_masking() {
     assert_eq!(cpu.memory.bytes[5], 0);
 }
 
+#[test]
+fn reports_instruction_start() {
+    let mut cpu = cpu_with_code! {
+            lda #1         // 0xF000
+            nop            // 0xF002
+            sta abs 0xABCD // 0xF003
+            nop            // 0xF006
+    };
+    assert!(cpu.at_instruction_start());
+    assert_eq!(cpu.reg_pc(), 0xF000);
+
+    cpu.tick().unwrap();
+    assert!(!cpu.at_instruction_start());
+    cpu.tick().unwrap();
+    assert!(cpu.at_instruction_start());
+    assert_eq!(cpu.reg_pc(), 0xF002);
+
+    cpu.tick().unwrap();
+    assert!(!cpu.at_instruction_start());
+    cpu.tick().unwrap();
+    assert!(cpu.at_instruction_start());
+    assert_eq!(cpu.reg_pc(), 0xF003);
+
+    cpu.tick().unwrap();
+    assert!(!cpu.at_instruction_start());
+    cpu.tick().unwrap();
+    assert!(!cpu.at_instruction_start());
+    cpu.tick().unwrap();
+    assert!(!cpu.at_instruction_start());
+    cpu.tick().unwrap();
+    assert!(cpu.at_instruction_start());
+    assert_eq!(cpu.reg_pc(), 0xF006);
+}
+
 #[bench]
 fn benchmark(b: &mut Bencher) {
     let mut cpu = cpu_with_code! {

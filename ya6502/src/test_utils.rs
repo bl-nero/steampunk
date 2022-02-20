@@ -4,7 +4,7 @@ use crate::memory::Memory;
 use crate::memory::Ram;
 use std::fmt::Debug;
 
-/// Resets the CPU and waits until the reset procedure is finished.
+/// Resets the CPU and waits until the reset sequence is finished.
 pub fn reset<M: Memory + Debug>(cpu: &mut Cpu<M>) {
     cpu.reset();
     cpu.ticks(7).unwrap();
@@ -22,11 +22,13 @@ pub fn cpu_with_program(program: &[u8]) -> Cpu<Ram> {
     return cpu;
 }
 
-/// Returns a CPU that will execute given assembly code.
+/// Returns a CPU that will execute given assembly code. Unfortunately, since I
+/// don't know how to correctly reexport the `assemble6502` macro, the crate
+/// that uses this macro will have to import `assemble6502` explicitly.
 #[macro_export]
 macro_rules! cpu_with_code {
     ($($tokens:tt)*) => {
-        cpu_with_program(&assemble6502!({
+        $crate::test_utils::cpu_with_program(&assemble6502!({
             start: 0xF000,
             code: {$($tokens)*}
         }))

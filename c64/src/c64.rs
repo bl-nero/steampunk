@@ -37,7 +37,7 @@ impl Machine for C64 {
 
     fn tick(&mut self) -> Result<FrameStatus, Box<dyn Error>> {
         let vic_result = self.cpu.mut_memory().mut_vic().tick()?;
-        if self.cpu_clock_divider == 0 {
+        if self.at_cpu_cycle() {
             self.cpu.tick()?;
             self.cia1_irq = self.cpu.mut_memory().mut_cia1().tick();
             self.cia2_irq = self.cpu.mut_memory().mut_cia2().tick();
@@ -72,6 +72,10 @@ impl MachineInspector for C64 {
             fn flags(&self) -> u8;
         }
     }
+
+    fn at_instruction_start(&self) -> bool {
+        self.at_cpu_cycle() && self.cpu.at_instruction_start()
+    }
 }
 
 impl C64 {
@@ -104,6 +108,10 @@ impl C64 {
             cia1_irq: false,
             cia2_irq: false,
         })
+    }
+
+    fn at_cpu_cycle(&self) -> bool {
+        self.cpu_clock_divider == 0
     }
 
     pub fn set_cartridge(&mut self, cartridge: Option<Cartridge>) {
@@ -154,13 +162,18 @@ mod tests {
         std::fs::read(Path::new(env!("OUT_DIR")).join("test_roms").join(name)).unwrap()
     }
 
-    pub fn c64_with_cartridge(file_name: &str) -> C64 {
+    pub fn c64_with_cartridge_uninitialized(file_name: &str) -> C64 {
         let mut c64 = C64::new().unwrap();
         c64.set_cartridge(Some(Cartridge {
             mode: CartridgeMode::Ultimax,
             rom: Rom::new(&read_test_rom(file_name)).unwrap(),
         }));
         c64.reset();
+        return c64;
+    }
+
+    pub fn c64_with_cartridge(file_name: &str) -> C64 {
+        let mut c64 = c64_with_cartridge_uninitialized(file_name);
         next_frame(&mut c64).unwrap(); // Skip the first partial frame.
         return c64;
     }
@@ -190,5 +203,16 @@ mod tests {
         next_frame(&mut c64).unwrap();
         next_frame(&mut c64).unwrap();
         assert_produces_frame(&mut c64, "chip_timing.png", "chip_timing");
+    }
+
+    #[test]
+    fn next_instruction_detection() {
+        // Make sure that we only report it once per machine cycle.
+        let mut c64 = c64_with_cartridge_uninitialized("hello_world.bin");
+        while !c64.at_instruction_start() {
+            c64.tick().unwrap();
+        }
+        c64.tick().unwrap();
+        assert!(!c64.at_instruction_start());
     }
 }

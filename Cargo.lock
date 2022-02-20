@@ -320,6 +320,7 @@ dependencies = [
  "piston2d-graphics",
  "piston_window",
  "regex",
+ "rustasm6502",
  "serde",
  "serde_json",
  "thiserror",

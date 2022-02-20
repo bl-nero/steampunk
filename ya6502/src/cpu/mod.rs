@@ -10,7 +10,7 @@ use std::error;
 use std::fmt;
 use std::fmt::Debug;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum SequenceState {
     Reset(u32),
     Ready,
@@ -1590,6 +1590,7 @@ pub trait MachineInspector {
     fn reg_y(&self) -> u8;
     fn reg_sp(&self) -> u8;
     fn flags(&self) -> u8;
+    fn at_instruction_start(&self) -> bool;
 }
 
 impl<M: Memory> MachineInspector for Cpu<M> {
@@ -1615,5 +1616,9 @@ impl<M: Memory> MachineInspector for Cpu<M> {
 
     fn flags(&self) -> u8 {
         self.flags
+    }
+
+    fn at_instruction_start(&self) -> bool {
+        self.sequence_state == SequenceState::Ready
     }
 }
