@@ -177,7 +177,7 @@ impl<A: DebugAdapter> Debugger<A> {
                     name: "".to_string(),
                     line: 0,
                     column: 0,
-                    instruction_pointer_reference: format!("{:04X}", inspector.reg_pc()),
+                    instruction_pointer_reference: format!("0x{:04X}", inspector.reg_pc()),
                 }],
                 total_frames: 1,
             }),
@@ -221,7 +221,8 @@ impl<A: DebugAdapter> Debugger<A> {
 
     fn disassemble(&self, args: DisassembleArguments) -> RequestOutcome<A> {
         // TODO: So far, we just return dummy data.
-        let mem_reference = i64::from_str_radix(&args.memory_reference, 16).unwrap();
+        let mem_reference =
+            i64::from_str_radix(&args.memory_reference.strip_prefix("0x").unwrap(), 16).unwrap();
         let start_address = mem_reference + args.offset.unwrap() + args.instruction_offset.unwrap();
         let instructions: Vec<_> = (0..args.instruction_count)
             .map(|i| DisassembledInstruction {
@@ -441,7 +442,7 @@ mod tests {
                     name: "".to_string(),
                     line: 0,
                     column: 0,
-                    instruction_pointer_reference: "1234".to_string(),
+                    instruction_pointer_reference: "0x1234".to_string(),
                 }],
                 total_frames: 1,
             }),
@@ -460,26 +461,12 @@ mod tests {
                     name: "".to_string(),
                     line: 0,
                     column: 0,
-                    instruction_pointer_reference: "0A04".to_string(),
+                    instruction_pointer_reference: "0x0A04".to_string(),
                 }],
                 total_frames: 1,
             }),
         );
         assert_eq!(adapter.pop_outgoing(), None);
-    }
-
-    #[test]
-    fn disconnects() {
-        let inspector = MockMachineInspector::new();
-        let adapter = FakeDebugAdapter::default();
-        adapter.push_request(Request::Disconnect(None));
-        adapter.expect_disconnect();
-        let mut debugger = Debugger::new(adapter.clone());
-        debugger.process_meessages(&inspector);
-
-        assert_responded_with(&adapter, Response::Disconnect);
-        assert!(adapter.disconnected());
-        assert!(!debugger.paused());
     }
 
     #[test]
@@ -550,6 +537,68 @@ mod tests {
     }
 
     #[test]
+    fn disassembly() {
+        let mut inspector = MockMachineInspector::new();
+        inspector.expect_reg_pc().once().return_const(0x1000u16);
+        let adapter = FakeDebugAdapter::default();
+        // We push the stack trace request first, since the disassembly request
+        // is based on its response.
+        adapter.push_request(Request::StackTrace {});
+        let mut debugger = Debugger::new(adapter.clone());
+
+        debugger.process_meessages(&inspector);
+        let address = match adapter.pop_outgoing().unwrap().message {
+            Message::Response(ResponseEnvelope {
+                response: Response::StackTrace(StackTraceResponse { stack_frames, .. }),
+                ..
+            }) => stack_frames[0].instruction_pointer_reference.clone(),
+            other => panic!("Unexpected response: {:?}", other),
+        };
+
+        adapter.push_request(Request::Disassemble(DisassembleArguments {
+            memory_reference: address,
+            offset: Some(-2),
+            instruction_offset: Some(-1),
+            instruction_count: 5,
+        }));
+        debugger.process_meessages(&inspector);
+
+        assert_responded_with(
+            &adapter,
+            Response::Disassemble(DisassembleResponse {
+                instructions: vec![
+                    DisassembledInstruction {
+                        address: "0x0FFD".to_string(),
+                        instruction_bytes: "EA".to_string(),
+                        instruction: "NOP".to_string(),
+                    },
+                    DisassembledInstruction {
+                        address: "0x0FFE".to_string(),
+                        instruction_bytes: "EA".to_string(),
+                        instruction: "NOP".to_string(),
+                    },
+                    DisassembledInstruction {
+                        address: "0x0FFF".to_string(),
+                        instruction_bytes: "EA".to_string(),
+                        instruction: "NOP".to_string(),
+                    },
+                    DisassembledInstruction {
+                        address: "0x1000".to_string(),
+                        instruction_bytes: "EA".to_string(),
+                        instruction: "NOP".to_string(),
+                    },
+                    DisassembledInstruction {
+                        address: "0x1001".to_string(),
+                        instruction_bytes: "EA".to_string(),
+                        instruction: "NOP".to_string(),
+                    },
+                ],
+            }),
+        );
+        assert_eq!(adapter.pop_outgoing(), None);
+    }
+
+    #[test]
     fn continue_and_pause() {
         let inspector = MockMachineInspector::new();
         let adapter = FakeDebugAdapter::default();
@@ -608,5 +657,19 @@ mod tests {
                 all_threads_stopped: true,
             }),
         )
+    }
+
+    #[test]
+    fn disconnects() {
+        let inspector = MockMachineInspector::new();
+        let adapter = FakeDebugAdapter::default();
+        adapter.push_request(Request::Disconnect(None));
+        adapter.expect_disconnect();
+        let mut debugger = Debugger::new(adapter.clone());
+        debugger.process_meessages(&inspector);
+
+        assert_responded_with(&adapter, Response::Disconnect);
+        assert!(adapter.disconnected());
+        assert!(!debugger.paused());
     }
 }

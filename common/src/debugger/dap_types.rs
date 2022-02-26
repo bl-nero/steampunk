@@ -59,9 +59,17 @@ pub struct InitializeArguments {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DisassembleArguments {
+    /// Base address of the disassembled memory region. Note (you won't read
+    /// this in the protocol spec!): this address needs to observe the same
+    /// conventions as [`DisassembledInstruction::address`].
     pub memory_reference: String,
+
+    /// Offset (in bytes), relative to the [`memory_reference`].
     pub offset: Option<i64>,
+
+    /// Offset (in number of instructions), relative to [`memory_reference`]` + `[`offset`].
     pub instruction_offset: Option<i64>,
+
     pub instruction_count: i64,
 }
 
@@ -150,6 +158,8 @@ pub struct DisassembleResponse {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DisassembledInstruction {
+    /// The instruction address; if it's preceded by "0x", it's treated as
+    /// hexadecimal.
     pub address: String,
     pub instruction_bytes: String,
     pub instruction: String,
@@ -278,7 +288,7 @@ mod tests {
         disassemble_request: MessageEnvelope {
             seq: 9,
             message: Message::Request(Request::Disassemble(DisassembleArguments {
-                memory_reference: "BEEF".to_string(),
+                memory_reference: "0xBEEF".to_string(),
                 offset: Some(0),
                 instruction_offset: Some(-200),
                 instruction_count: 400,
@@ -363,7 +373,7 @@ mod tests {
                         name: "foo".to_string(),
                         line: 0,
                         column: 0,
-                        instruction_pointer_reference: "1234".to_string(),
+                        instruction_pointer_reference: "0x1234".to_string(),
                     }],
                     total_frames: 1,
                 }),

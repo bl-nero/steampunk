@@ -1,7 +1,7 @@
 {
     "command": "disassemble",
     "arguments": {
-        "memoryReference": "BEEF",
+        "memoryReference": "0xBEEF",
         "offset": 0,
         "instructionOffset": -200,
         "instructionCount": 400,
