@@ -168,7 +168,7 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
 
     /// Reads from bitmap memory a byte that corrensponds to the _next_
     /// character cell.
-    fn read_bitmap_memory(&self) -> Result<u8, ReadError> {
+    fn read_bitmap_memory(&mut self) -> Result<u8, ReadError> {
         let char_column = (self.x_counter + 1 - DISPLAY_WINDOW_START) / 8;
         let char_row = (self.raster_counter - DISPLAY_WINDOW_FIRST_LINE) / 8;
         let char_offset = (self.raster_counter - DISPLAY_WINDOW_FIRST_LINE) % 8;
@@ -182,11 +182,11 @@ impl<GM: Read, CM: Read> Vic<GM, CM> {
 
     /// Reads from color memory a color that corrensponds to the _current_
     /// character cell.
-    fn read_color_memory(&self) -> Result<Color, ReadError> {
+    fn read_color_memory(&mut self) -> Result<Color, ReadError> {
         let char_column = (self.x_counter - DISPLAY_WINDOW_START) / 8;
         let char_row = (self.raster_counter - DISPLAY_WINDOW_FIRST_LINE) / 8;
         self.color_memory
-            .borrow()
+            .borrow_mut()
             .read(0xD800 + (char_row * 40 + char_column) as u16)
     }
 }
@@ -211,7 +211,7 @@ pub struct VideoOutput {
 pub type TickResult = Result<VicOutput, ReadError>;
 
 impl<GM: Read, CM: Read> Read for Vic<GM, CM> {
-    fn read(&self, address: u16) -> ReadResult {
+    fn inspect(&self, address: u16) -> ReadResult {
         match address {
             registers::CONTROL_1 => Ok(self.reg_control_1 & !flags::CONTROL_1_RASTER_8
                 | (self.raster_counter >> 1) as u8 & flags::CONTROL_1_RASTER_8),

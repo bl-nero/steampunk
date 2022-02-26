@@ -1,7 +1,6 @@
 use crate::port::Port;
 use crate::timer::Timer;
 use enum_map::{Enum, EnumMap};
-use std::cell::Cell;
 use ya6502::memory::Memory;
 use ya6502::memory::Read;
 use ya6502::memory::ReadError;
@@ -12,7 +11,7 @@ use ya6502::memory::WriteError;
 #[derive(Debug, Default)]
 pub struct Cia {
     reg_interrupt_control: u8,
-    reg_interrupt_status: Cell<u8>,
+    reg_interrupt_status: u8,
 
     ports: EnumMap<PortName, Port>,
     timer_a: Timer,
@@ -37,7 +36,7 @@ impl Cia {
         if self.timer_b.tick() {
             self.process_timer_underflow(flags::ICR_TIMER_B);
         }
-        return self.reg_interrupt_status.get() & flags::ICR_TRIGGERED != 0;
+        return self.reg_interrupt_status & flags::ICR_TRIGGERED != 0;
     }
 
     fn process_timer_underflow(&mut self, icr_flag: u8) {
@@ -46,8 +45,7 @@ impl Cia {
         } else {
             icr_flag
         };
-        self.reg_interrupt_status
-            .set(self.reg_interrupt_status.get() | bits_to_set);
+        self.reg_interrupt_status |= bits_to_set;
     }
 
     /// Writes a given value to the pins of a given port.
@@ -65,7 +63,7 @@ impl Cia {
 }
 
 impl Read for Cia {
-    fn read(&self, address: u16) -> Result<u8, ReadError> {
+    fn inspect(&self, address: u16) -> Result<u8, ReadError> {
         match address & 0b1111 {
             registers::PRA => Ok(self.ports[PortName::A].read()),
             registers::PRB => Ok(self.ports[PortName::B].read()),
@@ -75,10 +73,17 @@ impl Read for Cia {
             registers::TA_HI => Ok(((self.timer_a.counter() & 0xFF00) >> 8) as u8),
             registers::TB_LO => Ok((self.timer_b.counter() & 0xFF) as u8),
             registers::TB_HI => Ok(((self.timer_b.counter() & 0xFF00) >> 8) as u8),
-            registers::ICR => Ok(self.reg_interrupt_status.take()),
+            registers::ICR => Ok(self.reg_interrupt_status),
             registers::CRA => Ok(self.timer_a.control()),
             registers::CRB => Ok(self.timer_b.control()),
             _ => Err(ReadError { address }),
+        }
+    }
+
+    fn read(&mut self, address: u16) -> Result<u8, ReadError> {
+        match address & 0b1111 {
+            registers::ICR => Ok(std::mem::take(&mut self.reg_interrupt_status)),
+            _ => self.inspect(address),
         }
     }
 }

@@ -22,7 +22,17 @@ enum MemoryArea {
 }
 
 impl<T: Memory, RA: Memory, RI: Memory, RO: Read> Read for AddressSpace<T, RA, RI, RO> {
-    fn read(&self, address: u16) -> ReadResult {
+    fn inspect(&self, address: u16) -> ReadResult {
+        match map_address(address) {
+            Some(MemoryArea::Tia) => self.tia.inspect(address),
+            Some(MemoryArea::Ram) => self.ram.inspect(address),
+            Some(MemoryArea::Rom) => self.rom.inspect(address),
+            Some(MemoryArea::Riot) => self.riot.inspect(address),
+            None => Err(ReadError { address }),
+        }
+    }
+
+    fn read(&mut self, address: u16) -> ReadResult {
         match map_address(address) {
             Some(MemoryArea::Tia) => self.tia.read(address),
             Some(MemoryArea::Ram) => self.ram.read(address),

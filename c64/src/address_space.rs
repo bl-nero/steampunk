@@ -77,15 +77,49 @@ impl<VIC: Memory, SID: Memory, CIA: Memory> AddressSpace<VIC, SID, CIA> {
 }
 
 impl<VIC: Memory, SID: Memory, CIA: Memory> Read for AddressSpace<VIC, SID, CIA> {
-    fn read(&self, address: u16) -> ReadResult {
+    // TODO: Reuse the address matching code between inspect() and read()!
+    fn inspect(&self, address: u16) -> ReadResult {
         match address {
             0x0000 => Ok(self.cpu_port.direction),
             0x0001 => Ok(self.cpu_port.read()),
             0x8000..=0x9FFF => match &self.cartridge {
-                Some(Cartridge { mode: _, rom }) => rom.read(address),
-                _ => self.ram.borrow().read(address),
+                Some(Cartridge { mode: _, rom }) => rom.inspect(address),
+                _ => self.ram.borrow().inspect(address),
             },
             0xA000..=0xBFFF => match &self.cartridge {
+                Some(Cartridge {
+                    mode: CartridgeMode::Standard16k,
+                    rom,
+                }) => rom.inspect(address),
+                _ => self.basic_rom.inspect(address),
+            },
+            0xD000..=0xD3FF => self.vic.inspect(address),
+            0xD400..=0xD7FF => self.sid.inspect(address),
+            0xD800..=0xDBFF => self.color_ram.borrow().inspect(address),
+            0xDC00..=0xDCFF => self.cia1.inspect(address),
+            0xDD00..=0xDDFF => self.cia2.inspect(address),
+            0xDE00..=0xDFFF => Err(ReadError { address }),
+            0xE000..=0xFFFF => match &self.cartridge {
+                Some(Cartridge {
+                    mode: CartridgeMode::Ultimax,
+                    rom,
+                }) => rom.inspect(address),
+                _ => self.kernal_rom.inspect(address),
+            },
+            _ => self.ram.borrow().inspect(address),
+        }
+    }
+
+    // TODO: Reuse the address matching code between inspect() and read()!
+    fn read(&mut self, address: u16) -> ReadResult {
+        match address {
+            0x0000 => Ok(self.cpu_port.direction),
+            0x0001 => Ok(self.cpu_port.read()),
+            0x8000..=0x9FFF => match &mut self.cartridge {
+                Some(Cartridge { mode: _, rom }) => rom.read(address),
+                _ => self.ram.borrow_mut().read(address),
+            },
+            0xA000..=0xBFFF => match &mut self.cartridge {
                 Some(Cartridge {
                     mode: CartridgeMode::Standard16k,
                     rom,
@@ -94,18 +128,18 @@ impl<VIC: Memory, SID: Memory, CIA: Memory> Read for AddressSpace<VIC, SID, CIA>
             },
             0xD000..=0xD3FF => self.vic.read(address),
             0xD400..=0xD7FF => self.sid.read(address),
-            0xD800..=0xDBFF => self.color_ram.borrow().read(address),
+            0xD800..=0xDBFF => self.color_ram.borrow_mut().read(address),
             0xDC00..=0xDCFF => self.cia1.read(address),
             0xDD00..=0xDDFF => self.cia2.read(address),
             0xDE00..=0xDFFF => Err(ReadError { address }),
-            0xE000..=0xFFFF => match &self.cartridge {
+            0xE000..=0xFFFF => match &mut self.cartridge {
                 Some(Cartridge {
                     mode: CartridgeMode::Ultimax,
                     rom,
                 }) => rom.read(address),
                 _ => self.kernal_rom.read(address),
             },
-            _ => self.ram.borrow().read(address),
+            _ => self.ram.borrow_mut().read(address),
         }
     }
 }
@@ -176,11 +210,21 @@ impl<RAM: Read, CHR: Read> VicAddressSpace<RAM, CHR> {
 }
 
 impl<RAM: Read, CHR: Read> Read for VicAddressSpace<RAM, CHR> {
-    fn read(&self, address: u16) -> ReadResult {
+    // TODO: Reuse the address matching code between inspect() and read()!
+    fn inspect(&self, address: u16) -> ReadResult {
         let address = address & 0x3FFF;
         match address {
-            0x1000..=0x1FFF => self.char_rom.borrow().read(address),
-            _ => self.ram.borrow().read(address),
+            0x1000..=0x1FFF => self.char_rom.borrow().inspect(address),
+            _ => self.ram.borrow().inspect(address),
+        }
+    }
+
+    // TODO: Reuse the address matching code between inspect() and read()!
+    fn read(&mut self, address: u16) -> ReadResult {
+        let address = address & 0x3FFF;
+        match address {
+            0x1000..=0x1FFF => self.char_rom.borrow_mut().read(address),
+            _ => self.ram.borrow_mut().read(address),
         }
     }
 }
@@ -232,9 +276,9 @@ mod tests {
         address_space.write(0xFFFF, 45).unwrap(); // RAM under KERNEL ROM
 
         // RAM
-        assert_eq!(address_space.ram.borrow().read(0x0002).unwrap(), 33);
+        assert_eq!(address_space.ram.borrow_mut().read(0x0002).unwrap(), 33);
         assert_eq!(address_space.read(0x0002).unwrap(), 33);
-        assert_eq!(address_space.ram.borrow().read(0x9FFF).unwrap(), 65);
+        assert_eq!(address_space.ram.borrow_mut().read(0x9FFF).unwrap(), 65);
         assert_eq!(address_space.read(0x9FFF).unwrap(), 65);
 
         // BASIC ROM
@@ -242,13 +286,13 @@ mod tests {
         assert_eq!(address_space.read(0xBFFF).unwrap(), 0xBA);
 
         // RAM under BASIC ROM
-        assert_eq!(address_space.ram.borrow().read(0xA000).unwrap(), 82);
-        assert_eq!(address_space.ram.borrow().read(0xBFFF).unwrap(), 67);
+        assert_eq!(address_space.ram.borrow_mut().read(0xA000).unwrap(), 82);
+        assert_eq!(address_space.ram.borrow_mut().read(0xBFFF).unwrap(), 67);
 
         // RAM
-        assert_eq!(address_space.ram.borrow().read(0xC000).unwrap(), 143);
+        assert_eq!(address_space.ram.borrow_mut().read(0xC000).unwrap(), 143);
         assert_eq!(address_space.read(0xC000).unwrap(), 143);
-        assert_eq!(address_space.ram.borrow().read(0xCFFF).unwrap(), 213);
+        assert_eq!(address_space.ram.borrow_mut().read(0xCFFF).unwrap(), 213);
         assert_eq!(address_space.read(0xCFFF).unwrap(), 213);
 
         // VIC
@@ -264,9 +308,15 @@ mod tests {
         assert_eq!(address_space.read(0xD7FF).unwrap(), 132);
 
         // Color RAM
-        assert_eq!(address_space.color_ram.borrow().read(0xD800).unwrap(), 5);
+        assert_eq!(
+            address_space.color_ram.borrow_mut().read(0xD800).unwrap(),
+            5
+        );
         assert_eq!(address_space.read(0xD800).unwrap(), 5);
-        assert_eq!(address_space.color_ram.borrow().read(0xDBFF).unwrap(), 15);
+        assert_eq!(
+            address_space.color_ram.borrow_mut().read(0xDBFF).unwrap(),
+            15
+        );
         assert_eq!(address_space.read(0xDBFF).unwrap(), 15);
 
         // CIA1
@@ -286,8 +336,8 @@ mod tests {
         assert_eq!(address_space.read(0xFFFF).unwrap(), 0xA1);
 
         // RAM under KERNEL ROM
-        assert_eq!(address_space.ram.borrow().read(0xE000).unwrap(), 87);
-        assert_eq!(address_space.ram.borrow().read(0xFFFF).unwrap(), 45);
+        assert_eq!(address_space.ram.borrow_mut().read(0xE000).unwrap(), 87);
+        assert_eq!(address_space.ram.borrow_mut().read(0xFFFF).unwrap(), 45);
     }
 
     #[test]
@@ -353,7 +403,7 @@ mod tests {
 
     #[test]
     fn vic_reads() {
-        let address_space = new_vic_address_space();
+        let mut address_space = new_vic_address_space();
         address_space.ram.borrow_mut().write(0x0000, 165).unwrap(); // RAM
         address_space.ram.borrow_mut().write(0x0FFF, 212).unwrap(); // RAM
         address_space.ram.borrow_mut().write(0x2000, 96).unwrap(); // RAM
@@ -374,7 +424,7 @@ mod tests {
 
     #[test]
     fn vic_mirroring() {
-        let address_space = new_vic_address_space();
+        let mut address_space = new_vic_address_space();
         address_space.ram.borrow_mut().write(0x2345, 12).unwrap();
         assert_eq!(address_space.read(0x6345).unwrap(), 12);
         assert_eq!(address_space.read(0xA345).unwrap(), 12);

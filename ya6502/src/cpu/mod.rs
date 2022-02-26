@@ -950,7 +950,8 @@ impl<M: Memory + Debug> Cpu<M> {
         match self.sequence_state {
             SequenceState::Opcode(_, 1) => self.adl = self.consume_program_byte()?,
             _ => {
-                load(self, self.memory.read(self.adl as u16)?);
+                let value = self.memory.read(self.adl as u16)?;
+                load(self, value);
                 self.sequence_state = SequenceState::Ready;
             }
         };
@@ -966,7 +967,8 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(_, 1) => self.bal = self.consume_program_byte()?,
             SequenceState::Opcode(_, 2) => self.phantom_read(self.bal as u16),
             _ => {
-                load(self, self.memory.read(self.bal.wrapping_add(index) as u16)?);
+                let value = self.memory.read(self.bal.wrapping_add(index) as u16)?;
+                load(self, value);
                 self.sequence_state = SequenceState::Ready;
             }
         };
@@ -978,7 +980,8 @@ impl<M: Memory + Debug> Cpu<M> {
             SequenceState::Opcode(_, 1) => self.adl = self.consume_program_byte()?,
             SequenceState::Opcode(_, 2) => self.adh = self.consume_program_byte()?,
             _ => {
-                load(self, self.memory.read(self.address())?);
+                let value = self.memory.read(self.address())?;
+                load(self, value);
                 self.sequence_state = SequenceState::Ready;
             }
         };
@@ -999,16 +1002,16 @@ impl<M: Memory + Debug> Cpu<M> {
                 if carry {
                     self.phantom_read(address);
                 } else {
-                    load(self, self.memory.read(address)?);
+                    let value = self.memory.read(address)?;
+                    load(self, value);
                     self.sequence_state = SequenceState::Ready;
                 }
             }
             _ => {
-                load(
-                    self,
-                    self.memory
-                        .read(self.base_address().wrapping_add(index as u16))?,
-                );
+                let value = self
+                    .memory
+                    .read(self.base_address().wrapping_add(index as u16))?;
+                load(self, value);
                 self.sequence_state = SequenceState::Ready;
             }
         };
@@ -1031,7 +1034,8 @@ impl<M: Memory + Debug> Cpu<M> {
                     .read(self.bal.wrapping_add(self.reg_x).wrapping_add(1) as u16)?;
             }
             _ => {
-                load(self, self.memory.read(self.address())?);
+                let value = self.memory.read(self.address())?;
+                load(self, value);
                 self.sequence_state = SequenceState::Ready;
             }
         }
@@ -1054,16 +1058,16 @@ impl<M: Memory + Debug> Cpu<M> {
                 if carry {
                     self.phantom_read(address);
                 } else {
-                    load(self, self.memory.read(address)?);
+                    let value = self.memory.read(address)?;
+                    load(self, value);
                     self.sequence_state = SequenceState::Ready;
                 }
             }
             _ => {
-                load(
-                    self,
-                    self.memory
-                        .read(self.base_address().wrapping_add(self.reg_y as u16))?,
-                );
+                let value = self
+                    .memory
+                    .read(self.base_address().wrapping_add(self.reg_y as u16))?;
+                load(self, value);
                 self.sequence_state = SequenceState::Ready;
             }
         }
@@ -1314,7 +1318,8 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.reg_sp = self.reg_sp.wrapping_add(1);
             }
             _ => {
-                load(self, self.memory.read(self.stack_pointer())?);
+                let value = self.memory.read(self.stack_pointer())?;
+                load(self, value);
                 self.sequence_state = SequenceState::Ready;
             }
         };
@@ -1392,7 +1397,7 @@ impl<M: Memory + Debug> Cpu<M> {
     /// but may matter to some devices that react to reading its pins. Because
     /// we don't use the result value, we don't even care if it was a read
     /// error.
-    fn phantom_read(&self, address: u16) {
+    fn phantom_read(&mut self, address: u16) {
         let _ = self.memory.read(address);
     }
 

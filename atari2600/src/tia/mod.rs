@@ -378,7 +378,7 @@ impl Tia {
 }
 
 impl Read for Tia {
-    fn read(&self, address: u16) -> ReadResult {
+    fn inspect(&self, address: u16) -> ReadResult {
         match address & 0b0000_1111 {
             registers::CXM0P => Ok(self.reg_cxm0p),
             registers::CXM1P => Ok(self.reg_cxm1p),

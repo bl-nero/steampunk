@@ -23,7 +23,7 @@ impl Write for Sid {
 }
 
 impl Read for Sid {
-    fn read(&self, address: u16) -> ReadResult {
+    fn inspect(&self, address: u16) -> ReadResult {
         Err(ReadError { address })
     }
 }

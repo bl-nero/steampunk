@@ -899,48 +899,48 @@ fn sprite_collisions() {
     tia.write(registers::HMOVE, 0).unwrap();
     wait_ticks(&mut tia, TOTAL_WIDTH);
     tia.write(registers::VBLANK, 0).unwrap();
-    assert_collision_latches(&tia, [0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00]);
+    assert_collision_latches(&mut tia, [0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00]);
 
     // M0 goes right, colliding with P0.
     tia.write(registers::HMCLR, 0).unwrap();
     tia.write(registers::HMM0, (-1i8 << 4) as u8).unwrap();
     tia.write(registers::HMOVE, 0).unwrap();
     wait_ticks(&mut tia, TOTAL_WIDTH);
-    assert_collision_latches(&tia, [0b01, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00]);
+    assert_collision_latches(&mut tia, [0b01, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00]);
 
     // M0 and P0 go right, colliding with M1.
     tia.write(registers::HMP0, (-1i8 << 4) as u8).unwrap();
     tia.write(registers::HMOVE, 0).unwrap();
     wait_ticks(&mut tia, TOTAL_WIDTH);
-    assert_collision_latches(&tia, [0b01, 0b10, 0b00, 0b00, 0b00, 0b00, 0b00, 0b01]);
+    assert_collision_latches(&mut tia, [0b01, 0b10, 0b00, 0b00, 0b00, 0b00, 0b00, 0b01]);
 
     // M0+P0+M1+P1.
     tia.write(registers::HMM1, (-1i8 << 4) as u8).unwrap();
     tia.write(registers::HMOVE, 0).unwrap();
     wait_ticks(&mut tia, TOTAL_WIDTH);
-    assert_collision_latches(&tia, [0b11, 0b11, 0b00, 0b00, 0b00, 0b00, 0b00, 0b11]);
+    assert_collision_latches(&mut tia, [0b11, 0b11, 0b00, 0b00, 0b00, 0b00, 0b00, 0b11]);
 
     // M0+P0+M1+P1+BL.
     tia.write(registers::HMP1, (-1i8 << 4) as u8).unwrap();
     tia.write(registers::HMOVE, 0).unwrap();
     wait_ticks(&mut tia, TOTAL_WIDTH);
-    assert_collision_latches(&tia, [0b11, 0b11, 0b01, 0b01, 0b01, 0b01, 0b00, 0b11]);
+    assert_collision_latches(&mut tia, [0b11, 0b11, 0b01, 0b01, 0b01, 0b01, 0b00, 0b11]);
 
     // M0+P0+M1+P1+BL+PF.
     tia.write(registers::HMBL, (-1i8 << 4) as u8).unwrap();
     tia.write(registers::HMOVE, 0).unwrap();
     wait_ticks(&mut tia, TOTAL_WIDTH);
-    assert_collision_latches(&tia, [0b11, 0b11, 0b11, 0b11, 0b11, 0b11, 0b10, 0b11]);
+    assert_collision_latches(&mut tia, [0b11, 0b11, 0b11, 0b11, 0b11, 0b11, 0b10, 0b11]);
 
     tia.write(registers::CXCLR, 0).unwrap();
-    assert_collision_latches(&tia, [0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00]);
+    assert_collision_latches(&mut tia, [0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00, 0b00]);
 }
 
 /// Performs an assertion on the collision registers (0x00-0x07), comparing
 /// them to the expected values. For better call site readability, the
 /// values are shifted 6 bits left, so the collision bit values are given in
 /// lowest 2 bits, and not the highest ones.
-fn assert_collision_latches(tia: &Tia, expected: [u8; 8]) {
+fn assert_collision_latches(tia: &mut Tia, expected: [u8; 8]) {
     let expected = expected.iter().copied().map(|x| x << 6);
     let actual = (0..8).map(|i| tia.read(i).unwrap());
     itertools::assert_equal(actual, expected);

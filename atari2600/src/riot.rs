@@ -1,5 +1,4 @@
 use rand::Rng;
-use std::cell::Cell;
 use ya6502::memory::Read;
 use ya6502::memory::Write;
 use ya6502::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
@@ -46,7 +45,7 @@ pub struct Riot {
     /// reading, which is normally an operation that can be performed on an
     /// immutable object. Perhaps we should refacor the whole concept of reading
     /// instead?
-    reg_timint: Cell<u8>,
+    reg_timint: u8,
 
     pa7_edge_detection_mode: EdgeDetectionMode,
 }
@@ -76,17 +75,17 @@ impl Riot {
             reg_swchb: 0xFF,
             reg_swbcnt: 0x00,
             reg_intim: rng.gen(),
-            reg_timint: Cell::new(0),
+            reg_timint: 0,
 
             pa7_edge_detection_mode: EdgeDetectionMode::Negative,
         }
     }
 
     pub fn tick(&mut self) {
-        if self.timer_divider == 0 || self.reg_timint.get() & flags::TIMINT_TIMER != 0 {
+        if self.timer_divider == 0 || self.reg_timint & flags::TIMINT_TIMER != 0 {
             self.reg_intim = self.reg_intim.wrapping_sub(1);
             if self.reg_intim == 0xFF {
-                *self.reg_timint.get_mut() |= flags::TIMINT_TIMER;
+                self.reg_timint |= flags::TIMINT_TIMER;
             }
         }
         self.timer_divider = (self.timer_divider + 1) % self.interval_length;
@@ -96,7 +95,7 @@ impl Riot {
         self.reg_intim = timer_value;
         self.interval_length = interval_length;
         self.timer_divider = 0;
-        *self.reg_timint.get_mut() &= !flags::TIMINT_TIMER;
+        self.reg_timint &= !flags::TIMINT_TIMER;
     }
 
     pub fn set_port(&mut self, port: Port, value: u8) {
@@ -106,14 +105,12 @@ impl Riot {
                 match self.pa7_edge_detection_mode {
                     EdgeDetectionMode::Negative => {
                         if pa7_change < 0 {
-                            self.reg_timint
-                                .set(self.reg_timint.get() | flags::TIMINT_PA7);
+                            self.reg_timint |= flags::TIMINT_PA7;
                         }
                     }
                     EdgeDetectionMode::Positive => {
                         if pa7_change > 0 {
-                            self.reg_timint
-                                .set(self.reg_timint.get() | flags::TIMINT_PA7);
+                            self.reg_timint |= flags::TIMINT_PA7;
                         }
                     }
                 }
@@ -125,7 +122,7 @@ impl Riot {
 }
 
 impl Read for Riot {
-    fn read(&self, address: u16) -> ReadResult {
+    fn inspect(&self, address: u16) -> ReadResult {
         match canonical_read_address(address) {
             registers::SWCHA => {
                 Ok((self.reg_swacnt & self.reg_swcha & self.port_a)
@@ -136,15 +133,24 @@ impl Read for Riot {
                 Ok((self.reg_swbcnt & self.reg_swchb) | (!self.reg_swbcnt & self.port_b))
             }
             registers::SWBCNT => Ok(self.reg_swbcnt),
-            registers::INTIM => {
-                self.reg_timint
-                    .set(self.reg_timint.get() & !flags::TIMINT_TIMER);
-                return Ok(self.reg_intim);
-            }
-            registers::TIMINT => Ok(self
-                .reg_timint
-                .replace(self.reg_timint.get() & !flags::TIMINT_PA7)),
+            registers::INTIM => Ok(self.reg_intim),
+            registers::TIMINT => Ok(self.reg_timint),
             _ => Err(ReadError { address }),
+        }
+    }
+
+    fn read(&mut self, address: u16) -> ReadResult {
+        match canonical_read_address(address) {
+            registers::INTIM => {
+                self.reg_timint &= !flags::TIMINT_TIMER;
+                Ok(self.reg_intim)
+            }
+            registers::TIMINT => {
+                let timint = self.reg_timint;
+                self.reg_timint &= !flags::TIMINT_PA7;
+                Ok(timint)
+            }
+            _ => self.inspect(address),
         }
     }
 }

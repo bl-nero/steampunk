@@ -4,9 +4,23 @@ use std::result::Result;
 
 pub trait Read {
     /// Reads a byte from given address. Returns the byte or error if the
-    /// location is unsupported. In a release build, the errors should be
-    /// ignored and the method should always return a successful result.
-    fn read(&self, address: u16) -> ReadResult;
+    /// location is unsupported. (Note that the error feature is expected to
+    /// assist in gradual implementation, and shouldn't be considered a
+    /// "production feature").
+    ///
+    /// Note that while it may look like reading should be an immutable
+    /// operation, it is, indeed, not: depending on the chip being emulated,
+    /// even read operations can sometimes affect the internal state of the
+    /// chip. In a typical situation, however, [`read`] can just delegate to
+    /// [`inspect`].
+    fn read(&mut self, address: u16) -> ReadResult {
+        self.inspect(address)
+    }
+
+    /// Similar to [`read`], but guaranteed not to affect the internal chip
+    /// emulation state. Useful for debugging; all regular reads should be
+    /// performed using the [`read`] function.
+    fn inspect(&self, address: u16) -> ReadResult;
 }
 
 pub trait Write {
@@ -113,7 +127,7 @@ impl Ram {
 }
 
 impl Read for Ram {
-    fn read(&self, address: u16) -> ReadResult {
+    fn inspect(&self, address: u16) -> ReadResult {
         // this arrow means we give u16 they return u8
         Ok(self.bytes[(address & self.address_mask) as usize])
     }
@@ -165,7 +179,7 @@ impl Rom {
 }
 
 impl Read for Rom {
-    fn read(&self, address: u16) -> ReadResult {
+    fn inspect(&self, address: u16) -> ReadResult {
         Ok(self.bytes[(address & self.address_mask) as usize])
     }
 }
@@ -199,7 +213,7 @@ impl fmt::Display for MemorySizeError {
 pub fn dump_zero_page(memory: &impl Read, f: &mut fmt::Formatter) -> fmt::Result {
     let mut zero_page: [u8; 0x100] = [0; 0x100];
     for i in 0..0x100 {
-        zero_page[i] = memory.read(i as u16).unwrap_or(0);
+        zero_page[i] = memory.inspect(i as u16).unwrap_or(0);
     }
     writeln!(f, "Zero page:")?;
     hexdump(f, 0x0000, &zero_page)
@@ -282,7 +296,7 @@ mod tests {
     fn rom_mirroring() {
         let mut program = [0u8; 0x1000];
         program[5] = 1;
-        let rom = Rom::new(&program).unwrap();
+        let mut rom = Rom::new(&program).unwrap();
         assert_eq!(rom.read(0x1000).unwrap(), 0);
         assert_eq!(rom.read(0x1005).unwrap(), 1);
         assert_eq!(rom.read(0x3005).unwrap(), 1);
@@ -290,14 +304,14 @@ mod tests {
 
         let mut program = [0u8; 0x0800];
         program[5] = 1;
-        let rom = Rom::new(&program).unwrap();
+        let mut rom = Rom::new(&program).unwrap();
         assert_eq!(rom.read(0x1000).unwrap(), 0);
         assert_eq!(rom.read(0x1005).unwrap(), 1);
         assert_eq!(rom.read(0x3005).unwrap(), 1);
         assert_eq!(rom.read(0xF005).unwrap(), 1);
         assert_eq!(rom.read(0xF805).unwrap(), 1);
 
-        let rom = Rom::new(&[1, 2, 3, 4]).unwrap();
+        let mut rom = Rom::new(&[1, 2, 3, 4]).unwrap();
         assert_eq!(rom.read(0x01234).unwrap(), 1);
         assert_eq!(rom.read(0x01235).unwrap(), 2);
         assert_eq!(rom.read(0x01236).unwrap(), 3);
