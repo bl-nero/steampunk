@@ -10,7 +10,8 @@
                 "id": 1,
                 "name": "foo",
                 "line": 0,
-                "column": 0
+                "column": 0,
+                "instructionPointerReference": "1234"
             }
         ],
         "totalFrames": 1

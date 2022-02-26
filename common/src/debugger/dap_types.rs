@@ -39,6 +39,7 @@ pub enum Request {
     StackTrace {},
     Scopes {},
     Variables {},
+    Disassemble(DisassembleArguments),
 
     Continue {},
     Pause {},
@@ -56,6 +57,15 @@ pub struct InitializeArguments {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DisassembleArguments {
+    pub memory_reference: String,
+    pub offset: Option<i64>,
+    pub instruction_offset: Option<i64>,
+    pub instruction_count: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct ResponseEnvelope {
     pub request_seq: i64,
     pub success: bool,
@@ -67,13 +77,14 @@ pub struct ResponseEnvelope {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(tag = "command", content = "body", rename_all = "camelCase")]
 pub enum Response {
-    Initialize,
+    Initialize(Capabilities),
     SetExceptionBreakpoints,
     Attach,
     Threads(ThreadsResponse),
     StackTrace(StackTraceResponse),
     Scopes(ScopesResponse),
     Variables(VariablesResponse),
+    Disassemble(DisassembleResponse),
 
     Continue {},
     Pause,
@@ -82,6 +93,12 @@ pub enum Response {
     StepOut,
 
     Disconnect,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Capabilities {
+    pub supports_disassemble_request: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -126,6 +143,20 @@ pub struct VariablesResponse {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct DisassembleResponse {
+    pub instructions: Vec<DisassembledInstruction>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DisassembledInstruction {
+    pub address: String,
+    pub instruction_bytes: String,
+    pub instruction: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Variable {
     pub name: String,
     pub value: String,
@@ -162,6 +193,7 @@ pub struct StackFrame {
     pub name: String,
     pub line: i64,
     pub column: i64,
+    pub instruction_pointer_reference: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -243,6 +275,15 @@ mod tests {
             seq: 8,
             message: Message::Request(Request::Variables {}),
         },
+        disassemble_request: MessageEnvelope {
+            seq: 9,
+            message: Message::Request(Request::Disassemble(DisassembleArguments {
+                memory_reference: "BEEF".to_string(),
+                offset: Some(0),
+                instruction_offset: Some(-200),
+                instruction_count: 400,
+            })),
+        },
         continue_request: MessageEnvelope {
             seq: 10,
             message: Message::Request(Request::Continue {}),
@@ -277,7 +318,9 @@ mod tests {
             message: Message::Response(ResponseEnvelope {
                 request_seq: 11,
                 success: true,
-                response: Response::Initialize,
+                response: Response::Initialize(Capabilities {
+                    supports_disassemble_request:true,
+                }),
             }),
         },
         set_exception_breakpoints_response: MessageEnvelope {
@@ -317,9 +360,10 @@ mod tests {
                 response: Response::StackTrace(StackTraceResponse {
                     stack_frames: vec![StackFrame {
                         id: 1,
-                        name:"foo".to_string(),
+                        name: "foo".to_string(),
                         line: 0,
                         column: 0,
+                        instruction_pointer_reference: "1234".to_string(),
                     }],
                     total_frames: 1,
                 }),
@@ -351,6 +395,27 @@ mod tests {
                         value: "$43".to_string(),
                         variables_reference: 0,
                     }]
+                }),
+            }),
+        },
+        disassemble_response: MessageEnvelope {
+            seq: 98,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 63,
+                success: true,
+                response: Response::Disassemble(DisassembleResponse {
+                    instructions: vec![
+                        DisassembledInstruction {
+                            address: "0xBEEF".to_string(),
+                            instruction_bytes: "A9 76".to_string(),
+                            instruction: "LDA #$76".to_string(),
+                        },
+                        DisassembledInstruction {
+                            address: "0xBEF1".to_string(),
+                            instruction_bytes: "8D 4F C9".to_string(),
+                            instruction: "STA $C94F".to_string(),
+                        },
+                    ],
                 }),
             }),
         },

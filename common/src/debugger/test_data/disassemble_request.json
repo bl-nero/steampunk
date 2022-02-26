@@ -1,0 +1,12 @@
+{
+    "command": "disassemble",
+    "arguments": {
+        "memoryReference": "BEEF",
+        "offset": 0,
+        "instructionOffset": -200,
+        "instructionCount": 400,
+        "resolveSymbols": true
+    },
+    "type": "request",
+    "seq": 9
+}

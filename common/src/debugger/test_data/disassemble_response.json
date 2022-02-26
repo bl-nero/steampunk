@@ -1,0 +1,21 @@
+{
+    "seq": 98,
+    "type": "response",
+    "request_seq": 63,
+    "success": true,
+    "command": "disassemble",
+    "body": {
+        "instructions": [
+            {
+                "address": "0xBEEF",
+                "instructionBytes": "A9 76",
+                "instruction": "LDA #$76"
+            },
+            {
+                "address": "0xBEF1",
+                "instructionBytes": "8D 4F C9",
+                "instruction": "STA $C94F"
+            }
+        ]
+    }
+}

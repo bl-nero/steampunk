@@ -3,5 +3,8 @@
     "request_seq": 11,
     "type": "response",
     "command": "initialize",
-    "success": true
+    "success": true,
+    "body": {
+        "supportsDisassembleRequest": true
+    }
 }

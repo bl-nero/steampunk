@@ -8,6 +8,10 @@ use crate::debugger::adapter::DebugAdapter;
 use crate::debugger::adapter::DebugAdapterError;
 use crate::debugger::adapter::DebugAdapterResult;
 use crate::debugger::core::DebuggerCore;
+use crate::debugger::dap_types::Capabilities;
+use crate::debugger::dap_types::DisassembleArguments;
+use crate::debugger::dap_types::DisassembleResponse;
+use crate::debugger::dap_types::DisassembledInstruction;
 use crate::debugger::dap_types::Event;
 use crate::debugger::dap_types::InitializeArguments;
 use crate::debugger::dap_types::Message;
@@ -95,9 +99,10 @@ impl<A: DebugAdapter> Debugger<A> {
             Request::SetExceptionBreakpoints {} => self.set_exception_breakpoints(),
             Request::Attach {} => self.attach(),
             Request::Threads => self.threads(),
-            Request::StackTrace {} => self.stack_trace(),
+            Request::StackTrace {} => self.stack_trace(inspector),
             Request::Scopes {} => self.scopes(),
             Request::Variables {} => self.variables(inspector),
+            Request::Disassemble(args) => self.disassemble(args),
 
             Request::Continue {} => self.resume(),
             Request::Pause {} => self.pause(),
@@ -128,7 +133,9 @@ impl<A: DebugAdapter> Debugger<A> {
             args.client_name.as_deref().unwrap_or("an unnamed client")
         );
         (
-            Response::Initialize,
+            Response::Initialize(Capabilities {
+                supports_disassemble_request: true,
+            }),
             Some(Box::new(|me| me.send_event(Event::Initialized))),
         )
     }
@@ -162,7 +169,7 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn stack_trace(&self) -> RequestOutcome<A> {
+    fn stack_trace(&self, inspector: &impl MachineInspector) -> RequestOutcome<A> {
         (
             Response::StackTrace(StackTraceResponse {
                 stack_frames: vec![StackFrame {
@@ -170,6 +177,7 @@ impl<A: DebugAdapter> Debugger<A> {
                     name: "".to_string(),
                     line: 0,
                     column: 0,
+                    instruction_pointer_reference: format!("{:04X}", inspector.reg_pc()),
                 }],
                 total_frames: 1,
             }),
@@ -207,6 +215,23 @@ impl<A: DebugAdapter> Debugger<A> {
                     byte_variable("FLAGS", inspector.flags()),
                 ],
             }),
+            None,
+        )
+    }
+
+    fn disassemble(&self, args: DisassembleArguments) -> RequestOutcome<A> {
+        // TODO: So far, we just return dummy data.
+        let mem_reference = i64::from_str_radix(&args.memory_reference, 16).unwrap();
+        let start_address = mem_reference + args.offset.unwrap() + args.instruction_offset.unwrap();
+        let instructions: Vec<_> = (0..args.instruction_count)
+            .map(|i| DisassembledInstruction {
+                address: format!("0x{:04X}", start_address + i),
+                instruction_bytes: "EA".to_string(),
+                instruction: "NOP".to_string(),
+            })
+            .collect();
+        (
+            Response::Disassemble(DisassembleResponse { instructions }),
             None,
         )
     }
@@ -308,57 +333,6 @@ mod tests {
     }
 
     #[test]
-    fn initialization_sequence() {
-        let inspector = MockMachineInspector::new();
-        let adapter = FakeDebugAdapter::default();
-        adapter.push_request(Request::Initialize(InitializeArguments {
-            client_name: Some("Visual Studio Code".into()),
-        }));
-        adapter.push_request(Request::Attach {});
-        adapter.push_request(Request::SetExceptionBreakpoints {});
-        adapter.push_request(Request::Threads {});
-        adapter.push_request(Request::StackTrace {});
-        let mut debugger = Debugger::new(adapter.clone());
-
-        debugger.process_meessages(&inspector);
-
-        assert_responded_with(&adapter, Response::Initialize);
-        assert_emitted(&adapter, Event::Initialized);
-        assert_responded_with(&adapter, Response::Attach);
-        assert_emitted(
-            &adapter,
-            Event::Stopped(StoppedEvent {
-                thread_id: 1,
-                reason: StopReason::Entry,
-                all_threads_stopped: true,
-            }),
-        );
-        assert_responded_with(&adapter, Response::SetExceptionBreakpoints);
-        assert_responded_with(
-            &adapter,
-            Response::Threads(ThreadsResponse {
-                threads: vec![Thread {
-                    id: 1,
-                    name: "main thread".into(),
-                }],
-            }),
-        );
-        assert_responded_with(
-            &adapter,
-            Response::StackTrace(StackTraceResponse {
-                stack_frames: vec![StackFrame {
-                    id: 1,
-                    name: "".to_string(),
-                    line: 0,
-                    column: 0,
-                }],
-                total_frames: 1,
-            }),
-        );
-        assert_eq!(adapter.pop_outgoing(), None);
-    }
-
-    #[test]
     fn uses_sequence_numbers() {
         let inspector = MockMachineInspector::new();
         let adapter = FakeDebugAdapter::default();
@@ -402,6 +376,94 @@ mod tests {
                 seq: 4,
                 message: Message::Response(ResponseEnvelope { request_seq: 9, .. })
             })
+        );
+        assert_eq!(adapter.pop_outgoing(), None);
+    }
+
+    #[test]
+    fn initialization_sequence() {
+        let inspector = MockMachineInspector::new();
+        let adapter = FakeDebugAdapter::default();
+        adapter.push_request(Request::Initialize(InitializeArguments {
+            client_name: Some("Visual Studio Code".into()),
+        }));
+        adapter.push_request(Request::Attach {});
+        adapter.push_request(Request::SetExceptionBreakpoints {});
+        adapter.push_request(Request::Threads {});
+        let mut debugger = Debugger::new(adapter.clone());
+
+        debugger.process_meessages(&inspector);
+
+        assert_responded_with(
+            &adapter,
+            Response::Initialize(Capabilities {
+                supports_disassemble_request: true,
+            }),
+        );
+        assert_emitted(&adapter, Event::Initialized);
+        assert_responded_with(&adapter, Response::Attach);
+        assert_emitted(
+            &adapter,
+            Event::Stopped(StoppedEvent {
+                thread_id: 1,
+                reason: StopReason::Entry,
+                all_threads_stopped: true,
+            }),
+        );
+        assert_responded_with(&adapter, Response::SetExceptionBreakpoints);
+        assert_responded_with(
+            &adapter,
+            Response::Threads(ThreadsResponse {
+                threads: vec![Thread {
+                    id: 1,
+                    name: "main thread".into(),
+                }],
+            }),
+        );
+        assert_eq!(adapter.pop_outgoing(), None);
+    }
+
+    #[test]
+    fn stack_trace() {
+        let mut inspector = MockMachineInspector::new();
+        inspector.expect_reg_pc().once().return_const(0x1234u16);
+        let adapter = FakeDebugAdapter::default();
+        adapter.push_request(Request::StackTrace {});
+        let mut debugger = Debugger::new(adapter.clone());
+
+        debugger.process_meessages(&inspector);
+
+        assert_responded_with(
+            &adapter,
+            Response::StackTrace(StackTraceResponse {
+                stack_frames: vec![StackFrame {
+                    id: 1,
+                    name: "".to_string(),
+                    line: 0,
+                    column: 0,
+                    instruction_pointer_reference: "1234".to_string(),
+                }],
+                total_frames: 1,
+            }),
+        );
+        assert_eq!(adapter.pop_outgoing(), None);
+
+        inspector.expect_reg_pc().once().return_const(0x0A04u16);
+        adapter.push_request(Request::StackTrace {});
+        debugger.process_meessages(&inspector);
+
+        assert_responded_with(
+            &adapter,
+            Response::StackTrace(StackTraceResponse {
+                stack_frames: vec![StackFrame {
+                    id: 1,
+                    name: "".to_string(),
+                    line: 0,
+                    column: 0,
+                    instruction_pointer_reference: "0A04".to_string(),
+                }],
+                total_frames: 1,
+            }),
         );
         assert_eq!(adapter.pop_outgoing(), None);
     }
