@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 use ya6502::memory::dump_zero_page;
+use ya6502::memory::Inspect;
 use ya6502::memory::Memory;
 use ya6502::memory::Ram;
 use ya6502::memory::Read;
@@ -19,40 +20,55 @@ use ya6502::memory::WriteResult;
 /// the CPU itself. This is because the CPU port controls the address space
 /// layout.
 #[derive(Debug)]
-pub struct AddressSpace<VIC: Memory, SID: Memory, CIA: Memory> {
+pub struct AddressSpace<Vic, Sid, Cia>
+where
+    Vic: Memory,
+    Sid: Memory,
+    Cia: Memory,
+{
     cpu_port: Port,
     ram: Rc<RefCell<Ram>>,
     basic_rom: Rom,
-    vic: VIC,
-    sid: SID,
+    vic: Vic,
+    sid: Sid,
     color_ram: Rc<RefCell<Ram>>, // TODO: replace with an actual single-nibble RAM
-    cia1: CIA,
-    cia2: CIA,
+    cia1: Cia,
+    cia2: Cia,
     kernal_rom: Rom,
     pub cartridge: Option<Cartridge>,
 }
 
-impl<VIC: Memory, SID: Memory, CIA: Memory> AddressSpace<VIC, SID, CIA> {
-    pub fn mut_vic(&mut self) -> &mut VIC {
+impl<Vic, Sid, Cia> AddressSpace<Vic, Sid, Cia>
+where
+    Vic: Memory,
+    Sid: Memory,
+    Cia: Memory,
+{
+    pub fn mut_vic(&mut self) -> &mut Vic {
         &mut self.vic
     }
-    pub fn mut_cia1(&mut self) -> &mut CIA {
+    pub fn mut_cia1(&mut self) -> &mut Cia {
         &mut self.cia1
     }
-    pub fn mut_cia2(&mut self) -> &mut CIA {
+    pub fn mut_cia2(&mut self) -> &mut Cia {
         &mut self.cia2
     }
 }
 
-impl<VIC: Memory, SID: Memory, CIA: Memory> AddressSpace<VIC, SID, CIA> {
+impl<Vic, Sid, Cia> AddressSpace<Vic, Sid, Cia>
+where
+    Vic: Memory,
+    Sid: Memory,
+    Cia: Memory,
+{
     pub fn new(
         ram: Rc<RefCell<Ram>>,
         basic_rom: Rom,
-        vic: VIC,
-        sid: SID,
+        vic: Vic,
+        sid: Sid,
         color_ram: Rc<RefCell<Ram>>,
-        cia1: CIA,
-        cia2: CIA,
+        cia1: Cia,
+        cia2: Cia,
         kernal_rom: Rom,
     ) -> Self {
         let mut cpu_port = Port::default();
@@ -76,7 +92,12 @@ impl<VIC: Memory, SID: Memory, CIA: Memory> AddressSpace<VIC, SID, CIA> {
     }
 }
 
-impl<VIC: Memory, SID: Memory, CIA: Memory> Read for AddressSpace<VIC, SID, CIA> {
+impl<Vic, Sid, Cia> Inspect for AddressSpace<Vic, Sid, Cia>
+where
+    Vic: Memory + Inspect,
+    Sid: Memory + Inspect,
+    Cia: Memory + Inspect,
+{
     // TODO: Reuse the address matching code between inspect() and read()!
     fn inspect(&self, address: u16) -> ReadResult {
         match address {
@@ -109,7 +130,14 @@ impl<VIC: Memory, SID: Memory, CIA: Memory> Read for AddressSpace<VIC, SID, CIA>
             _ => self.ram.borrow().inspect(address),
         }
     }
+}
 
+impl<Vic, Sid, Cia> Read for AddressSpace<Vic, Sid, Cia>
+where
+    Vic: Memory,
+    Sid: Memory,
+    Cia: Memory,
+{
     // TODO: Reuse the address matching code between inspect() and read()!
     fn read(&mut self, address: u16) -> ReadResult {
         match address {
@@ -144,7 +172,12 @@ impl<VIC: Memory, SID: Memory, CIA: Memory> Read for AddressSpace<VIC, SID, CIA>
     }
 }
 
-impl<VIC: Memory, SID: Memory, CIA: Memory> Write for AddressSpace<VIC, SID, CIA> {
+impl<Vic, Sid, Cia> Write for AddressSpace<Vic, Sid, Cia>
+where
+    Vic: Memory,
+    Sid: Memory,
+    Cia: Memory,
+{
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match address {
             0x0000 => Ok(self.cpu_port.direction = value),
@@ -168,9 +201,20 @@ impl<VIC: Memory, SID: Memory, CIA: Memory> Write for AddressSpace<VIC, SID, CIA
     }
 }
 
-impl<VIC: Memory, SID: Memory, CIA: Memory> Memory for AddressSpace<VIC, SID, CIA> {}
+impl<Vic, Sid, Cia> Memory for AddressSpace<Vic, Sid, Cia>
+where
+    Vic: Memory,
+    Sid: Memory,
+    Cia: Memory,
+{
+}
 
-impl<VIC: Memory, SID: Memory, CIA: Memory> fmt::Display for AddressSpace<VIC, SID, CIA> {
+impl<Vic, Sid, Cia> fmt::Display for AddressSpace<Vic, Sid, Cia>
+where
+    Vic: Memory + Inspect,
+    Sid: Memory + Inspect,
+    Cia: Memory + Inspect,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         dump_zero_page(self, f)
     }
@@ -198,18 +242,30 @@ pub enum CartridgeMode {
 /// An address space, as visible by the VIC-II chip. Note that it doesn't
 /// include the Color RAM, since it's addressed using a separate address line.
 #[derive(Debug)]
-pub struct VicAddressSpace<RAM: Read, CHR: Read> {
-    ram: Rc<RefCell<RAM>>,
-    char_rom: Rc<RefCell<CHR>>,
+pub struct VicAddressSpace<Ram, ChrRam>
+where
+    Ram: Read,
+    ChrRam: Read,
+{
+    ram: Rc<RefCell<Ram>>,
+    char_rom: Rc<RefCell<ChrRam>>,
 }
 
-impl<RAM: Read, CHR: Read> VicAddressSpace<RAM, CHR> {
-    pub fn new(ram: Rc<RefCell<RAM>>, char_rom: Rc<RefCell<CHR>>) -> Self {
+impl<Ram, ChrRam> VicAddressSpace<Ram, ChrRam>
+where
+    Ram: Read,
+    ChrRam: Read,
+{
+    pub fn new(ram: Rc<RefCell<Ram>>, char_rom: Rc<RefCell<ChrRam>>) -> Self {
         Self { ram, char_rom }
     }
 }
 
-impl<RAM: Read, CHR: Read> Read for VicAddressSpace<RAM, CHR> {
+impl<Ram, ChrRam> Inspect for VicAddressSpace<Ram, ChrRam>
+where
+    Ram: Read + Inspect,
+    ChrRam: Read + Inspect,
+{
     // TODO: Reuse the address matching code between inspect() and read()!
     fn inspect(&self, address: u16) -> ReadResult {
         let address = address & 0x3FFF;
@@ -218,7 +274,9 @@ impl<RAM: Read, CHR: Read> Read for VicAddressSpace<RAM, CHR> {
             _ => self.ram.borrow().inspect(address),
         }
     }
+}
 
+impl<Ram: Read, ChrRam: Read> Read for VicAddressSpace<Ram, ChrRam> {
     // TODO: Reuse the address matching code between inspect() and read()!
     fn read(&mut self, address: u16) -> ReadResult {
         let address = address & 0x3FFF;

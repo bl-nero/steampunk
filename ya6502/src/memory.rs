@@ -12,11 +12,17 @@ pub trait Read {
     /// operation, it is, indeed, not: depending on the chip being emulated,
     /// even read operations can sometimes affect the internal state of the
     /// chip. In a typical situation, however, [`read`] can just delegate to
-    /// [`inspect`].
-    fn read(&mut self, address: u16) -> ReadResult {
-        self.inspect(address)
-    }
+    /// [`Inspect::inspect`]. Unfortunately, specialization is not stable enough
+    /// to provide a default implementation of this function that performs this
+    /// delegation; it needs to be provided by each trait implementation
+    /// separately.
+    fn read(&mut self, address: u16) -> ReadResult;
+}
 
+/// A debug-only interface, not meant to be used for actual emulation. It exists
+/// to support a stronger interface segregation, as using it instead of [`Read`]
+/// could lead to sneaky bugs.
+pub trait Inspect {
     /// Similar to [`read`], but guaranteed not to affect the internal chip
     /// emulation state. Useful for debugging; all regular reads should be
     /// performed using the [`read`] function.
@@ -126,10 +132,15 @@ impl Ram {
     }
 }
 
-impl Read for Ram {
+impl Inspect for Ram {
     fn inspect(&self, address: u16) -> ReadResult {
-        // this arrow means we give u16 they return u8
         Ok(self.bytes[(address & self.address_mask) as usize])
+    }
+}
+
+impl Read for Ram {
+    fn read(&mut self, address: u16) -> ReadResult {
+        self.inspect(address)
     }
 }
 
@@ -178,9 +189,15 @@ impl Rom {
     }
 }
 
-impl Read for Rom {
+impl Inspect for Rom {
     fn inspect(&self, address: u16) -> ReadResult {
         Ok(self.bytes[(address & self.address_mask) as usize])
+    }
+}
+
+impl Read for Rom {
+    fn read(&mut self, address: u16) -> ReadResult {
+        self.inspect(address)
     }
 }
 
@@ -210,7 +227,7 @@ impl fmt::Display for MemorySizeError {
     }
 }
 
-pub fn dump_zero_page(memory: &impl Read, f: &mut fmt::Formatter) -> fmt::Result {
+pub fn dump_zero_page(memory: &impl Inspect, f: &mut fmt::Formatter) -> fmt::Result {
     let mut zero_page: [u8; 0x100] = [0; 0x100];
     for i in 0..0x100 {
         zero_page[i] = memory.inspect(i as u16).unwrap_or(0);

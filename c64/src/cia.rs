@@ -1,6 +1,7 @@
 use crate::port::Port;
 use crate::timer::Timer;
 use enum_map::{Enum, EnumMap};
+use ya6502::memory::Inspect;
 use ya6502::memory::Memory;
 use ya6502::memory::Read;
 use ya6502::memory::ReadError;
@@ -62,7 +63,7 @@ impl Cia {
     }
 }
 
-impl Read for Cia {
+impl Inspect for Cia {
     fn inspect(&self, address: u16) -> Result<u8, ReadError> {
         match address & 0b1111 {
             registers::PRA => Ok(self.ports[PortName::A].read()),
@@ -79,7 +80,9 @@ impl Read for Cia {
             _ => Err(ReadError { address }),
         }
     }
+}
 
+impl Read for Cia {
     fn read(&mut self, address: u16) -> Result<u8, ReadError> {
         match address & 0b1111 {
             registers::ICR => Ok(std::mem::take(&mut self.reg_interrupt_status)),

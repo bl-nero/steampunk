@@ -2,6 +2,7 @@ mod tests;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use ya6502::memory::Inspect;
 use ya6502::memory::Memory;
 use ya6502::memory::Read;
 use ya6502::memory::ReadError;
@@ -15,9 +16,13 @@ pub type Color = u8;
 /// VIC-II video chip emulator that outputs a stream of bytes. Each byte encodes
 /// a single pixel and has a value from a 0..=15 range.
 #[derive(Debug)]
-pub struct Vic<GM: Read, CM: Read> {
-    graphics_memory: Box<GM>,
-    color_memory: Rc<RefCell<CM>>,
+pub struct Vic<GrMem, ChrMem>
+where
+    GrMem: Read,
+    ChrMem: Read,
+{
+    graphics_memory: Box<GrMem>,
+    color_memory: Rc<RefCell<ChrMem>>,
 
     // Registers
     reg_control_1: u8,
@@ -46,8 +51,12 @@ pub struct Vic<GM: Read, CM: Read> {
     graphics_shifter: u8,
 }
 
-impl<GM: Read, CM: Read> Vic<GM, CM> {
-    pub fn new(graphics_memory: Box<GM>, color_memory: Rc<RefCell<CM>>) -> Self {
+impl<GrMem, ChrMem> Vic<GrMem, ChrMem>
+where
+    GrMem: Read,
+    ChrMem: Read,
+{
+    pub fn new(graphics_memory: Box<GrMem>, color_memory: Rc<RefCell<ChrMem>>) -> Self {
         Self {
             graphics_memory,
             color_memory,
@@ -210,7 +219,11 @@ pub struct VideoOutput {
 
 pub type TickResult = Result<VicOutput, ReadError>;
 
-impl<GM: Read, CM: Read> Read for Vic<GM, CM> {
+impl<GrMem, ChrMem> Inspect for Vic<GrMem, ChrMem>
+where
+    GrMem: Read,
+    ChrMem: Read,
+{
     fn inspect(&self, address: u16) -> ReadResult {
         match address {
             registers::CONTROL_1 => Ok(self.reg_control_1 & !flags::CONTROL_1_RASTER_8
@@ -226,7 +239,17 @@ impl<GM: Read, CM: Read> Read for Vic<GM, CM> {
     }
 }
 
-impl<GM: Read, CM: Read> Write for Vic<GM, CM> {
+impl<GrMem, ChrMem> Read for Vic<GrMem, ChrMem>
+where
+    GrMem: Read,
+    ChrMem: Read,
+{
+    fn read(&mut self, address: u16) -> ReadResult {
+        self.inspect(address)
+    }
+}
+
+impl<GrMem: Read, ChrMem: Read> Write for Vic<GrMem, ChrMem> {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match address {
             registers::CONTROL_1 => {
@@ -273,7 +296,7 @@ impl<GM: Read, CM: Read> Write for Vic<GM, CM> {
     }
 }
 
-impl<GM: Read, CM: Read> Memory for Vic<GM, CM> {}
+impl<GrMem: Read, ChrMem: Read> Memory for Vic<GrMem, ChrMem> {}
 
 /// Converts raster line number to Y position on the rendered screen.
 pub fn raster_line_to_screen_y(index: usize) -> usize {

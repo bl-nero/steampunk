@@ -1,5 +1,6 @@
 use std::fmt;
 use ya6502::memory::dump_zero_page;
+use ya6502::memory::Inspect;
 use ya6502::memory::Read;
 use ya6502::memory::Write;
 use ya6502::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
@@ -7,11 +8,17 @@ use ya6502::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
 /// Dispatches read/write calls to various devices with memory-mapped interfaces:
 /// TIA, RAM, RIOT (not yet implemented), and ROM.
 #[derive(Debug)]
-pub struct AddressSpace<T: Memory, RA: Memory, RI: Memory, RO: Read> {
+pub struct AddressSpace<T, Ram, Riot, Rom>
+where
+    T: Memory,
+    Ram: Memory,
+    Riot: Memory,
+    Rom: Read,
+{
     pub tia: T,
-    pub ram: RA,
-    pub riot: RI,
-    pub rom: RO,
+    pub ram: Ram,
+    pub riot: Riot,
+    pub rom: Rom,
 }
 
 enum MemoryArea {
@@ -21,7 +28,13 @@ enum MemoryArea {
     Rom,
 }
 
-impl<T: Memory, RA: Memory, RI: Memory, RO: Read> Read for AddressSpace<T, RA, RI, RO> {
+impl<T, Ram, Riot, Rom> Inspect for AddressSpace<T, Ram, Riot, Rom>
+where
+    T: Memory + Inspect,
+    Ram: Memory + Inspect,
+    Riot: Memory + Inspect,
+    Rom: Read + Inspect,
+{
     fn inspect(&self, address: u16) -> ReadResult {
         match map_address(address) {
             Some(MemoryArea::Tia) => self.tia.inspect(address),
@@ -31,7 +44,15 @@ impl<T: Memory, RA: Memory, RI: Memory, RO: Read> Read for AddressSpace<T, RA, R
             None => Err(ReadError { address }),
         }
     }
+}
 
+impl<T, Ram, Riot, Rom> Read for AddressSpace<T, Ram, Riot, Rom>
+where
+    T: Memory,
+    Ram: Memory,
+    Riot: Memory,
+    Rom: Read,
+{
     fn read(&mut self, address: u16) -> ReadResult {
         match map_address(address) {
             Some(MemoryArea::Tia) => self.tia.read(address),
@@ -43,7 +64,13 @@ impl<T: Memory, RA: Memory, RI: Memory, RO: Read> Read for AddressSpace<T, RA, R
     }
 }
 
-impl<T: Memory, RA: Memory, RI: Memory, RO: Read> Write for AddressSpace<T, RA, RI, RO> {
+impl<T, Ram, Riot, Rom> Write for AddressSpace<T, Ram, Riot, Rom>
+where
+    T: Memory,
+    Ram: Memory,
+    Riot: Memory,
+    Rom: Read,
+{
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match map_address(address) {
             Some(MemoryArea::Tia) => self.tia.write(address, value),
@@ -55,7 +82,14 @@ impl<T: Memory, RA: Memory, RI: Memory, RO: Read> Write for AddressSpace<T, RA, 
     }
 }
 
-impl<T: Memory, RA: Memory, RI: Memory, RO: Read> Memory for AddressSpace<T, RA, RI, RO> {}
+impl<T, Ram, Riot, Rom> Memory for AddressSpace<T, Ram, Riot, Rom>
+where
+    T: Memory,
+    Ram: Memory,
+    Riot: Memory,
+    Rom: Read,
+{
+}
 
 fn map_address(address: u16) -> Option<MemoryArea> {
     if address & 0b0001_0000_0000_0000 != 0 {
@@ -71,7 +105,13 @@ fn map_address(address: u16) -> Option<MemoryArea> {
     }
 }
 
-impl<T: Memory, RA: Memory, RI: Memory, RO: Read> fmt::Display for AddressSpace<T, RA, RI, RO> {
+impl<T, Ram, Riot, Rom> fmt::Display for AddressSpace<T, Ram, Riot, Rom>
+where
+    T: Memory + Inspect,
+    Ram: Memory + Inspect,
+    Riot: Memory + Inspect,
+    Rom: Read + Inspect,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         dump_zero_page(self, f)
     }

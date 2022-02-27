@@ -1,4 +1,5 @@
 use rand::Rng;
+use ya6502::memory::Inspect;
 use ya6502::memory::Read;
 use ya6502::memory::Write;
 use ya6502::memory::{Memory, ReadError, ReadResult, WriteError, WriteResult};
@@ -121,7 +122,7 @@ impl Riot {
     }
 }
 
-impl Read for Riot {
+impl Inspect for Riot {
     fn inspect(&self, address: u16) -> ReadResult {
         match canonical_read_address(address) {
             registers::SWCHA => {
@@ -138,7 +139,9 @@ impl Read for Riot {
             _ => Err(ReadError { address }),
         }
     }
+}
 
+impl Read for Riot {
     fn read(&mut self, address: u16) -> ReadResult {
         match canonical_read_address(address) {
             registers::INTIM => {

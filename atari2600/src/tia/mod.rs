@@ -9,6 +9,7 @@ use audio_generator::AudioGenerator;
 use delay_buffer::DelayBuffer;
 use enum_map::{enum_map, Enum, EnumMap};
 use sprite::{missile_reset_delay_for_player, set_reg_nusiz, Sprite};
+use ya6502::memory::Inspect;
 use ya6502::memory::Read;
 use ya6502::memory::Write;
 use ya6502::memory::{Memory, ReadError, ReadResult, WriteResult};
@@ -377,7 +378,7 @@ impl Tia {
     }
 }
 
-impl Read for Tia {
+impl Inspect for Tia {
     fn inspect(&self, address: u16) -> ReadResult {
         match address & 0b0000_1111 {
             registers::CXM0P => Ok(self.reg_cxm0p),
@@ -392,6 +393,12 @@ impl Read for Tia {
             registers::INPT5 => Ok(self.reg_inpt[Port::Input5]),
             _ => Err(ReadError { address }),
         }
+    }
+}
+
+impl Read for Tia {
+    fn read(&mut self, address: u16) -> ReadResult {
+        self.inspect(address)
     }
 }
 

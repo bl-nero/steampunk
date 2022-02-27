@@ -1,3 +1,4 @@
+use ya6502::memory::Inspect;
 use ya6502::memory::Memory;
 use ya6502::memory::Read;
 use ya6502::memory::ReadError;
@@ -22,9 +23,15 @@ impl Write for Sid {
     }
 }
 
-impl Read for Sid {
+impl Inspect for Sid {
     fn inspect(&self, address: u16) -> ReadResult {
         Err(ReadError { address })
+    }
+}
+
+impl Read for Sid {
+    fn read(&mut self, address: u16) -> ReadResult {
+        self.inspect(address)
     }
 }
 
