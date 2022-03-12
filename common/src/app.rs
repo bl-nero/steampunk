@@ -296,6 +296,9 @@ mod tests {
         fn at_instruction_start(&self) -> bool {
             true
         }
+        fn inspect_memory(&self, _: u16) -> u8 {
+            0
+        }
     }
 
     #[test]

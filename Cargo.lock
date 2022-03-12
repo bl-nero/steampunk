@@ -315,7 +315,6 @@ dependencies = [
  "image",
  "image-diff",
  "itertools",
- "lazy_static",
  "piston",
  "piston2d-graphics",
  "piston_window",

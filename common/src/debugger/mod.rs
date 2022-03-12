@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod dap_types;
 
 mod core;
+mod disasm;
 mod protocol;
 
 use crate::debugger::adapter::DebugAdapter;
@@ -11,7 +12,6 @@ use crate::debugger::core::DebuggerCore;
 use crate::debugger::dap_types::Capabilities;
 use crate::debugger::dap_types::DisassembleArguments;
 use crate::debugger::dap_types::DisassembleResponse;
-use crate::debugger::dap_types::DisassembledInstruction;
 use crate::debugger::dap_types::Event;
 use crate::debugger::dap_types::InitializeArguments;
 use crate::debugger::dap_types::Message;
@@ -30,8 +30,17 @@ use crate::debugger::dap_types::Thread;
 use crate::debugger::dap_types::ThreadsResponse;
 use crate::debugger::dap_types::Variable;
 use crate::debugger::dap_types::VariablesResponse;
+use crate::debugger::disasm::disassemble;
+use crate::debugger::disasm::seek_instruction;
 use std::sync::mpsc::TryRecvError;
 use ya6502::cpu::MachineInspector;
+
+/// Default margin for disassembling code. Whenever a disassembly request comes
+/// in, we adjust the instruction offset by this number to make sure that we get
+/// enough "runway" to lock into a stable sequence of instructions (as opposed to
+/// disassembling the preceding instruction's argument as opcode). We then simply
+/// discard this amount of instructions before serving the result.
+const DISASSEMBLY_MARGIN: usize = 20;
 
 /// A debugger for 6502-based machines. Uses Debug Adapter Protocol internally
 /// to communicate with a debugger UI.
@@ -102,7 +111,7 @@ impl<A: DebugAdapter> Debugger<A> {
             Request::StackTrace {} => self.stack_trace(inspector),
             Request::Scopes {} => self.scopes(),
             Request::Variables {} => self.variables(inspector),
-            Request::Disassemble(args) => self.disassemble(args),
+            Request::Disassemble(args) => self.disassemble(inspector, args),
 
             Request::Continue {} => self.resume(),
             Request::Pause {} => self.pause(),
@@ -219,18 +228,27 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn disassemble(&self, args: DisassembleArguments) -> RequestOutcome<A> {
+    fn disassemble(
+        &self,
+        inspector: &impl MachineInspector,
+        args: DisassembleArguments,
+    ) -> RequestOutcome<A> {
         // TODO: So far, we just return dummy data.
         let mem_reference =
             i64::from_str_radix(&args.memory_reference.strip_prefix("0x").unwrap(), 16).unwrap();
-        let start_address = mem_reference + args.offset.unwrap() + args.instruction_offset.unwrap();
-        let instructions: Vec<_> = (0..args.instruction_count)
-            .map(|i| DisassembledInstruction {
-                address: format!("0x{:04X}", start_address + i),
-                instruction_bytes: "EA".to_string(),
-                instruction: "NOP".to_string(),
-            })
-            .collect();
+        let origin = (mem_reference + args.offset.unwrap_or(0)) as u16;
+        let disassembly_start = seek_instruction(
+            inspector,
+            origin,
+            args.instruction_offset.unwrap_or(0) - DISASSEMBLY_MARGIN as i64,
+        );
+        let instructions = disassemble(
+            inspector,
+            origin,
+            disassembly_start,
+            DISASSEMBLY_MARGIN,
+            usize::try_from(args.instruction_count).unwrap(),
+        );
         (
             Response::Disassemble(DisassembleResponse { instructions }),
             None,
@@ -300,6 +318,7 @@ fn byte_variable(name: &str, value: u8) -> Variable {
 mod tests {
     use super::*;
     use crate::debugger::adapter::FakeDebugAdapter;
+    use crate::debugger::dap_types::DisassembledInstruction;
     use crate::debugger::dap_types::InitializeArguments;
     use crate::debugger::dap_types::MessageEnvelope;
     use std::assert_matches::assert_matches;
@@ -470,6 +489,130 @@ mod tests {
     }
 
     #[test]
+    fn disassembly() {
+        let cpu = cpu_with_code! {
+                lda 0x45
+                sta 0xEA
+        };
+        let adapter = FakeDebugAdapter::default();
+        let mut debugger = Debugger::new(adapter.clone());
+
+        adapter.push_request(Request::Disassemble(DisassembleArguments {
+            memory_reference: "0xF000".to_string(),
+            offset: Some(0),
+            instruction_offset: Some(0),
+            instruction_count: 2,
+        }));
+        adapter.push_request(Request::Disassemble(DisassembleArguments {
+            memory_reference: "0xF002".to_string(),
+            offset: None,
+            instruction_offset: None,
+            instruction_count: 1,
+        }));
+        debugger.process_meessages(&cpu);
+
+        assert_responded_with(
+            &adapter,
+            Response::Disassemble(DisassembleResponse {
+                instructions: vec![
+                    DisassembledInstruction {
+                        address: "0xF000".to_string(),
+                        instruction_bytes: "A5 45".to_string(),
+                        instruction: "LDA $45".to_string(),
+                    },
+                    DisassembledInstruction {
+                        address: "0xF002".to_string(),
+                        instruction_bytes: "85 EA".to_string(),
+                        instruction: "STA $EA".to_string(),
+                    },
+                ],
+            }),
+        );
+        assert_responded_with(
+            &adapter,
+            Response::Disassemble(DisassembleResponse {
+                instructions: vec![DisassembledInstruction {
+                    address: "0xF002".to_string(),
+                    instruction_bytes: "85 EA".to_string(),
+                    instruction: "STA $EA".to_string(),
+                }],
+            }),
+        );
+        assert_eq!(adapter.pop_outgoing(), None);
+    }
+
+    #[test]
+    fn disassembly_ambiguous() {
+        let cpu = cpu_with_code! {
+                lda 0x45
+                sta 0xEA
+                sta 0xAE
+        };
+        let adapter = FakeDebugAdapter::default();
+        let mut debugger = Debugger::new(adapter.clone());
+
+        adapter.push_request(Request::Disassemble(DisassembleArguments {
+            memory_reference: "0xF002".to_string(),
+            offset: Some(1),
+            instruction_offset: Some(-2),
+            instruction_count: 4,
+        }));
+        adapter.push_request(Request::Disassemble(DisassembleArguments {
+            memory_reference: "0xF004".to_string(),
+            offset: Some(0),
+            instruction_offset: Some(-1),
+            instruction_count: 2,
+        }));
+        debugger.process_meessages(&cpu);
+
+        assert_responded_with(
+            &adapter,
+            Response::Disassemble(DisassembleResponse {
+                instructions: vec![
+                    DisassembledInstruction {
+                        address: "0xF000".to_string(),
+                        instruction_bytes: "A5 45".to_string(),
+                        instruction: "LDA $45".to_string(),
+                    },
+                    DisassembledInstruction {
+                        address: "0xF002".to_string(),
+                        instruction_bytes: "85".to_string(),
+                        instruction: "".to_string(),
+                    },
+                    DisassembledInstruction {
+                        address: "0xF003".to_string(),
+                        instruction_bytes: "EA".to_string(),
+                        instruction: "NOP".to_string(),
+                    },
+                    DisassembledInstruction {
+                        address: "0xF004".to_string(),
+                        instruction_bytes: "85 AE".to_string(),
+                        instruction: "STA $AE".to_string(),
+                    },
+                ],
+            }),
+        );
+        assert_responded_with(
+            &adapter,
+            Response::Disassemble(DisassembleResponse {
+                instructions: vec![
+                    DisassembledInstruction {
+                        address: "0xF002".to_string(),
+                        instruction_bytes: "85 EA".to_string(),
+                        instruction: "STA $EA".to_string(),
+                    },
+                    DisassembledInstruction {
+                        address: "0xF004".to_string(),
+                        instruction_bytes: "85 AE".to_string(),
+                        instruction: "STA $AE".to_string(),
+                    },
+                ],
+            }),
+        );
+        assert_eq!(adapter.pop_outgoing(), None);
+    }
+
+    #[test]
     fn sends_registers() {
         let mut inspector = MockMachineInspector::new();
         let adapter = FakeDebugAdapter::default();
@@ -529,68 +672,6 @@ mod tests {
                         name: "FLAGS".to_string(),
                         value: "$40".to_string(),
                         variables_reference: 0,
-                    },
-                ],
-            }),
-        );
-        assert_eq!(adapter.pop_outgoing(), None);
-    }
-
-    #[test]
-    fn disassembly() {
-        let mut inspector = MockMachineInspector::new();
-        inspector.expect_reg_pc().once().return_const(0x1000u16);
-        let adapter = FakeDebugAdapter::default();
-        // We push the stack trace request first, since the disassembly request
-        // is based on its response.
-        adapter.push_request(Request::StackTrace {});
-        let mut debugger = Debugger::new(adapter.clone());
-
-        debugger.process_meessages(&inspector);
-        let address = match adapter.pop_outgoing().unwrap().message {
-            Message::Response(ResponseEnvelope {
-                response: Response::StackTrace(StackTraceResponse { stack_frames, .. }),
-                ..
-            }) => stack_frames[0].instruction_pointer_reference.clone(),
-            other => panic!("Unexpected response: {:?}", other),
-        };
-
-        adapter.push_request(Request::Disassemble(DisassembleArguments {
-            memory_reference: address,
-            offset: Some(-2),
-            instruction_offset: Some(-1),
-            instruction_count: 5,
-        }));
-        debugger.process_meessages(&inspector);
-
-        assert_responded_with(
-            &adapter,
-            Response::Disassemble(DisassembleResponse {
-                instructions: vec![
-                    DisassembledInstruction {
-                        address: "0x0FFD".to_string(),
-                        instruction_bytes: "EA".to_string(),
-                        instruction: "NOP".to_string(),
-                    },
-                    DisassembledInstruction {
-                        address: "0x0FFE".to_string(),
-                        instruction_bytes: "EA".to_string(),
-                        instruction: "NOP".to_string(),
-                    },
-                    DisassembledInstruction {
-                        address: "0x0FFF".to_string(),
-                        instruction_bytes: "EA".to_string(),
-                        instruction: "NOP".to_string(),
-                    },
-                    DisassembledInstruction {
-                        address: "0x1000".to_string(),
-                        instruction_bytes: "EA".to_string(),
-                        instruction: "NOP".to_string(),
-                    },
-                    DisassembledInstruction {
-                        address: "0x1001".to_string(),
-                        instruction_bytes: "EA".to_string(),
-                        instruction: "NOP".to_string(),
                     },
                 ],
             }),

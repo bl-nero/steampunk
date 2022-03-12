@@ -3,6 +3,7 @@ mod flags;
 pub mod opcodes;
 mod tests;
 
+use crate::memory::Inspect;
 use crate::memory::{Memory, ReadError, ReadResult};
 use mockall::automock;
 use rand::Rng;
@@ -1596,9 +1597,10 @@ pub trait MachineInspector {
     fn reg_sp(&self) -> u8;
     fn flags(&self) -> u8;
     fn at_instruction_start(&self) -> bool;
+    fn inspect_memory(&self, address: u16) -> u8;
 }
 
-impl<M: Memory> MachineInspector for Cpu<M> {
+impl<M: Memory + Inspect> MachineInspector for Cpu<M> {
     fn reg_pc(&self) -> u16 {
         self.reg_pc
     }
@@ -1625,5 +1627,9 @@ impl<M: Memory> MachineInspector for Cpu<M> {
 
     fn at_instruction_start(&self) -> bool {
         self.sequence_state == SequenceState::Ready
+    }
+
+    fn inspect_memory(&self, address: u16) -> u8 {
+        self.memory.inspect(address).unwrap_or(0xFF)
     }
 }

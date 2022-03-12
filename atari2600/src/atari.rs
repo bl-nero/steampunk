@@ -88,6 +88,7 @@ impl MachineInspector for Atari {
             fn reg_y(&self) -> u8;
             fn reg_sp(&self) -> u8;
             fn flags(&self) -> u8;
+            fn inspect_memory(&self, address: u16) -> u8;
         }
     }
 

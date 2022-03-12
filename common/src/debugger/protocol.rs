@@ -1,4 +1,3 @@
-use lazy_static::lazy_static;
 use regex::Regex;
 use std::io;
 use std::io::BufRead;
@@ -46,8 +45,8 @@ pub fn raw_messages<'a>(
 /// `Content-Length` header. Otherwise, `None` denotes end of stream has been
 /// reached.
 fn read_headers(input: &mut impl BufRead) -> ProtocolResult<Option<usize>> {
-    lazy_static! {
-        static ref HEADER_REGEX: Regex = Regex::new(r#"Content-Length:\s*(.*)"#).unwrap();
+    thread_local! {
+        static HEADER_REGEX: Regex = Regex::new(r#"Content-Length:\s*(.*)"#).unwrap();
     }
 
     let mut message_started = false;
@@ -61,7 +60,7 @@ fn read_headers(input: &mut impl BufRead) -> ProtocolResult<Option<usize>> {
                 None => Err(ProtocolError::NoContentLengthHeader),
             };
         } else {
-            if let Some(captures) = HEADER_REGEX.captures(&header_text) {
+            if let Some(captures) = HEADER_REGEX.with(|regex| regex.captures(&header_text)) {
                 content_length = Some(
                     captures
                         .get(1)
