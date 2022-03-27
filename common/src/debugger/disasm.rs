@@ -292,7 +292,7 @@ struct InstructionDescriptor<'a> {
     addressing_mode: AddressingMode,
 }
 
-type InstructionDescriptorMap<'a> = [Option<InstructionDescriptor<'a>>; 255];
+type InstructionDescriptorMap<'a> = [Option<InstructionDescriptor<'a>>; 256];
 
 thread_local! {
     /// A map that describes addressing modes of all possible opcodes.
@@ -302,7 +302,7 @@ thread_local! {
 fn all_instruction_descriptors<'a>() -> InstructionDescriptorMap<'a> {
     use ya6502::cpu::opcodes::*;
     use AddressingMode::*;
-    let mut descriptors = [None; 255];
+    let mut descriptors = [None; 256];
 
     define_instruction(&mut descriptors, NOP, "NOP", Implied);
 
