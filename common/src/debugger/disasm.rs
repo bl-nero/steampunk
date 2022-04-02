@@ -21,57 +21,58 @@ pub fn disassemble<I: MachineInspector>(
     margin: usize,
     length: usize,
 ) -> Vec<DisassembledInstruction> {
-    // TODO: clean this up.
     let mut memory_stream = MemoryStream::new(inspector, start_address);
     return iter::from_fn(|| {
         let instruction_start = memory_stream.ptr;
-        let opcode = memory_stream.read_byte();
-        let instruction_descriptor =
-            INSTRUCTIONS.with(|instructions| instructions[opcode as usize]);
-        return match instruction_descriptor {
-            Some(InstructionDescriptor {
-                mnemonic,
-                addressing_mode,
-            }) => {
-                use itertools::Itertools;
-                let argument = addressing_mode.read_argument(&mut memory_stream);
-                println!(
-                    "{:04X}, {:04X}, {:04X}",
-                    instruction_start, origin, memory_stream.ptr
-                );
-                if (instruction_start < origin && origin < memory_stream.ptr)
-                    || (memory_stream.ptr < instruction_start && instruction_start < origin)
-                    || (origin < memory_stream.ptr && memory_stream.ptr < instruction_start)
-                {
-                    memory_stream.ptr = instruction_start.wrapping_add(1);
-                    Some(DisassembledInstruction {
-                        address: format!("0x{:04X}", instruction_start),
-                        instruction_bytes: format!("{:02X}", opcode),
-                        instruction: "".to_string(),
-                    })
-                } else {
-                    let arg_bytes = argument.to_raw_bytes();
-                    let all_bytes = iter::once(opcode).chain(arg_bytes);
-                    let instruction_parts = [mnemonic, &format!("{}", argument)];
-                    let non_empty_instruction_parts =
-                        instruction_parts.iter().filter(|s| s.len() > 0);
-                    Some(DisassembledInstruction {
-                        address: format!("0x{:04X}", instruction_start),
-                        instruction_bytes: format!("{:02X}", all_bytes.format(" ")),
-                        instruction: format!("{}", non_empty_instruction_parts.format(" ")),
-                    })
-                }
-            }
-            None => Some(DisassembledInstruction {
-                address: format!("0x{:04X}", instruction_start),
-                instruction_bytes: format!("{:02X}", opcode),
-                instruction: "".to_string(),
-            }),
+        let instruction = read_instruction_unless_crosses_origin(&mut memory_stream, origin);
+
+        use itertools::Itertools;
+        let all_bytes = instruction.to_raw_bytes();
+        let mnemonic = match instruction.descriptor {
+            Some(descriptor) => descriptor.mnemonic,
+            None => "",
+        }
+        .to_string();
+        let argument = match instruction.argument {
+            Some(argument) => format!("{}", argument),
+            None => "".to_string(),
         };
+        let instruction_parts = [mnemonic, argument];
+        let non_empty_instruction_parts = instruction_parts.iter().filter(|s| s.len() > 0);
+        return Some(DisassembledInstruction {
+            address: format!("0x{:04X}", instruction_start),
+            instruction_bytes: format!("{:02X}", all_bytes.iter().format(" ")),
+            instruction: format!("{}", non_empty_instruction_parts.format(" ")),
+        });
     })
     .skip(margin)
     .take(length)
     .collect();
+}
+
+fn read_instruction_unless_crosses_origin<'a, I>(
+    stream: &mut MemoryStream<I>,
+    origin: u16,
+) -> Instruction<'a>
+where
+    I: MachineInspector,
+{
+    let instruction_start = stream.ptr;
+    let mut instruction = stream.read_instruction();
+    let crossed_origin = (instruction_start < origin && origin < stream.ptr)
+        || (stream.ptr < instruction_start && instruction_start < origin)
+        || (origin < stream.ptr && stream.ptr < instruction_start);
+
+    if crossed_origin {
+        stream.ptr = instruction_start.wrapping_add(1);
+        return Instruction {
+            opcode: instruction.opcode,
+            descriptor: None,
+            argument: None,
+        };
+    }
+
+    return instruction;
 }
 
 /// Adds a given number of instructions (`offset`) to the `origin` address. If
@@ -79,106 +80,115 @@ pub fn disassemble<I: MachineInspector>(
 /// process; if it's negative, we use a heuristic algorithm that minimizes the
 /// number of unknown instructions.
 pub fn seek_instruction<I: MachineInspector>(inspector: &I, origin: u16, offset: i64) -> u16 {
-    // TODO: clean this up.
+    let mut stream = MemoryStream::new(inspector, origin);
+
     if offset >= 0 {
-        let mut stream = MemoryStream::new(inspector, origin);
-        INSTRUCTIONS.with(|instructions| {
-            for _ in 0..offset {
-                let opcode = stream.read_byte();
-                match instructions[opcode as usize] {
-                    Some(InstructionDescriptor {
-                        addressing_mode, ..
-                    }) => {
-                        addressing_mode.read_argument(&mut stream);
-                    }
-                    None => {}
-                };
-            }
-        });
+        for _ in 0..offset {
+            stream.read_instruction();
+        }
         return stream.ptr;
     } else {
-        let mut stream = MemoryStream::new(inspector, origin);
-        return INSTRUCTIONS.with(|instructions| {
-            #[derive(Clone, Debug)]
-            struct ChainLink {
-                num_instructions: i64,
-                num_unknown_instructions: u16,
+        // Initialize a vector of chain links. A chain link at index `i`
+        // represents a (potential) instruction that starts at address `origin -
+        // i`. The first chain link is obviously the origin instruction itself.
+        let mut chain_links = vec![ChainLink {
+            num_instructions: 0,
+            num_unknown_instructions: 0,
+        }];
+
+        // This variable holds a vector of indices in the `chain_links` vector.
+        // Each candidate link is guaranteed to be exactly `-offset`
+        // instructions away from the origin.
+        let mut candidate_link_indices = vec![];
+
+        // Repeat the loop until at least 3 trailing chain links have at least
+        // the required number of instructions. The magical number "3" stems
+        // from the maximum number of bytes in a single 6502 instruction. Note
+        // that perhaps it could be mathematically proven that we can finish
+        // earlier, but that would be just a microoptimization that doesn't
+        // change too much.
+        while !seeking_backward_finished(&chain_links, offset) {
+            // Go back one instruction and back up that pointer, since we'll
+            // attempt to consume an instruction from here.
+            let ptr = stream.ptr.wrapping_sub(1);
+            stream.ptr = ptr;
+
+            let instruction = stream.read_instruction();
+            let is_unknown = instruction.descriptor.is_none();
+            let instruction_length: usize = stream.ptr.wrapping_sub(ptr).into();
+
+            // The target link offset denotes number of bytes until the next
+            // link after current instruction. In a special case where after
+            // consuming the instruction, we end up crossing the origin (in
+            // other words, we skip more chain links than we have), we only move
+            // by one instruction; in this case, the disassembly algorithm needs
+            // to treat this instruction as a data byte, possibly an end of a
+            // data segment right before the code block where the PC is
+            // currently pointing at.
+            let target_link_offset = if instruction_length <= chain_links.len() {
+                instruction_length
+            } else {
+                1
+            };
+            let target_link_index = chain_links.len() - target_link_offset;
+
+            // The current instruction, after being consumed, leads to this
+            // target link.
+            let target_link = &chain_links[target_link_index];
+
+            // We can now create current instruction's chain link, deriving its
+            // parameters from the target link.
+            let link = ChainLink {
+                num_instructions: target_link.num_instructions + 1,
+                num_unknown_instructions: if is_unknown {
+                    target_link.num_unknown_instructions + 1
+                } else {
+                    target_link.num_unknown_instructions
+                },
+            };
+
+            // If we hit exactly the required number of instructions, we mark
+            // the current instruction as a candidate link.
+            if link.num_instructions == -offset {
+                candidate_link_indices.push(chain_links.len());
             }
+            chain_links.push(link);
 
-            let mut chain_links = vec![ChainLink {
-                num_instructions: 0,
-                num_unknown_instructions: 0,
-            }];
-            let mut candidate_link_indices = vec![];
-            loop {
-                let ptr = stream.ptr.wrapping_sub(1);
-                stream.ptr = ptr;
-                let opcode = stream.read_byte();
-                let mut is_unknown = false;
-                match instructions[opcode as usize] {
-                    Some(InstructionDescriptor {
-                        addressing_mode, ..
-                    }) => {
-                        addressing_mode.read_argument(&mut stream);
-                    }
-                    None => {
-                        is_unknown = true;
-                    }
-                }
-                // TODO: solve the wrapping arithmetic problem here.
-                let instruction_length = stream.ptr.wrapping_sub(ptr);
-                // let mut next_link_index = origin.wrapping_sub(stream.ptr);
-                // if next_link_index < 0 {
-                // let next_link_index = if instruction_length >= chain_links.len() as isize {
-                //     is_unknown = true;
-                //     chain_links.len() - 1
-                // } else {
-                //     chain_links.len() - instruction_length as usize
-                // };
-                let next_link_index = chain_links.len()
-                    - if instruction_length as usize <= chain_links.len() {
-                        instruction_length as usize
-                    } else {
-                        1
-                    };
+            // Go back to where the current instruction started.
+            stream.ptr = ptr;
+        }
 
-                let next_link = &chain_links[next_link_index];
-                let link = ChainLink {
-                    num_instructions: next_link.num_instructions + 1,
-                    num_unknown_instructions: if is_unknown {
-                        next_link.num_unknown_instructions + 1
-                    } else {
-                        next_link.num_unknown_instructions
-                    },
-                };
-                if link.num_instructions == -offset {
-                    candidate_link_indices.push(chain_links.len());
-                }
-                chain_links.push(link);
-                stream.ptr = ptr;
-                // println!("Links: {:?}", &chain_links);
-                // println!("Candidates: {:?}", &candidate_link_indices);
-
-                if chain_links.len() >= 3 {
-                    let mut done = true;
-                    for i in chain_links.len() - 3..chain_links.len() {
-                        if chain_links[i].num_instructions < -offset {
-                            done = false;
-                        }
-                    }
-                    if done {
-                        return origin.wrapping_sub(
-                            candidate_link_indices
-                                .into_iter()
-                                .min_by_key(|index| chain_links[*index].num_unknown_instructions)
-                                .expect("Unable to find matching candidate link")
-                                as u16,
-                        );
-                    }
-                }
-            }
-        });
+        // Once we finish computing the candidate links, we return the one with
+        // the smallest number of unknown instructions.
+        return origin.wrapping_sub(
+            candidate_link_indices
+                .into_iter()
+                .min_by_key(|index| chain_links[*index].num_unknown_instructions)
+                .expect("Unable to find matching candidate link") as u16,
+        );
     }
+}
+
+/// An auxiliary structure used by the instruction seeking algorithm. It
+/// represents a place in memory that is a start of a chain of a given number of
+/// instructions, some of them unknown (i.e. uninterpretable bytes).
+#[derive(Clone, Debug)]
+struct ChainLink {
+    /// Number of instructions until the origin.
+    num_instructions: i64,
+    /// Number of unknown instructions (i.e. uninterpretable bytes) in the chain.
+    num_unknown_instructions: u16,
+}
+
+/// Checks whether there are at least 3 consecutive chain links at the end with
+/// the minimal required number of instructions.
+fn seeking_backward_finished(chain_links: &[ChainLink], offset: i64) -> bool {
+    chain_links.len() >= 3
+        && chain_links
+            .iter()
+            .rev()
+            .take(3)
+            .all(|link| link.num_instructions >= -offset)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -301,6 +311,35 @@ impl<'a, I: MachineInspector> MemoryStream<'a, I> {
         let msb = self.read_byte();
         return u16::from_le_bytes([lsb, msb]);
     }
+    // Note: it's neceessary to explicitly declare <'b> here, since otherwise,
+    // the returned instruction implicitly borrows `self` mutably. Don't even
+    // ask me how.
+    fn read_instruction<'b>(&mut self) -> Instruction<'b> {
+        let opcode = self.read_byte();
+        let descriptor = INSTRUCTION_DESCRIPTORS.with(|descriptors| descriptors[opcode as usize]);
+        let argument = descriptor.map(|d| d.addressing_mode.read_argument(self));
+        return Instruction {
+            opcode,
+            argument,
+            descriptor,
+        };
+    }
+}
+
+struct Instruction<'a> {
+    opcode: u8,
+    argument: Option<Argument>,
+    descriptor: Option<InstructionDescriptor<'a>>,
+}
+
+impl<'a> Instruction<'a> {
+    fn to_raw_bytes(&self) -> Vec<u8> {
+        let arg_bytes = match self.argument {
+            Some(arg) => arg.to_raw_bytes(),
+            None => vec![],
+        };
+        return iter::once(self.opcode).chain(arg_bytes).collect();
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -313,7 +352,7 @@ type InstructionDescriptorMap<'a> = [Option<InstructionDescriptor<'a>>; 256];
 
 thread_local! {
     /// A map that describes addressing modes of all possible opcodes.
-    static INSTRUCTIONS: InstructionDescriptorMap<'static> = all_instruction_descriptors();
+    static INSTRUCTION_DESCRIPTORS: InstructionDescriptorMap<'static> = all_instruction_descriptors();
 }
 
 fn all_instruction_descriptors<'a>() -> InstructionDescriptorMap<'a> {
