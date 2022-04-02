@@ -35,8 +35,15 @@ pub fn disassemble<I: MachineInspector>(
             }) => {
                 use itertools::Itertools;
                 let argument = addressing_mode.read_argument(&mut memory_stream);
-                if instruction_start < origin && memory_stream.ptr > origin {
-                    memory_stream.ptr = instruction_start + 1;
+                println!(
+                    "{:04X}, {:04X}, {:04X}",
+                    instruction_start, origin, memory_stream.ptr
+                );
+                if (instruction_start < origin && origin < memory_stream.ptr)
+                    || (memory_stream.ptr < instruction_start && instruction_start < origin)
+                    || (origin < memory_stream.ptr && memory_stream.ptr < instruction_start)
+                {
+                    memory_stream.ptr = instruction_start.wrapping_add(1);
                     Some(DisassembledInstruction {
                         address: format!("0x{:04X}", instruction_start),
                         instruction_bytes: format!("{:02X}", opcode),
@@ -104,7 +111,7 @@ pub fn seek_instruction<I: MachineInspector>(inspector: &I, origin: u16, offset:
             }];
             let mut candidate_link_indices = vec![];
             loop {
-                let ptr = stream.ptr - 1;
+                let ptr = stream.ptr.wrapping_sub(1);
                 stream.ptr = ptr;
                 let opcode = stream.read_byte();
                 let mut is_unknown = false;
@@ -119,13 +126,23 @@ pub fn seek_instruction<I: MachineInspector>(inspector: &I, origin: u16, offset:
                     }
                 }
                 // TODO: solve the wrapping arithmetic problem here.
-                let mut next_link_index = (origin as isize) - (stream.ptr as isize);
-                if next_link_index < 0 {
-                    next_link_index = chain_links.len() as isize - 1;
-                    is_unknown = true;
-                }
+                let instruction_length = stream.ptr.wrapping_sub(ptr);
+                // let mut next_link_index = origin.wrapping_sub(stream.ptr);
+                // if next_link_index < 0 {
+                // let next_link_index = if instruction_length >= chain_links.len() as isize {
+                //     is_unknown = true;
+                //     chain_links.len() - 1
+                // } else {
+                //     chain_links.len() - instruction_length as usize
+                // };
+                let next_link_index = chain_links.len()
+                    - if instruction_length as usize <= chain_links.len() {
+                        instruction_length as usize
+                    } else {
+                        1
+                    };
 
-                let next_link = &chain_links[next_link_index as usize];
+                let next_link = &chain_links[next_link_index];
                 let link = ChainLink {
                     num_instructions: next_link.num_instructions + 1,
                     num_unknown_instructions: if is_unknown {
@@ -150,13 +167,13 @@ pub fn seek_instruction<I: MachineInspector>(inspector: &I, origin: u16, offset:
                         }
                     }
                     if done {
-                        return origin
-                            - candidate_link_indices
-                                .iter()
-                                .copied()
+                        return origin.wrapping_sub(
+                            candidate_link_indices
+                                .into_iter()
                                 .min_by_key(|index| chain_links[*index].num_unknown_instructions)
                                 .expect("Unable to find matching candidate link")
-                                as u16;
+                                as u16,
+                        );
                     }
                 }
             }
@@ -504,6 +521,18 @@ mod tests {
     use ya6502::cpu_with_code;
     use ya6502::test_utils::cpu_with_program;
 
+    fn disassembled(
+        address: &str,
+        instruction_bytes: &str,
+        instruction: &str,
+    ) -> DisassembledInstruction {
+        DisassembledInstruction {
+            address: address.to_string(),
+            instruction_bytes: instruction_bytes.to_string(),
+            instruction: instruction.to_string(),
+        }
+    }
+
     #[test]
     fn memory_stream_reading_bytes() {
         let cpu = cpu_with_program(&[0x54, 0x45]);
@@ -643,6 +672,19 @@ mod tests {
     }
 
     #[test]
+    fn seek_backward_with_wrapping() {
+        let mut cpu = cpu_with_program(&[]);
+        cpu.mut_memory().bytes[0xFFFF] = 0xEA;
+        assert_eq!(seek_instruction(&cpu, 0x0000, -1), 0xFFFF);
+
+        let mut cpu = cpu_with_program(&[]);
+        // LDA $12
+        cpu.mut_memory().bytes[0xFFFF] = 0xA5;
+        cpu.mut_memory().bytes[0x0000] = 0x12;
+        assert_eq!(seek_instruction(&cpu, 0x0001, -1), 0xFFFF);
+    }
+
+    #[test]
     fn disassemble_no_offset() {
         let cpu = cpu_with_code! {
                 lda 0x45
@@ -657,46 +699,18 @@ mod tests {
         assert_eq!(
             disassemble(&cpu, 0xF000, 0xF000, 0, 5),
             vec![
-                DisassembledInstruction {
-                    address: "0xF000".to_string(),
-                    instruction_bytes: "A5 45".to_string(),
-                    instruction: "LDA $45".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF002".to_string(),
-                    instruction_bytes: "A2 04".to_string(),
-                    instruction: "LDX #$04".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF004".to_string(),
-                    instruction_bytes: "9D EF BE".to_string(),
-                    instruction: "STA $BEEF,X".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF007".to_string(),
-                    instruction_bytes: "CA".to_string(),
-                    instruction: "DEX".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF008".to_string(),
-                    instruction_bytes: "D0 F8".to_string(),
-                    instruction: "BNE -8".to_string(),
-                }
+                disassembled("0xF000", "A5 45", "LDA $45"),
+                disassembled("0xF002", "A2 04", "LDX #$04",),
+                disassembled("0xF004", "9D EF BE", "STA $BEEF,X",),
+                disassembled("0xF007", "CA", "DEX",),
+                disassembled("0xF008", "D0 F8", "BNE -8",)
             ]
         );
         assert_eq!(
             disassemble(&cpu, 0xF002, 0xF002, 0, 2),
             vec![
-                DisassembledInstruction {
-                    address: "0xF002".to_string(),
-                    instruction_bytes: "A2 04".to_string(),
-                    instruction: "LDX #$04".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF004".to_string(),
-                    instruction_bytes: "9D EF BE".to_string(),
-                    instruction: "STA $BEEF,X".to_string(),
-                },
+                disassembled("0xF002", "A2 04", "LDX #$04",),
+                disassembled("0xF004", "9D EF BE", "STA $BEEF,X",),
             ]
         );
     }
@@ -707,21 +721,9 @@ mod tests {
         assert_eq!(
             disassemble(&cpu, 0xF000, 0xF000, 0, 3),
             vec![
-                DisassembledInstruction {
-                    address: "0xF000".to_string(),
-                    instruction_bytes: "EA".to_string(),
-                    instruction: "NOP".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF001".to_string(),
-                    instruction_bytes: "67".to_string(),
-                    instruction: "".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF002".to_string(),
-                    instruction_bytes: "EA".to_string(),
-                    instruction: "NOP".to_string(),
-                },
+                disassembled("0xF000", "EA", "NOP",),
+                disassembled("0xF001", "67", "",),
+                disassembled("0xF002", "EA", "NOP",),
             ]
         );
     }
@@ -737,46 +739,18 @@ mod tests {
         assert_eq!(
             disassemble(&cpu, 0xF002, 0xF000, 0, 3),
             vec![
-                DisassembledInstruction {
-                    address: "0xF000".to_string(),
-                    instruction_bytes: "A5 45".to_string(),
-                    instruction: "LDA $45".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF002".to_string(),
-                    instruction_bytes: "85 EA".to_string(),
-                    instruction: "STA $EA".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF004".to_string(),
-                    instruction_bytes: "85 AE".to_string(),
-                    instruction: "STA $AE".to_string(),
-                },
+                disassembled("0xF000", "A5 45", "LDA $45",),
+                disassembled("0xF002", "85 EA", "STA $EA",),
+                disassembled("0xF004", "85 AE", "STA $AE",),
             ]
         );
         assert_eq!(
             disassemble(&cpu, 0xF003, 0xF000, 0, 4),
             vec![
-                DisassembledInstruction {
-                    address: "0xF000".to_string(),
-                    instruction_bytes: "A5 45".to_string(),
-                    instruction: "LDA $45".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF002".to_string(),
-                    instruction_bytes: "85".to_string(),
-                    instruction: "".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF003".to_string(),
-                    instruction_bytes: "EA".to_string(),
-                    instruction: "NOP".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF004".to_string(),
-                    instruction_bytes: "85 AE".to_string(),
-                    instruction: "STA $AE".to_string(),
-                },
+                disassembled("0xF000", "A5 45", "LDA $45",),
+                disassembled("0xF002", "85", "",),
+                disassembled("0xF003", "EA", "NOP",),
+                disassembled("0xF004", "85 AE", "STA $AE",),
             ]
         )
     }
@@ -791,17 +765,31 @@ mod tests {
         assert_eq!(
             disassemble(&cpu, 0xF003, 0xF000, 1, 2),
             vec![
-                DisassembledInstruction {
-                    address: "0xF002".to_string(),
-                    instruction_bytes: "E8".to_string(),
-                    instruction: "INX".to_string(),
-                },
-                DisassembledInstruction {
-                    address: "0xF003".to_string(),
-                    instruction_bytes: "86 46".to_string(),
-                    instruction: "STX $46".to_string(),
-                },
+                disassembled("0xF002", "E8", "INX",),
+                disassembled("0xF003", "86 46", "STX $46",),
             ]
         )
+    }
+
+    /// Tests some incredibly rare edge cases that occur when we perform
+    /// wrapping arithmetic operations close to the wrapping point.
+    #[test]
+    fn disassemble_jumping_through_origin_with_address_wrapping() {
+        let mut cpu = cpu_with_program(&[]);
+        // STA $EA
+        cpu.mut_memory().bytes[0xFFFE] = 0x85;
+        cpu.mut_memory().bytes[0xFFFF] = 0xEA;
+        assert_eq!(
+            disassemble(&cpu, 0xFFFF, 0xFFFE, 0, 1),
+            vec![disassembled("0xFFFE", "85", "")]
+        );
+
+        let mut cpu = cpu_with_program(&[]);
+        cpu.mut_memory().bytes[0xFFFF] = 0x85;
+        cpu.mut_memory().bytes[0x0000] = 0xEA;
+        assert_eq!(
+            disassemble(&cpu, 0x0000, 0xFFFF, 0, 1),
+            vec![disassembled("0xFFFF", "85", "")]
+        );
     }
 }
