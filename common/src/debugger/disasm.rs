@@ -58,7 +58,7 @@ where
     I: MachineInspector,
 {
     let instruction_start = stream.ptr;
-    let mut instruction = stream.read_instruction();
+    let instruction = stream.read_instruction();
     let crossed_origin = (instruction_start < origin && origin < stream.ptr)
         || (stream.ptr < instruction_start && instruction_start < origin)
         || (origin < stream.ptr && stream.ptr < instruction_start);

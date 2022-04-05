@@ -13,24 +13,27 @@ mod test_utils;
 
 use crate::app::AtariController;
 use atari::{Atari, AtariAddressSpace};
+use clap::Parser;
 use common::app::Application;
+use common::app::CommonCliArguments;
 use common::debugger::adapter::TcpDebugAdapter;
 use frame_renderer::FrameRendererBuilder;
-use std::env;
 use std::sync::atomic::Ordering;
 use ya6502::memory::Rom;
 
+#[derive(Parser)]
+struct Args {
+    #[clap(flatten)]
+    common: CommonCliArguments,
+    cartridge_file: String,
+}
+
 fn main() {
+    let args = Args::parse();
+
     println!("Ready player ONE!");
 
-    let args: Vec<String> = env::args().collect();
-    // Load the ROM image.
-    if args.len() < 2 {
-        eprintln!("Usage: atari2600 <ROM_file>");
-        eprintln!("No ROM file given, exiting.");
-        return;
-    }
-    let rom_bytes = std::fs::read(&args[1]).expect("Unable to read the ROM image file");
+    let rom_bytes = std::fs::read(args.cartridge_file).expect("Unable to read the ROM image file");
     // Create and initialize components of the emulated system.
     let address_space = Box::new(AtariAddressSpace::new(
         Rom::new(&rom_bytes[..]).expect("Unable to load the ROM into Atari"),
@@ -45,8 +48,14 @@ fn main() {
         audio_consumer,
     );
 
+    let debugger_adapter = if args.common.debugger {
+        Some(TcpDebugAdapter::new(args.common.debugger_port))
+    } else {
+        None
+    };
+
     let mut app = Application::new(
-        AtariController::new(&mut atari, None::<TcpDebugAdapter>),
+        AtariController::new(&mut atari, debugger_adapter),
         "Atari 2600",
         5,
         3,

@@ -21,6 +21,7 @@ rodio = "0.14.0"
 common = { path = "../common" }
 ya6502 = { path = "../ya6502" }
 delegate = "0.6.2"
+clap = { version = "3.1.0", features = ["derive"] }
 
 [build-dependencies]
 common = { path = "../common" }

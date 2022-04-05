@@ -1,5 +1,6 @@
 use crate::debugger::adapter::DebugAdapter;
 use crate::debugger::Debugger;
+use clap::Parser;
 use image::RgbaImage;
 use piston::{Event, EventLoop, WindowSettings};
 use piston_window::{
@@ -9,6 +10,14 @@ use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use ya6502::cpu::MachineInspector;
+
+#[derive(Parser)]
+pub struct CommonCliArguments {
+    #[clap(long)]
+    pub debugger: bool,
+    #[clap(long, default_value = "1234")]
+    pub debugger_port: u16,
+}
 
 /// A generic interface that provides basic operations common to all emulated
 /// machines.
