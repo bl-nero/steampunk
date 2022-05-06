@@ -9,6 +9,7 @@ use crate::debugger::adapter::DebugAdapter;
 use crate::debugger::adapter::DebugAdapterError;
 use crate::debugger::adapter::DebugAdapterResult;
 use crate::debugger::core::DebuggerCore;
+use crate::debugger::dap_types::Breakpoint;
 use crate::debugger::dap_types::Capabilities;
 use crate::debugger::dap_types::DisassembleArguments;
 use crate::debugger::dap_types::DisassembleResponse;
@@ -22,6 +23,8 @@ use crate::debugger::dap_types::ResponseEnvelope;
 use crate::debugger::dap_types::Scope;
 use crate::debugger::dap_types::ScopePresentationHint;
 use crate::debugger::dap_types::ScopesResponse;
+use crate::debugger::dap_types::SetInstructionBreakpointsArguments;
+use crate::debugger::dap_types::SetInstructionBreakpointsResponse;
 use crate::debugger::dap_types::StackFrame;
 use crate::debugger::dap_types::StackTraceResponse;
 use crate::debugger::dap_types::StopReason;
@@ -80,7 +83,7 @@ impl<A: DebugAdapter> Debugger<A> {
         Ok(())
     }
 
-    pub fn process_meessages(&mut self, inspector: &impl MachineInspector) {
+    pub fn process_messages(&mut self, inspector: &impl MachineInspector) {
         loop {
             match self.adapter.try_receive_message() {
                 Ok(envelope) => self.process_message(envelope, inspector),
@@ -106,6 +109,7 @@ impl<A: DebugAdapter> Debugger<A> {
         let (response, continuation) = match request {
             Request::Initialize(args) => self.initialize(args),
             Request::SetExceptionBreakpoints {} => self.set_exception_breakpoints(),
+            Request::SetInstructionBreakpoints(args) => self.set_instruction_breakpoints(args),
             Request::Attach {} => self.attach(),
             Request::Threads => self.threads(),
             Request::StackTrace {} => self.stack_trace(inspector),
@@ -144,6 +148,7 @@ impl<A: DebugAdapter> Debugger<A> {
         (
             Response::Initialize(Capabilities {
                 supports_disassemble_request: true,
+                supports_instruction_breakpoints: true,
             }),
             Some(Box::new(|me| me.send_event(Event::Initialized))),
         )
@@ -151,6 +156,33 @@ impl<A: DebugAdapter> Debugger<A> {
 
     fn set_exception_breakpoints(&self) -> RequestOutcome<A> {
         (Response::SetExceptionBreakpoints, None)
+    }
+
+    fn set_instruction_breakpoints(
+        &mut self,
+        args: SetInstructionBreakpointsArguments,
+    ) -> RequestOutcome<A> {
+        let addresses_iter = args.breakpoints.iter().map(|breakpoint| {
+            (i64::from_str_radix(
+                breakpoint.instruction_reference.strip_prefix("0x").unwrap(),
+                16,
+            )
+            .unwrap()
+                + breakpoint.offset.unwrap_or(0)) as u16
+        });
+        self.core
+            .set_instruction_breakpoints(addresses_iter.clone().collect());
+        (
+            Response::SetInstructionBreakpoints(SetInstructionBreakpointsResponse {
+                breakpoints: addresses_iter
+                    .map(|address| Breakpoint {
+                        verified: true,
+                        instruction_reference: format!("0x{:04X}", address),
+                    })
+                    .collect(),
+            }),
+            None,
+        )
     }
 
     fn attach(&self) -> RequestOutcome<A> {
@@ -318,12 +350,17 @@ fn byte_variable(name: &str, value: u8) -> Variable {
 mod tests {
     use super::*;
     use crate::debugger::adapter::FakeDebugAdapter;
+    use crate::debugger::dap_types::Breakpoint;
     use crate::debugger::dap_types::DisassembledInstruction;
     use crate::debugger::dap_types::InitializeArguments;
+    use crate::debugger::dap_types::InstructionBreakpoint;
     use crate::debugger::dap_types::MessageEnvelope;
+    use crate::debugger::dap_types::SetInstructionBreakpointsArguments;
     use std::assert_matches::assert_matches;
+    use ya6502::cpu::Cpu;
     use ya6502::cpu::MockMachineInspector;
     use ya6502::cpu_with_code;
+    use ya6502::memory::Ram;
 
     fn assert_responded_with(adapter: &FakeDebugAdapter, expected_response: Response) {
         assert_matches!(
@@ -352,6 +389,19 @@ mod tests {
         );
     }
 
+    fn tick_while_running<A: DebugAdapter>(debugger: &mut Debugger<A>, cpu: &mut Cpu<Ram>) {
+        // Limit to 1000 ticks; we won't expect tests to run for that long, and
+        // this way we avoid infinite loops.
+        for _ in 0..1000 {
+            if debugger.paused() {
+                return;
+            }
+            cpu.tick().unwrap();
+            debugger.update(cpu).unwrap();
+        }
+        panic!("CPU still running at PC={:04X}", cpu.reg_pc());
+    }
+
     #[test]
     fn uses_sequence_numbers() {
         let inspector = MockMachineInspector::new();
@@ -372,7 +422,7 @@ mod tests {
         }));
         let mut debugger = Debugger::new(adapter.clone());
 
-        debugger.process_meessages(&inspector);
+        debugger.process_messages(&inspector);
 
         assert_matches!(
             adapter.pop_outgoing(),
@@ -409,15 +459,21 @@ mod tests {
         }));
         adapter.push_request(Request::Attach {});
         adapter.push_request(Request::SetExceptionBreakpoints {});
+        adapter.push_request(Request::SetInstructionBreakpoints(
+            SetInstructionBreakpointsArguments {
+                breakpoints: vec![],
+            },
+        ));
         adapter.push_request(Request::Threads {});
         let mut debugger = Debugger::new(adapter.clone());
 
-        debugger.process_meessages(&inspector);
+        debugger.process_messages(&inspector);
 
         assert_responded_with(
             &adapter,
             Response::Initialize(Capabilities {
                 supports_disassemble_request: true,
+                supports_instruction_breakpoints: true,
             }),
         );
         assert_emitted(&adapter, Event::Initialized);
@@ -431,6 +487,12 @@ mod tests {
             }),
         );
         assert_responded_with(&adapter, Response::SetExceptionBreakpoints);
+        assert_responded_with(
+            &adapter,
+            Response::SetInstructionBreakpoints(SetInstructionBreakpointsResponse {
+                breakpoints: vec![],
+            }),
+        );
         assert_responded_with(
             &adapter,
             Response::Threads(ThreadsResponse {
@@ -451,7 +513,7 @@ mod tests {
         adapter.push_request(Request::StackTrace {});
         let mut debugger = Debugger::new(adapter.clone());
 
-        debugger.process_meessages(&inspector);
+        debugger.process_messages(&inspector);
 
         assert_responded_with(
             &adapter,
@@ -470,7 +532,7 @@ mod tests {
 
         inspector.expect_reg_pc().once().return_const(0x0A04u16);
         adapter.push_request(Request::StackTrace {});
-        debugger.process_meessages(&inspector);
+        debugger.process_messages(&inspector);
 
         assert_responded_with(
             &adapter,
@@ -509,7 +571,7 @@ mod tests {
             instruction_offset: None,
             instruction_count: 1,
         }));
-        debugger.process_meessages(&cpu);
+        debugger.process_messages(&cpu);
 
         assert_responded_with(
             &adapter,
@@ -563,7 +625,7 @@ mod tests {
             instruction_offset: Some(-1),
             instruction_count: 2,
         }));
-        debugger.process_meessages(&cpu);
+        debugger.process_messages(&cpu);
 
         assert_responded_with(
             &adapter,
@@ -626,7 +688,7 @@ mod tests {
         inspector.expect_reg_sp().return_const(0x31);
         inspector.expect_reg_pc().return_const(0x0ABCu16);
         inspector.expect_flags().return_const(0x40);
-        debugger.process_meessages(&inspector);
+        debugger.process_messages(&inspector);
 
         assert_responded_with(
             &adapter,
@@ -687,13 +749,13 @@ mod tests {
         let mut debugger = Debugger::new(adapter.clone());
         assert!(debugger.paused());
 
-        debugger.process_meessages(&inspector);
+        debugger.process_messages(&inspector);
 
         assert_responded_with(&adapter, Response::Continue {});
         assert!(!debugger.paused());
 
         adapter.push_request(Request::Pause {});
-        debugger.process_meessages(&inspector);
+        debugger.process_messages(&inspector);
 
         assert_responded_with(&adapter, Response::Pause {});
         assert_emitted(
@@ -718,7 +780,7 @@ mod tests {
         adapter.push_request(Request::StepIn {});
         let mut debugger = Debugger::new(adapter.clone());
 
-        debugger.process_meessages(&cpu);
+        debugger.process_messages(&cpu);
 
         assert_responded_with(&adapter, Response::StepIn {});
         assert!(!debugger.paused());
@@ -741,13 +803,86 @@ mod tests {
     }
 
     #[test]
+    fn instruction_breakpoints() {
+        let mut cpu = cpu_with_code! {
+                nop
+                nop
+                nop
+                nop
+            loop:
+                jmp loop
+        };
+        let adapter = FakeDebugAdapter::default();
+        let mut debugger = Debugger::new(adapter.clone());
+
+        adapter.push_request(Request::SetInstructionBreakpoints(
+            SetInstructionBreakpointsArguments {
+                breakpoints: vec![
+                    InstructionBreakpoint {
+                        instruction_reference: "0xF001".to_string(),
+                        offset: None,
+                    },
+                    InstructionBreakpoint {
+                        instruction_reference: "0xEFFF".to_string(),
+                        offset: Some(4), // Effective address: 0xF003
+                    },
+                ],
+            },
+        ));
+        adapter.push_request(Request::Continue {});
+        debugger.process_messages(&mut cpu);
+        assert_responded_with(
+            &adapter,
+            Response::SetInstructionBreakpoints(SetInstructionBreakpointsResponse {
+                breakpoints: vec![
+                    Breakpoint {
+                        verified: true,
+                        instruction_reference: "0xF001".to_string(),
+                    },
+                    Breakpoint {
+                        verified: true,
+                        instruction_reference: "0xF003".to_string(),
+                    },
+                ],
+            }),
+        );
+        assert_responded_with(&adapter, Response::Continue {});
+
+        tick_while_running(&mut debugger, &mut cpu);
+        assert_emitted(
+            &adapter,
+            Event::Stopped(StoppedEvent {
+                thread_id: 1,
+                reason: StopReason::Step,
+                all_threads_stopped: true,
+            }),
+        );
+        assert_eq!(cpu.reg_pc(), 0xF001);
+
+        adapter.push_request(Request::Continue {});
+        debugger.process_messages(&mut cpu);
+        assert_responded_with(&adapter, Response::Continue {});
+
+        tick_while_running(&mut debugger, &mut cpu);
+        assert_emitted(
+            &adapter,
+            Event::Stopped(StoppedEvent {
+                thread_id: 1,
+                reason: StopReason::Step,
+                all_threads_stopped: true,
+            }),
+        );
+        assert_eq!(cpu.reg_pc(), 0xF003);
+    }
+
+    #[test]
     fn disconnects() {
         let inspector = MockMachineInspector::new();
         let adapter = FakeDebugAdapter::default();
         adapter.push_request(Request::Disconnect(None));
         adapter.expect_disconnect();
         let mut debugger = Debugger::new(adapter.clone());
-        debugger.process_meessages(&inspector);
+        debugger.process_messages(&inspector);
 
         assert_responded_with(&adapter, Response::Disconnect);
         assert!(adapter.disconnected());

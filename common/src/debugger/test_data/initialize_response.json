@@ -5,6 +5,7 @@
     "command": "initialize",
     "success": true,
     "body": {
-        "supportsDisassembleRequest": true
+        "supportsDisassembleRequest": true,
+        "supportsInstructionBreakpoints": true
     }
 }

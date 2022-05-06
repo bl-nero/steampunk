@@ -6,6 +6,7 @@ pub struct DebuggerCore {
     paused: bool,
     will_step_in: bool,
     has_just_paused: bool,
+    instruction_breakpoints: Vec<u16>,
 }
 
 impl DebuggerCore {
@@ -14,11 +15,21 @@ impl DebuggerCore {
             paused: true,
             will_step_in: false,
             has_just_paused: false,
+            instruction_breakpoints: vec![],
         }
+    }
+
+    pub fn set_instruction_breakpoints(&mut self, breakpoints: Vec<u16>) {
+        self.instruction_breakpoints = breakpoints;
     }
 
     pub fn update<I: MachineInspector>(&mut self, inspector: &I) {
         if self.will_step_in && inspector.at_instruction_start() {
+            self.pause();
+        }
+        if inspector.at_instruction_start()
+            && self.instruction_breakpoints.contains(&inspector.reg_pc())
+        {
             self.pause();
         }
     }
@@ -187,5 +198,33 @@ mod tests {
         cpu.tick().unwrap();
         dc.update(&cpu);
         assert!(!dc.paused());
+    }
+
+    #[test]
+    fn instruction_breakpoints() {
+        let mut cpu = cpu_with_code! {
+                nop
+                nop
+                nop
+                nop
+            loop:
+                jmp loop
+        };
+        let mut dc = DebuggerCore::new();
+        dc.set_instruction_breakpoints(vec![0xF002]);
+        dc.resume();
+
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF002);
+
+        cpu.reset();
+        dc.set_instruction_breakpoints(vec![0xF001, 0xF003]);
+        dc.resume();
+
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF001);
+        dc.resume();
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF003);
     }
 }

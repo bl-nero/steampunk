@@ -68,7 +68,7 @@ impl<'a, M: Machine, A: DebugAdapter> MachineController<'a, M, A> {
 
     pub fn run_until_end_of_frame(&mut self) {
         if let Some(debugger) = &mut self.debugger {
-            debugger.process_meessages(self.machine);
+            debugger.process_messages(self.machine);
         }
         while self.running() {
             match self.tick() {

@@ -1,0 +1,15 @@
+{
+    "seq": 2,
+    "request_seq": 76,
+    "type": "response",
+    "command": "setInstructionBreakpoints",
+    "success": true,
+    "body": {
+        "breakpoints": [
+            {
+                "verified": true,
+                "instructionReference": "0x9876"
+            }
+        ]
+    }
+}

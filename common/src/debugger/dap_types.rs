@@ -34,6 +34,7 @@ pub enum Message {
 pub enum Request {
     Initialize(InitializeArguments),
     SetExceptionBreakpoints {},
+    SetInstructionBreakpoints(SetInstructionBreakpointsArguments),
     Attach {},
     Threads,
     StackTrace {},
@@ -54,6 +55,12 @@ pub enum Request {
 #[serde(rename_all = "camelCase")]
 pub struct InitializeArguments {
     pub client_name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SetInstructionBreakpointsArguments {
+    pub breakpoints: Vec<InstructionBreakpoint>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -87,6 +94,7 @@ pub struct ResponseEnvelope {
 pub enum Response {
     Initialize(Capabilities),
     SetExceptionBreakpoints,
+    SetInstructionBreakpoints(SetInstructionBreakpointsResponse),
     Attach,
     Threads(ThreadsResponse),
     StackTrace(StackTraceResponse),
@@ -107,6 +115,13 @@ pub enum Response {
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
     pub supports_disassemble_request: bool,
+    pub supports_instruction_breakpoints: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SetInstructionBreakpointsResponse {
+    pub breakpoints: Vec<Breakpoint>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -213,6 +228,20 @@ pub struct Thread {
     pub name: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InstructionBreakpoint {
+    pub instruction_reference: String,
+    pub offset: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Breakpoint {
+    pub verified: bool,
+    pub instruction_reference: String,
+}
+
 /// This empty struct is here only because `Serde` doesn't allow us to use an
 /// unit enum in place where the content (`arguments`) _can_ appear, but is
 /// optional. That's why [`Request::Disconnect`] is parametrized by
@@ -264,6 +293,23 @@ mod tests {
         set_exception_breakpoints_request: MessageEnvelope {
             seq: 3,
             message: Message::Request(Request::SetExceptionBreakpoints {}),
+        },
+        set_instruction_breakpoints_request: MessageEnvelope {
+            seq: 3,
+            message: Message::Request(Request::SetInstructionBreakpoints(
+                SetInstructionBreakpointsArguments {
+                    breakpoints: vec![
+                        InstructionBreakpoint {
+                            instruction_reference: "0xAB12".to_string(),
+                            offset: None,
+                        },
+                        InstructionBreakpoint {
+                            instruction_reference: "0x12AB".to_string(),
+                            offset: Some(-12),
+                        }
+                    ]
+                }
+            )),
         },
         attach_request: MessageEnvelope {
             seq: 2,
@@ -329,7 +375,8 @@ mod tests {
                 request_seq: 11,
                 success: true,
                 response: Response::Initialize(Capabilities {
-                    supports_disassemble_request:true,
+                    supports_disassemble_request: true,
+                    supports_instruction_breakpoints: true,
                 }),
             }),
         },
@@ -339,6 +386,21 @@ mod tests {
                 request_seq: 12,
                 success: true,
                 response: Response::SetExceptionBreakpoints,
+            }),
+        },
+        set_instruction_breakpoints_response: MessageEnvelope {
+            seq: 2,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 76,
+                success: true,
+                response: Response::SetInstructionBreakpoints(
+                    SetInstructionBreakpointsResponse {
+                        breakpoints: vec![Breakpoint {
+                            verified: true,
+                            instruction_reference: "0x9876".to_string(),
+                        }]
+                    }
+                ),
             }),
         },
         attach_response: MessageEnvelope {

@@ -1,0 +1,16 @@
+{
+    "command": "setInstructionBreakpoints",
+    "arguments": {
+        "breakpoints": [
+            {
+                "instructionReference": "0xAB12"
+            },
+            {
+                "instructionReference": "0x12AB",
+                "offset": -12
+            }
+        ]
+    },
+    "type": "request",
+    "seq": 3
+}
