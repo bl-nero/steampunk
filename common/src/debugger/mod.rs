@@ -119,7 +119,7 @@ impl<A: DebugAdapter> Debugger<A> {
 
             Request::Continue {} => self.resume(),
             Request::Pause {} => self.pause(),
-            Request::Next {} => todo!(),
+            Request::Next {} => self.next(inspector),
             Request::StepIn {} => self.step_in(),
             Request::StepOut {} => todo!(),
 
@@ -307,8 +307,13 @@ impl<A: DebugAdapter> Debugger<A> {
     }
 
     fn step_in(&mut self) -> RequestOutcome<A> {
-        self.core.step_in();
+        self.core.step_into();
         (Response::StepIn {}, None)
+    }
+
+    fn next(&mut self, inspector: &impl MachineInspector) -> RequestOutcome<A> {
+        self.core.step_over(inspector);
+        (Response::Next {}, None)
     }
 
     fn disconnect(&mut self) -> RequestOutcome<A> {
@@ -800,6 +805,35 @@ mod tests {
                 all_threads_stopped: true,
             }),
         )
+    }
+
+    #[test]
+    fn next() {
+        let mut cpu = cpu_with_code! {
+                jsr subroutine
+                nop
+            subroutine:
+                rts
+        };
+
+        let adapter = FakeDebugAdapter::default();
+        adapter.push_request(Request::Next {});
+        let mut debugger = Debugger::new(adapter.clone());
+
+        debugger.process_messages(&cpu);
+        assert_responded_with(&adapter, Response::Next {});
+
+        tick_while_running(&mut debugger, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF003);
+        assert_emitted(
+            &adapter,
+            Event::Stopped(StoppedEvent {
+                thread_id: 1,
+                reason: StopReason::Step,
+                all_threads_stopped: true,
+            }),
+        );
+        assert_eq!(adapter.pop_outgoing(), None);
     }
 
     #[test]
