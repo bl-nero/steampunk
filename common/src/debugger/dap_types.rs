@@ -9,6 +9,7 @@
 //! Note that this crate deliberately doesn't contain all of the types, and the
 //! types only have the fields that we really use.
 
+use crate::debugger::core::StopReason;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -201,14 +202,6 @@ pub struct StoppedEvent {
     pub reason: StopReason,
     pub thread_id: i64,
     pub all_threads_stopped: bool,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub enum StopReason {
-    Entry,
-    Pause,
-    Step,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

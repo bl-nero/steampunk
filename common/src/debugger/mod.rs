@@ -9,6 +9,7 @@ use crate::debugger::adapter::DebugAdapter;
 use crate::debugger::adapter::DebugAdapterError;
 use crate::debugger::adapter::DebugAdapterResult;
 use crate::debugger::core::DebuggerCore;
+use crate::debugger::core::StopReason;
 use crate::debugger::dap_types::Breakpoint;
 use crate::debugger::dap_types::Capabilities;
 use crate::debugger::dap_types::DisassembleArguments;
@@ -27,7 +28,6 @@ use crate::debugger::dap_types::SetInstructionBreakpointsArguments;
 use crate::debugger::dap_types::SetInstructionBreakpointsResponse;
 use crate::debugger::dap_types::StackFrame;
 use crate::debugger::dap_types::StackTraceResponse;
-use crate::debugger::dap_types::StopReason;
 use crate::debugger::dap_types::StoppedEvent;
 use crate::debugger::dap_types::Thread;
 use crate::debugger::dap_types::ThreadsResponse;
@@ -67,16 +67,16 @@ impl<A: DebugAdapter> Debugger<A> {
         }
     }
 
-    pub fn paused(&self) -> bool {
-        self.core.paused()
+    pub fn stopped(&self) -> bool {
+        self.core.stopped()
     }
 
     pub fn update(&mut self, inspector: &impl MachineInspector) -> DebugAdapterResult<()> {
         self.core.update(inspector);
-        if self.core.has_just_paused() {
+        if let Some(reason) = self.core.last_stop_reason() {
             self.send_event(Event::Stopped(StoppedEvent {
                 thread_id: 1,
-                reason: StopReason::Step,
+                reason,
                 all_threads_stopped: true,
             }))?;
         }
@@ -393,7 +393,7 @@ mod tests {
         // Limit to 1000 ticks; we won't expect tests to run for that long, and
         // this way we avoid infinite loops.
         for _ in 0..1000 {
-            if debugger.paused() {
+            if debugger.stopped() {
                 return;
             }
             cpu.tick().unwrap();
@@ -747,12 +747,12 @@ mod tests {
         let adapter = FakeDebugAdapter::default();
         adapter.push_request(Request::Continue {});
         let mut debugger = Debugger::new(adapter.clone());
-        assert!(debugger.paused());
+        assert!(debugger.stopped());
 
         debugger.process_messages(&inspector);
 
         assert_responded_with(&adapter, Response::Continue {});
-        assert!(!debugger.paused());
+        assert!(!debugger.stopped());
 
         adapter.push_request(Request::Pause {});
         debugger.process_messages(&inspector);
@@ -766,7 +766,7 @@ mod tests {
                 all_threads_stopped: true,
             }),
         );
-        assert!(debugger.paused());
+        assert!(debugger.stopped());
         assert_eq!(adapter.pop_outgoing(), None);
     }
 
@@ -783,7 +783,7 @@ mod tests {
         debugger.process_messages(&cpu);
 
         assert_responded_with(&adapter, Response::StepIn {});
-        assert!(!debugger.paused());
+        assert!(!debugger.stopped());
 
         cpu.tick().unwrap();
         debugger.update(&cpu).unwrap();
@@ -791,7 +791,7 @@ mod tests {
         assert_eq!(adapter.pop_outgoing(), None);
 
         debugger.update(&cpu).unwrap();
-        assert!(debugger.paused());
+        assert!(debugger.stopped());
         assert_emitted(
             &adapter,
             Event::Stopped(StoppedEvent {
@@ -853,7 +853,7 @@ mod tests {
             &adapter,
             Event::Stopped(StoppedEvent {
                 thread_id: 1,
-                reason: StopReason::Step,
+                reason: StopReason::Breakpoint,
                 all_threads_stopped: true,
             }),
         );
@@ -868,7 +868,7 @@ mod tests {
             &adapter,
             Event::Stopped(StoppedEvent {
                 thread_id: 1,
-                reason: StopReason::Step,
+                reason: StopReason::Breakpoint,
                 all_threads_stopped: true,
             }),
         );
@@ -886,6 +886,6 @@ mod tests {
 
         assert_responded_with(&adapter, Response::Disconnect);
         assert!(adapter.disconnected());
-        assert!(!debugger.paused());
+        assert!(!debugger.stopped());
     }
 }

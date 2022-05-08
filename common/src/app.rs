@@ -87,7 +87,7 @@ impl<'a, M: Machine, A: DebugAdapter> MachineController<'a, M, A> {
         self.running
             && !self.interrupted.load(Ordering::Relaxed)
             && match &self.debugger {
-                Some(debugger) => !debugger.paused(),
+                Some(debugger) => !debugger.stopped(),
                 None => true,
             }
     }
