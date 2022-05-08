@@ -3,10 +3,16 @@ use serde::Serialize;
 use std::mem::replace;
 use ya6502::cpu::MachineInspector;
 
+#[derive(PartialEq)]
+enum RunMode {
+    Running,
+    Stopped,
+    SteppingIn,
+}
+
 /// The actual logic of the debugger, free of all of the communication noise.
 pub struct DebuggerCore {
-    stopped: bool,
-    will_step_in: bool,
+    run_mode: RunMode,
     last_stop_reason: Option<StopReason>,
     instruction_breakpoints: Vec<u16>,
 }
@@ -14,8 +20,7 @@ pub struct DebuggerCore {
 impl DebuggerCore {
     pub fn new() -> Self {
         Self {
-            stopped: true,
-            will_step_in: false,
+            run_mode: RunMode::Stopped,
             last_stop_reason: None,
             instruction_breakpoints: vec![],
         }
@@ -26,20 +31,18 @@ impl DebuggerCore {
     }
 
     pub fn update(&mut self, inspector: &impl MachineInspector) {
-        if self.will_step_in && inspector.at_instruction_start() {
-            self.pause();
-            self.last_stop_reason = Some(StopReason::Step);
+        if self.run_mode == RunMode::SteppingIn && inspector.at_instruction_start() {
+            self.stop(StopReason::Step);
         }
         if inspector.at_instruction_start()
             && self.instruction_breakpoints.contains(&inspector.reg_pc())
         {
-            self.pause();
-            self.last_stop_reason = Some(StopReason::Breakpoint);
+            self.stop(StopReason::Breakpoint);
         }
     }
 
     pub fn stopped(&self) -> bool {
-        self.stopped
+        self.run_mode == RunMode::Stopped
     }
 
     /// Returns `Some(reason)` if the core has just stopped and resets the value
@@ -52,19 +55,25 @@ impl DebuggerCore {
     }
 
     pub fn resume(&mut self) {
-        self.stopped = false;
+        self.set_run_mode(RunMode::Running);
+    }
+
+    fn set_run_mode(&mut self, mode: RunMode) {
+        self.run_mode = mode;
         self.last_stop_reason = None;
-        self.will_step_in = false;
     }
 
     pub fn pause(&mut self) {
-        self.stopped = true;
-        self.last_stop_reason = Some(StopReason::Pause);
+        self.stop(StopReason::Pause);
+    }
+
+    fn stop(&mut self, reason: StopReason) {
+        self.run_mode = RunMode::Stopped;
+        self.last_stop_reason = Some(reason);
     }
 
     pub fn step_in(&mut self) {
-        self.resume();
-        self.will_step_in = true;
+        self.set_run_mode(RunMode::SteppingIn);
     }
 }
 
@@ -153,19 +162,6 @@ mod tests {
     }
 
     #[test]
-    fn last_stop_reason_while_stepping() {
-        let mut cpu = cpu_with_code! {
-                nop
-        };
-        let mut dc = DebuggerCore::new();
-
-        dc.step_in();
-        assert_eq!(dc.last_stop_reason(), None);
-        tick_while_running(&mut dc, &mut cpu);
-        assert_eq!(dc.last_stop_reason(), Some(StopReason::Step));
-    }
-
-    #[test]
     fn step_in() {
         let mut cpu = cpu_with_code! {
                 lda #1         // 0xF000
@@ -184,8 +180,11 @@ mod tests {
 
         dc.step_in();
         assert!(!dc.stopped());
+        assert_eq!(dc.last_stop_reason(), None);
+
         tick_while_running(&mut dc, &mut cpu);
         assert_eq!(cpu.reg_pc(), 0xF002);
+        assert_eq!(dc.last_stop_reason(), Some(StopReason::Step));
 
         dc.step_in();
         tick_while_running(&mut dc, &mut cpu);
