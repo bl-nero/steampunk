@@ -13,6 +13,13 @@ enum RunMode {
         target_address: u16,
         target_stack_pointer: u8,
     },
+    SteppingOut {
+        // Note: while stepping out, it's not possible to tell at a given moment
+        // what's the target stack pointer; we only know the current one.
+        //
+        // TODO: Support stepping out of interrupt handlers.
+        current_stack_pointer: u8,
+    },
 }
 
 /// The actual logic of the debugger, free of all of the communication noise.
@@ -38,6 +45,11 @@ impl DebuggerCore {
     pub fn update(&mut self, inspector: &impl MachineInspector) {
         if inspector.at_instruction_start() {
             match self.run_mode {
+                RunMode::Running => {
+                    if self.instruction_breakpoints.contains(&inspector.reg_pc()) {
+                        self.stop(StopReason::Breakpoint);
+                    }
+                }
                 RunMode::SteppingIn => self.stop(StopReason::Step),
                 RunMode::SteppingOver {
                     target_address,
@@ -49,9 +61,12 @@ impl DebuggerCore {
                         self.stop(StopReason::Step);
                     }
                 }
-                RunMode::Running => {
-                    if self.instruction_breakpoints.contains(&inspector.reg_pc()) {
-                        self.stop(StopReason::Breakpoint);
+                RunMode::SteppingOut {
+                    current_stack_pointer,
+                } => {
+                    let opcode = inspector.inspect_memory(inspector.reg_pc());
+                    if opcode == opcodes::RTS && inspector.reg_sp() == current_stack_pointer {
+                        self.run_mode = RunMode::SteppingIn;
                     }
                 }
                 RunMode::Stopped => {}
@@ -106,6 +121,12 @@ impl DebuggerCore {
             }
         } else {
             RunMode::SteppingIn
+        });
+    }
+
+    pub fn step_out(&mut self, inspector: &impl MachineInspector) {
+        self.run(RunMode::SteppingOut {
+            current_stack_pointer: inspector.reg_sp(),
         });
     }
 }
@@ -310,6 +331,53 @@ mod tests {
 
         assert_eq!(cpu.reg_pc(), 0xF010);
         assert_eq!(cpu.reg_y(), 5);
+    }
+
+    #[test]
+    fn step_out() {
+        let mut cpu = cpu_with_code! {
+                jsr subroutine // 0xF000
+            loop:
+                jmp loop       // 0xF003
+            subroutine:
+                nop            // 0xF006
+                nop
+                rts
+        };
+        let mut dc = DebuggerCore::new();
+        dc.step_into();
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF006);
+
+        dc.step_out(&cpu);
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF003);
+    }
+
+    #[test]
+    fn step_out_nested() {
+        let mut cpu = cpu_with_code! {
+                jsr sub1 // 0xF000
+            loop:
+                jmp loop // 0xF003
+
+            sub1:
+                nop      // 0xF006
+                nop
+                jsr sub2
+                rts
+
+            sub2:
+                rts
+        };
+        let mut dc = DebuggerCore::new();
+        dc.step_into();
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF006);
+
+        dc.step_out(&cpu);
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF003);
     }
 
     #[test]

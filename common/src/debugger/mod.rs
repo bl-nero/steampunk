@@ -121,7 +121,7 @@ impl<A: DebugAdapter> Debugger<A> {
             Request::Pause {} => self.pause(),
             Request::Next {} => self.next(inspector),
             Request::StepIn {} => self.step_in(),
-            Request::StepOut {} => todo!(),
+            Request::StepOut {} => self.step_out(inspector),
 
             Request::Disconnect(_) => self.disconnect(),
         };
@@ -316,6 +316,11 @@ impl<A: DebugAdapter> Debugger<A> {
         (Response::Next {}, None)
     }
 
+    fn step_out(&mut self, inspector: &impl MachineInspector) -> RequestOutcome<A> {
+        self.core.step_out(inspector);
+        (Response::StepOut {}, None)
+    }
+
     fn disconnect(&mut self) -> RequestOutcome<A> {
         self.core.resume();
         (
@@ -392,6 +397,10 @@ mod tests {
             "Expected event: {:?}",
             expected_event,
         );
+    }
+
+    fn purge_messages(adapter: &FakeDebugAdapter) {
+        while adapter.pop_outgoing().is_some() {}
     }
 
     fn tick_while_running<A: DebugAdapter>(debugger: &mut Debugger<A>, cpu: &mut Cpu<Ram>) {
@@ -821,8 +830,8 @@ mod tests {
         let mut debugger = Debugger::new(adapter.clone());
 
         debugger.process_messages(&cpu);
-        assert_responded_with(&adapter, Response::Next {});
 
+        purge_messages(&adapter);
         tick_while_running(&mut debugger, &mut cpu);
         assert_eq!(cpu.reg_pc(), 0xF003);
         assert_emitted(
@@ -834,6 +843,43 @@ mod tests {
             }),
         );
         assert_eq!(adapter.pop_outgoing(), None);
+    }
+
+    #[test]
+    fn step_out() {
+        let mut cpu = cpu_with_code! {
+                jsr subroutine // 0xF000
+            loop:
+                jmp loop       // 0xF003
+            subroutine:
+                nop            // 0xF006
+                nop
+                rts
+        };
+
+        let adapter = FakeDebugAdapter::default();
+        adapter.push_request(Request::StepIn {});
+        let mut debugger = Debugger::new(adapter.clone());
+        debugger.process_messages(&cpu);
+        tick_while_running(&mut debugger, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF006);
+
+        purge_messages(&adapter);
+        adapter.push_request(Request::StepOut {});
+        debugger.process_messages(&cpu);
+        assert_responded_with(&adapter, Response::StepOut {});
+        assert_eq!(adapter.pop_outgoing(), None);
+
+        tick_while_running(&mut debugger, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF003);
+        assert_emitted(
+            &adapter,
+            Event::Stopped(StoppedEvent {
+                thread_id: 1,
+                reason: StopReason::Step,
+                all_threads_stopped: true,
+            }),
+        );
     }
 
     #[test]
@@ -880,8 +926,8 @@ mod tests {
                 ],
             }),
         );
-        assert_responded_with(&adapter, Response::Continue {});
 
+        purge_messages(&adapter);
         tick_while_running(&mut debugger, &mut cpu);
         assert_emitted(
             &adapter,
@@ -895,8 +941,8 @@ mod tests {
 
         adapter.push_request(Request::Continue {});
         debugger.process_messages(&mut cpu);
-        assert_responded_with(&adapter, Response::Continue {});
 
+        purge_messages(&adapter);
         tick_while_running(&mut debugger, &mut cpu);
         assert_emitted(
             &adapter,
