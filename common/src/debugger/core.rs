@@ -1,3 +1,4 @@
+use bounded_vec_deque::BoundedVecDeque;
 use serde::Deserialize;
 use serde::Serialize;
 use std::mem::replace;
@@ -9,17 +10,7 @@ enum RunMode {
     Running,
     Stopped,
     SteppingIn,
-    SteppingOver {
-        target_address: u16,
-        target_stack_pointer: u8,
-    },
-    SteppingOut {
-        // Note: while stepping out, it's not possible to tell at a given moment
-        // what's the target stack pointer; we only know the current one.
-        //
-        // TODO: Support stepping out of interrupt handlers.
-        current_stack_pointer: u8,
-    },
+    SteppingOut { target_stack_depth: usize },
 }
 
 /// The actual logic of the debugger, free of all of the communication noise.
@@ -27,6 +18,17 @@ pub struct DebuggerCore {
     run_mode: RunMode,
     last_stop_reason: Option<StopReason>,
     instruction_breakpoints: Vec<u16>,
+    /// Stack frames, captured by recognizing JSR/RTS instructions. Note that
+    /// this is not a simple vector, but a bounded deque, since we can't
+    /// guarantee that the underlying program is sane and won't overflow the
+    /// stack. An edge case of consistently overflowing stack would cause a
+    /// dramatic memory leak here, and since the stack entries would be
+    /// clobbered anyway, the bounded deque is the perfect structure here.
+    ///
+    /// TODO: Support stepping out of interrupt handlers.
+    stack_frames: BoundedVecDeque<StackFrame>,
+    will_enter_subroutine: bool,
+    will_return_from_subroutine: bool,
 }
 
 impl DebuggerCore {
@@ -35,6 +37,9 @@ impl DebuggerCore {
             run_mode: RunMode::Stopped,
             last_stop_reason: None,
             instruction_breakpoints: vec![],
+            stack_frames: BoundedVecDeque::new(256),
+            will_enter_subroutine: true,
+            will_return_from_subroutine: false,
         }
     }
 
@@ -42,8 +47,34 @@ impl DebuggerCore {
         self.instruction_breakpoints = breakpoints;
     }
 
+    /// Reads the machine state. Expected to be called after the CPU is
+    /// initialized, and then after every single cycle.
     pub fn update(&mut self, inspector: &impl MachineInspector) {
         if inspector.at_instruction_start() {
+            if self.will_enter_subroutine {
+                self.stack_frames.push_back(StackFrame {
+                    entry: inspector.reg_pc(),
+                    pc: 0,
+                });
+                self.will_enter_subroutine = false;
+            }
+            if self.will_return_from_subroutine {
+                self.stack_frames.pop_back();
+                self.will_return_from_subroutine = false;
+            }
+            let opcode = inspector.inspect_memory(inspector.reg_pc());
+            match opcode {
+                opcodes::JSR => {
+                    self.will_enter_subroutine = true;
+                    if let Some(current_frame) = self.stack_frames.back_mut() {
+                        current_frame.pc = inspector.reg_pc();
+                    }
+                }
+                opcodes::RTS => {
+                    self.will_return_from_subroutine = true;
+                }
+                _ => {}
+            }
             match self.run_mode {
                 RunMode::Running => {
                     if self.instruction_breakpoints.contains(&inspector.reg_pc()) {
@@ -51,22 +82,9 @@ impl DebuggerCore {
                     }
                 }
                 RunMode::SteppingIn => self.stop(StopReason::Step),
-                RunMode::SteppingOver {
-                    target_address,
-                    target_stack_pointer,
-                } => {
-                    if inspector.reg_pc() == target_address
-                        && inspector.reg_sp() == target_stack_pointer
-                    {
+                RunMode::SteppingOut { target_stack_depth } => {
+                    if self.stack_frames.len() == target_stack_depth {
                         self.stop(StopReason::Step);
-                    }
-                }
-                RunMode::SteppingOut {
-                    current_stack_pointer,
-                } => {
-                    let opcode = inspector.inspect_memory(inspector.reg_pc());
-                    if opcode == opcodes::RTS && inspector.reg_sp() == current_stack_pointer {
-                        self.run_mode = RunMode::SteppingIn;
                     }
                 }
                 RunMode::Stopped => {}
@@ -85,6 +103,15 @@ impl DebuggerCore {
     /// immediately anyway.
     pub fn last_stop_reason(&mut self) -> Option<StopReason> {
         replace(&mut self.last_stop_reason, None)
+    }
+
+    pub fn stack_trace(&self, inspector: &impl MachineInspector) -> Vec<StackFrame> {
+        let mut frames: Vec<StackFrame> = self.stack_frames.clone().into_unbounded().into();
+        frames.reverse();
+        if let Some(top_frame) = frames.first_mut() {
+            top_frame.pc = inspector.reg_pc();
+        }
+        return frames;
     }
 
     pub fn resume(&mut self) {
@@ -114,21 +141,26 @@ impl DebuggerCore {
         let opcode = inspector.inspect_memory(pc);
         // Note: Stepping over is only "special" when we perform a jump into a
         // subroutine. Otherwise, it's the same as stepping in.
-        self.run(if opcode == opcodes::JSR {
-            RunMode::SteppingOver {
-                target_address: pc.wrapping_add(3),
-                target_stack_pointer: inspector.reg_sp(),
-            }
+        if opcode == opcodes::JSR {
+            self.run(RunMode::SteppingOut {
+                target_stack_depth: self.stack_frames.len(),
+            });
         } else {
-            RunMode::SteppingIn
-        });
+            self.run(RunMode::SteppingIn);
+        };
     }
 
-    pub fn step_out(&mut self, inspector: &impl MachineInspector) {
+    pub fn step_out(&mut self) {
         self.run(RunMode::SteppingOut {
-            current_stack_pointer: inspector.reg_sp(),
+            target_stack_depth: self.stack_frames.len() - 1,
         });
     }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct StackFrame {
+    pub entry: u16,
+    pub pc: u16,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -167,6 +199,7 @@ mod tests {
                 nop
         };
         let mut dc = DebuggerCore::new();
+        dc.update(&cpu);
         assert!(dc.stopped());
 
         dc.resume();
@@ -230,6 +263,7 @@ mod tests {
                 rts            // 0xF00C
         };
         let mut dc = DebuggerCore::new();
+        dc.update(&cpu);
         assert_eq!(cpu.reg_pc(), 0xF000);
 
         dc.step_into();
@@ -281,6 +315,7 @@ mod tests {
                 rts            // 0xF00C
         };
         let mut dc = DebuggerCore::new();
+        dc.update(&cpu);
 
         dc.step_over(&cpu);
         tick_while_running(&mut dc, &mut cpu);
@@ -294,6 +329,29 @@ mod tests {
         dc.step_over(&cpu);
         tick_while_running(&mut dc, &mut cpu);
         assert_eq!(cpu.reg_pc(), 0xF007);
+    }
+
+    #[test]
+    fn step_over_multiple() {
+        let mut cpu = cpu_with_code! {
+                jsr subroutine // 0xF000
+                jsr subroutine // 0xF003
+            loop:
+                jmp loop       // 0xF006
+
+            subroutine:
+                rts
+        };
+        let mut dc = DebuggerCore::new();
+        dc.update(&cpu);
+
+        dc.step_over(&cpu);
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF003);
+
+        dc.step_over(&cpu);
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF006);
     }
 
     #[test]
@@ -313,6 +371,7 @@ mod tests {
                 rts            // 0xF011
         };
         let mut dc = DebuggerCore::new();
+        dc.update(&cpu);
 
         dc.step_over(&cpu);
         tick_while_running(&mut dc, &mut cpu);
@@ -345,11 +404,12 @@ mod tests {
                 rts
         };
         let mut dc = DebuggerCore::new();
+        dc.update(&cpu);
         dc.step_into();
         tick_while_running(&mut dc, &mut cpu);
         assert_eq!(cpu.reg_pc(), 0xF006);
 
-        dc.step_out(&cpu);
+        dc.step_out();
         tick_while_running(&mut dc, &mut cpu);
         assert_eq!(cpu.reg_pc(), 0xF003);
     }
@@ -371,11 +431,37 @@ mod tests {
                 rts
         };
         let mut dc = DebuggerCore::new();
+        dc.update(&cpu);
         dc.step_into();
         tick_while_running(&mut dc, &mut cpu);
         assert_eq!(cpu.reg_pc(), 0xF006);
 
-        dc.step_out(&cpu);
+        dc.step_out();
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF003);
+    }
+
+    #[test]
+    fn step_out_with_stack_operations() {
+        let mut cpu = cpu_with_code! {
+                jsr subroutine // 0xF000
+            loop:
+                jmp loop       // 0xF003
+
+            subroutine:
+                pha            // 0xF006
+                pla            // 0xF007
+                rts
+        };
+        let mut dc = DebuggerCore::new();
+        dc.update(&cpu);
+        dc.step_into();
+        tick_while_running(&mut dc, &mut cpu);
+        dc.step_into();
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(cpu.reg_pc(), 0xF007);
+
+        dc.step_out();
         tick_while_running(&mut dc, &mut cpu);
         assert_eq!(cpu.reg_pc(), 0xF003);
     }
@@ -391,6 +477,7 @@ mod tests {
                 jmp loop
         };
         let mut dc = DebuggerCore::new();
+        dc.update(&cpu);
         dc.set_instruction_breakpoints(vec![0xF002]);
         dc.resume();
 
@@ -410,5 +497,68 @@ mod tests {
         tick_while_running(&mut dc, &mut cpu);
         assert_eq!(cpu.reg_pc(), 0xF003);
         assert_eq!(dc.last_stop_reason(), Some(StopReason::Breakpoint));
+    }
+
+    #[test]
+    fn stack_frames_only_top() {
+        let mut cpu = cpu_with_code! {
+                nop
+                nop
+                jsr sub1
+            loop:
+                jmp loop
+
+            sub1:
+                jsr sub2
+                rts
+
+            sub2:
+                rts
+        };
+        let mut dc = DebuggerCore::new();
+        dc.update(&cpu);
+        assert_eq!(
+            dc.stack_trace(&cpu),
+            vec![StackFrame {
+                entry: 0xF000,
+                pc: 0xF000
+            }]
+        );
+
+        dc.step_into();
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(
+            dc.stack_trace(&cpu),
+            vec![StackFrame {
+                entry: 0xF000,
+                pc: 0xF001
+            }]
+        );
+
+        dc.step_into();
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(
+            dc.stack_trace(&cpu),
+            vec![StackFrame {
+                entry: 0xF000,
+                pc: 0xF002
+            }]
+        );
+
+        dc.step_into();
+        tick_while_running(&mut dc, &mut cpu);
+        assert_eq!(
+            dc.stack_trace(&cpu),
+            vec![
+                StackFrame {
+                    entry: 0xF008,
+                    pc: 0xF008
+                },
+                StackFrame {
+                    entry: 0xF000,
+                    pc: 0xF002
+                }
+            ]
+        );
     }
 }

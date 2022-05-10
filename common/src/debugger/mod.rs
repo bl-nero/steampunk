@@ -121,7 +121,7 @@ impl<A: DebugAdapter> Debugger<A> {
             Request::Pause {} => self.pause(),
             Request::Next {} => self.next(inspector),
             Request::StepIn {} => self.step_in(),
-            Request::StepOut {} => self.step_out(inspector),
+            Request::StepOut {} => self.step_out(),
 
             Request::Disconnect(_) => self.disconnect(),
         };
@@ -211,16 +211,23 @@ impl<A: DebugAdapter> Debugger<A> {
     }
 
     fn stack_trace(&self, inspector: &impl MachineInspector) -> RequestOutcome<A> {
+        let stack_trace = self.core.stack_trace(inspector);
+        let num_frames = stack_trace.len();
+        let stack_frames = stack_trace
+            .iter()
+            .enumerate()
+            .map(|(i, frame)| StackFrame {
+                id: (num_frames - i) as i64,
+                name: format_word(frame.entry),
+                instruction_pointer_reference: format!("0x{:04X}", frame.pc),
+                line: 0,
+                column: 0,
+            })
+            .collect();
         (
             Response::StackTrace(StackTraceResponse {
-                stack_frames: vec![StackFrame {
-                    id: 1,
-                    name: "".to_string(),
-                    line: 0,
-                    column: 0,
-                    instruction_pointer_reference: format!("0x{:04X}", inspector.reg_pc()),
-                }],
-                total_frames: 1,
+                stack_frames,
+                total_frames: num_frames as i64,
             }),
             None,
         )
@@ -316,8 +323,8 @@ impl<A: DebugAdapter> Debugger<A> {
         (Response::Next {}, None)
     }
 
-    fn step_out(&mut self, inspector: &impl MachineInspector) -> RequestOutcome<A> {
-        self.core.step_out(inspector);
+    fn step_out(&mut self) -> RequestOutcome<A> {
+        self.core.step_out();
         (Response::StepOut {}, None)
     }
 
@@ -521,44 +528,49 @@ mod tests {
 
     #[test]
     fn stack_trace() {
-        let mut inspector = MockMachineInspector::new();
-        inspector.expect_reg_pc().once().return_const(0x1234u16);
+        let mut cpu = cpu_with_code! {
+                nop            // 0xF000
+                jsr subroutine // 0xF001
+                nop            // 0xF004
+            subroutine:
+                rts            // 0xF005
+        };
+
         let adapter = FakeDebugAdapter::default();
-        adapter.push_request(Request::StackTrace {});
         let mut debugger = Debugger::new(adapter.clone());
+        debugger.update(&cpu).unwrap();
 
-        debugger.process_messages(&inspector);
+        adapter.push_request(Request::StepIn {});
+        debugger.process_messages(&cpu);
+        tick_while_running(&mut debugger, &mut cpu);
+        adapter.push_request(Request::StepIn {});
+        debugger.process_messages(&cpu);
+        tick_while_running(&mut debugger, &mut cpu);
+        purge_messages(&adapter);
+        assert_eq!(cpu.reg_pc(), 0xF005);
 
-        assert_responded_with(
-            &adapter,
-            Response::StackTrace(StackTraceResponse {
-                stack_frames: vec![StackFrame {
-                    id: 1,
-                    name: "".to_string(),
-                    line: 0,
-                    column: 0,
-                    instruction_pointer_reference: "0x1234".to_string(),
-                }],
-                total_frames: 1,
-            }),
-        );
-        assert_eq!(adapter.pop_outgoing(), None);
-
-        inspector.expect_reg_pc().once().return_const(0x0A04u16);
         adapter.push_request(Request::StackTrace {});
-        debugger.process_messages(&inspector);
-
+        debugger.process_messages(&cpu);
         assert_responded_with(
             &adapter,
             Response::StackTrace(StackTraceResponse {
-                stack_frames: vec![StackFrame {
-                    id: 1,
-                    name: "".to_string(),
-                    line: 0,
-                    column: 0,
-                    instruction_pointer_reference: "0x0A04".to_string(),
-                }],
-                total_frames: 1,
+                stack_frames: vec![
+                    StackFrame {
+                        id: 2,
+                        name: "$F005".to_string(),
+                        line: 0,
+                        column: 0,
+                        instruction_pointer_reference: "0xF005".to_string(),
+                    },
+                    StackFrame {
+                        id: 1,
+                        name: "$F000".to_string(),
+                        line: 0,
+                        column: 0,
+                        instruction_pointer_reference: "0xF001".to_string(),
+                    },
+                ],
+                total_frames: 2,
             }),
         );
         assert_eq!(adapter.pop_outgoing(), None);
@@ -572,6 +584,7 @@ mod tests {
         };
         let adapter = FakeDebugAdapter::default();
         let mut debugger = Debugger::new(adapter.clone());
+        debugger.update(&cpu).unwrap();
 
         adapter.push_request(Request::Disassemble(DisassembleArguments {
             memory_reference: "0xF000".to_string(),
@@ -626,6 +639,7 @@ mod tests {
         };
         let adapter = FakeDebugAdapter::default();
         let mut debugger = Debugger::new(adapter.clone());
+        debugger.update(&cpu).unwrap();
 
         adapter.push_request(Request::Disassemble(DisassembleArguments {
             memory_reference: "0xF002".to_string(),
@@ -793,6 +807,7 @@ mod tests {
         let adapter = FakeDebugAdapter::default();
         adapter.push_request(Request::StepIn {});
         let mut debugger = Debugger::new(adapter.clone());
+        debugger.update(&cpu).unwrap();
 
         debugger.process_messages(&cpu);
 
@@ -828,6 +843,7 @@ mod tests {
         let adapter = FakeDebugAdapter::default();
         adapter.push_request(Request::Next {});
         let mut debugger = Debugger::new(adapter.clone());
+        debugger.update(&cpu).unwrap();
 
         debugger.process_messages(&cpu);
 
@@ -860,6 +876,7 @@ mod tests {
         let adapter = FakeDebugAdapter::default();
         adapter.push_request(Request::StepIn {});
         let mut debugger = Debugger::new(adapter.clone());
+        debugger.update(&cpu).unwrap();
         debugger.process_messages(&cpu);
         tick_while_running(&mut debugger, &mut cpu);
         assert_eq!(cpu.reg_pc(), 0xF006);
@@ -894,6 +911,7 @@ mod tests {
         };
         let adapter = FakeDebugAdapter::default();
         let mut debugger = Debugger::new(adapter.clone());
+        debugger.update(&cpu).unwrap();
 
         adapter.push_request(Request::SetInstructionBreakpoints(
             SetInstructionBreakpointsArguments {

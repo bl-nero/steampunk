@@ -21,3 +21,4 @@ rustasm6502 = "0.1.4"
 clap = { version = "3.1.0", features = ["derive"] }
 
 ya6502 = { path = "../ya6502" }
+bounded-vec-deque = "0.1.1"

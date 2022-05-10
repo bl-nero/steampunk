@@ -64,6 +64,11 @@ impl<'a, M: Machine, A: DebugAdapter> MachineController<'a, M, A> {
     pub fn reset(&mut self) {
         self.machine.reset();
         self.running = true;
+        if let Some(debugger) = &mut self.debugger {
+            if let Err(e) = debugger.update(self.machine) {
+                eprintln!("Debugger error: {}", e);
+            }
+        }
     }
 
     pub fn run_until_end_of_frame(&mut self) {
@@ -95,7 +100,9 @@ impl<'a, M: Machine, A: DebugAdapter> MachineController<'a, M, A> {
     fn tick(&mut self) -> MachineTickResult {
         let tick_result = self.machine.tick();
         if let Some(debugger) = &mut self.debugger {
-            debugger.update(self.machine)?;
+            if let Err(e) = debugger.update(self.machine) {
+                eprintln!("Debugger error: {}", e);
+            }
         }
         tick_result
     }
