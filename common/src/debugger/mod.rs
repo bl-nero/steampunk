@@ -23,6 +23,7 @@ use crate::debugger::dap_types::Response;
 use crate::debugger::dap_types::ResponseEnvelope;
 use crate::debugger::dap_types::Scope;
 use crate::debugger::dap_types::ScopePresentationHint;
+use crate::debugger::dap_types::ScopesArguments;
 use crate::debugger::dap_types::ScopesResponse;
 use crate::debugger::dap_types::SetInstructionBreakpointsArguments;
 use crate::debugger::dap_types::SetInstructionBreakpointsResponse;
@@ -113,8 +114,8 @@ impl<A: DebugAdapter> Debugger<A> {
             Request::Attach {} => self.attach(),
             Request::Threads => self.threads(),
             Request::StackTrace {} => self.stack_trace(inspector),
-            Request::Scopes {} => self.scopes(),
-            Request::Variables {} => self.variables(inspector),
+            Request::Scopes(args) => self.scopes(args),
+            Request::Variables(_) => self.variables(inspector),
             Request::Disassemble(args) => self.disassemble(inspector, args),
 
             Request::Continue {} => self.resume(),
@@ -233,18 +234,18 @@ impl<A: DebugAdapter> Debugger<A> {
         )
     }
 
-    fn scopes(&self) -> RequestOutcome<A> {
-        (
-            Response::Scopes(ScopesResponse {
-                scopes: vec![Scope {
-                    name: "Registers".to_string(),
-                    presentation_hint: ScopePresentationHint::Registers,
-                    variables_reference: 1,
-                    expensive: false,
-                }],
-            }),
-            None,
-        )
+    fn scopes(&self, args: ScopesArguments) -> RequestOutcome<A> {
+        let scopes = if args.frame_id == self.core.stack_depth() as i64 {
+            vec![Scope {
+                name: "Registers".to_string(),
+                presentation_hint: ScopePresentationHint::Registers,
+                variables_reference: 1,
+                expensive: false,
+            }]
+        } else {
+            vec![]
+        };
+        return (Response::Scopes(ScopesResponse { scopes }), None);
     }
 
     fn variables(&self, inspector: &impl MachineInspector) -> RequestOutcome<A> {
@@ -372,26 +373,28 @@ mod tests {
     use crate::debugger::dap_types::InitializeArguments;
     use crate::debugger::dap_types::InstructionBreakpoint;
     use crate::debugger::dap_types::MessageEnvelope;
+    use crate::debugger::dap_types::ScopesArguments;
     use crate::debugger::dap_types::SetInstructionBreakpointsArguments;
+    use crate::debugger::dap_types::VariablesArguments;
     use std::assert_matches::assert_matches;
     use ya6502::cpu::Cpu;
     use ya6502::cpu::MockMachineInspector;
     use ya6502::cpu_with_code;
     use ya6502::memory::Ram;
 
-    fn assert_responded_with(adapter: &FakeDebugAdapter, expected_response: Response) {
-        assert_matches!(
-            adapter.pop_outgoing(),
+    fn pop_response(adapter: &FakeDebugAdapter) -> Response {
+        match adapter.pop_outgoing() {
             Some(MessageEnvelope {
-                message: Message::Response(ResponseEnvelope {
-                    response,
-                    ..
-                }),
+                message: Message::Response(ResponseEnvelope { response, .. }),
                 ..
-            }) if response == expected_response,
-            "Expected response: {:?}",
-            expected_response,
-        );
+            }) => response,
+            other => panic!("Expected a response, got {:?}", other),
+        }
+    }
+
+    fn assert_responded_with(adapter: &FakeDebugAdapter, expected_response: Response) {
+        let response = pop_response(adapter);
+        assert_eq!(response, expected_response);
     }
 
     fn assert_emitted(adapter: &FakeDebugAdapter, expected_event: Event) {
@@ -539,6 +542,23 @@ mod tests {
         let adapter = FakeDebugAdapter::default();
         let mut debugger = Debugger::new(adapter.clone());
         debugger.update(&cpu).unwrap();
+
+        adapter.push_request(Request::StackTrace {});
+        debugger.process_messages(&cpu);
+        assert_responded_with(
+            &adapter,
+            Response::StackTrace(StackTraceResponse {
+                stack_frames: vec![StackFrame {
+                    id: 1,
+                    name: "$F000".to_string(),
+                    line: 0,
+                    column: 0,
+                    instruction_pointer_reference: "0xF000".to_string(),
+                }],
+                total_frames: 1,
+            }),
+        );
+        assert_eq!(adapter.pop_outgoing(), None);
 
         adapter.push_request(Request::StepIn {});
         debugger.process_messages(&cpu);
@@ -702,71 +722,196 @@ mod tests {
         assert_eq!(adapter.pop_outgoing(), None);
     }
 
+    fn get_stack_frames(
+        adapter: &FakeDebugAdapter,
+        debugger: &mut Debugger<FakeDebugAdapter>,
+        cpu: &Cpu<Ram>,
+    ) -> Vec<StackFrame> {
+        adapter.push_request(Request::StackTrace {});
+        debugger.process_messages(cpu);
+        let stack_trace_response = pop_response(&adapter);
+        return match stack_trace_response {
+            Response::StackTrace(StackTraceResponse { stack_frames, .. }) => stack_frames,
+            other => panic!("Expected StackTraceResponse, got {:?}", other),
+        };
+    }
+
+    fn get_scopes(
+        adapter: &FakeDebugAdapter,
+        debugger: &mut Debugger<FakeDebugAdapter>,
+        cpu: &Cpu<Ram>,
+        frame_id: i64,
+    ) -> Vec<Scope> {
+        adapter.push_request(Request::Scopes(ScopesArguments { frame_id }));
+        debugger.process_messages(cpu);
+        let scopes_response = pop_response(&adapter);
+        return match scopes_response {
+            Response::Scopes(ScopesResponse { scopes }) => scopes,
+            other => panic!("Expected a ScopesResponse, got {:?}", other),
+        };
+    }
+
+    // And the prize for the uglies test in this entire codebase goes to...
     #[test]
-    fn sends_registers() {
-        let mut inspector = MockMachineInspector::new();
+    fn variables() {
+        let mut cpu = cpu_with_code! {
+                ldx #0xFE      // 0xF000
+                txs            // 0xF002
+                plp            // 0xF003
+                lda #0xAB      // 0xF004
+                ldy #0x12      // 0xF006
+                jsr subroutine // 0xF008
+            loop:
+                jmp loop       // 0xF00B
+
+            subroutine:
+                inx            // 0xF00E
+                dey            // 0xF00F
+                rts            // 0xF010
+        };
+
         let adapter = FakeDebugAdapter::default();
-        adapter.push_request(Request::Scopes {});
-        adapter.push_request(Request::Variables {});
         let mut debugger = Debugger::new(adapter.clone());
+        debugger.update(&cpu).unwrap();
 
-        inspector.expect_reg_a().return_const(0x04);
-        inspector.expect_reg_x().return_const(0x13);
-        inspector.expect_reg_y().return_const(0x22);
-        inspector.expect_reg_sp().return_const(0x31);
-        inspector.expect_reg_pc().return_const(0x0ABCu16);
-        inspector.expect_flags().return_const(0x40);
-        debugger.process_messages(&inspector);
+        adapter.push_request(Request::SetInstructionBreakpoints(
+            SetInstructionBreakpointsArguments {
+                breakpoints: vec![
+                    InstructionBreakpoint {
+                        instruction_reference: "0xF008".to_string(),
+                        offset: None,
+                    },
+                    InstructionBreakpoint {
+                        instruction_reference: "0xF010".to_string(),
+                        offset: None,
+                    },
+                ],
+            },
+        ));
+        adapter.push_request(Request::Continue {});
+        debugger.process_messages(&cpu);
+        tick_while_running(&mut debugger, &mut cpu);
+        purge_messages(&adapter);
+        assert_eq!(cpu.reg_pc(), 0xF008);
 
-        assert_responded_with(
-            &adapter,
-            Response::Scopes(ScopesResponse {
-                scopes: vec![Scope {
-                    name: "Registers".to_string(),
-                    presentation_hint: ScopePresentationHint::Registers,
-                    variables_reference: 1,
-                    expensive: false,
-                }],
-            }),
+        let stack_frames = get_stack_frames(&adapter, &mut debugger, &cpu);
+        let frame_1_id = stack_frames[0].id;
+        let scopes = get_scopes(&adapter, &mut debugger, &cpu, frame_1_id);
+        assert_eq!(scopes.len(), 1);
+        assert_eq!(scopes[0].name, "Registers");
+        assert_eq!(
+            scopes[0].presentation_hint,
+            ScopePresentationHint::Registers,
         );
+        assert_eq!(scopes[0].expensive, false);
+        let variables_reference = scopes[0].variables_reference;
+
+        adapter.push_request(Request::Variables(VariablesArguments {
+            variables_reference,
+        }));
+        debugger.process_messages(&cpu);
         assert_responded_with(
             &adapter,
             Response::Variables(VariablesResponse {
                 variables: vec![
                     Variable {
                         name: "A".to_string(),
-                        value: "$04".to_string(),
+                        value: "$AB".to_string(),
                         variables_reference: 0,
                     },
                     Variable {
                         name: "X".to_string(),
-                        value: "$13".to_string(),
+                        value: "$FE".to_string(),
                         variables_reference: 0,
                     },
                     Variable {
                         name: "Y".to_string(),
-                        value: "$22".to_string(),
+                        value: "$12".to_string(),
                         variables_reference: 0,
                     },
                     Variable {
                         name: "SP".to_string(),
-                        value: "$31".to_string(),
+                        value: "$FF".to_string(),
                         variables_reference: 0,
                     },
                     Variable {
                         name: "PC".to_string(),
-                        value: "$0ABC".to_string(),
+                        value: "$F008".to_string(),
                         variables_reference: 0,
                     },
                     Variable {
                         name: "FLAGS".to_string(),
-                        value: "$40".to_string(),
+                        value: "$00".to_string(),
                         variables_reference: 0,
                     },
                 ],
             }),
         );
-        assert_eq!(adapter.pop_outgoing(), None);
+
+        adapter.push_request(Request::Continue {});
+        debugger.process_messages(&cpu);
+        tick_while_running(&mut debugger, &mut cpu);
+        purge_messages(&adapter);
+        assert_eq!(cpu.reg_pc(), 0xF010);
+
+        let stack_frames = get_stack_frames(&adapter, &mut debugger, &cpu);
+        assert_eq!(stack_frames.len(), 2);
+        let frame_2_id = stack_frames[0].id;
+        let scopes = get_scopes(&adapter, &mut debugger, &cpu, frame_2_id);
+        assert_eq!(scopes.len(), 1);
+        assert_eq!(scopes[0].name, "Registers");
+        assert_eq!(
+            scopes[0].presentation_hint,
+            ScopePresentationHint::Registers,
+        );
+        assert_eq!(scopes[0].expensive, false);
+        let variables_reference = scopes[0].variables_reference;
+
+        adapter.push_request(Request::Variables(VariablesArguments {
+            variables_reference,
+        }));
+        debugger.process_messages(&cpu);
+        assert_responded_with(
+            &adapter,
+            Response::Variables(VariablesResponse {
+                variables: vec![
+                    Variable {
+                        name: "A".to_string(),
+                        value: "$AB".to_string(),
+                        variables_reference: 0,
+                    },
+                    Variable {
+                        name: "X".to_string(),
+                        value: "$FF".to_string(),
+                        variables_reference: 0,
+                    },
+                    Variable {
+                        name: "Y".to_string(),
+                        value: "$11".to_string(),
+                        variables_reference: 0,
+                    },
+                    Variable {
+                        name: "SP".to_string(),
+                        value: "$FD".to_string(),
+                        variables_reference: 0,
+                    },
+                    Variable {
+                        name: "PC".to_string(),
+                        value: "$F010".to_string(),
+                        variables_reference: 0,
+                    },
+                    Variable {
+                        name: "FLAGS".to_string(),
+                        value: "$00".to_string(),
+                        variables_reference: 0,
+                    },
+                ],
+            }),
+        );
+
+        assert_eq!(stack_frames[1].id, frame_1_id);
+        let scopes = get_scopes(&adapter, &mut debugger, &cpu, frame_1_id);
+        assert_eq!(scopes.len(), 0);
     }
 
     #[test]

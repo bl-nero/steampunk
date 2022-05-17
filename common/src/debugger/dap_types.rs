@@ -39,8 +39,8 @@ pub enum Request {
     Attach {},
     Threads,
     StackTrace {},
-    Scopes {},
-    Variables {},
+    Scopes(ScopesArguments),
+    Variables(VariablesArguments),
     Disassemble(DisassembleArguments),
 
     Continue {},
@@ -62,6 +62,18 @@ pub struct InitializeArguments {
 #[serde(rename_all = "camelCase")]
 pub struct SetInstructionBreakpointsArguments {
     pub breakpoints: Vec<InstructionBreakpoint>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopesArguments {
+    pub frame_id: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct VariablesArguments {
+    pub variables_reference: i64,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -318,11 +330,15 @@ mod tests {
         },
         scopes_request: MessageEnvelope {
             seq: 7,
-            message: Message::Request(Request::Scopes {}),
+            message: Message::Request(Request::Scopes (ScopesArguments {
+                frame_id: 1,
+            })),
         },
         variables_request: MessageEnvelope {
             seq: 8,
-            message: Message::Request(Request::Variables {}),
+            message: Message::Request(Request::Variables(VariablesArguments {
+                variables_reference: 1,
+            })),
         },
         disassemble_request: MessageEnvelope {
             seq: 9,

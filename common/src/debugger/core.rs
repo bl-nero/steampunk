@@ -114,6 +114,10 @@ impl DebuggerCore {
         return frames;
     }
 
+    pub fn stack_depth(&self) -> usize {
+        self.stack_frames.len()
+    }
+
     pub fn resume(&mut self) {
         self.run(RunMode::Running);
     }
