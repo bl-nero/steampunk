@@ -18,6 +18,8 @@ use crate::debugger::dap_types::Event;
 use crate::debugger::dap_types::InitializeArguments;
 use crate::debugger::dap_types::Message;
 use crate::debugger::dap_types::MessageEnvelope;
+use crate::debugger::dap_types::ReadMemoryArguments;
+use crate::debugger::dap_types::ReadMemoryResponse;
 use crate::debugger::dap_types::Request;
 use crate::debugger::dap_types::Response;
 use crate::debugger::dap_types::ResponseEnvelope;
@@ -36,6 +38,7 @@ use crate::debugger::dap_types::Variable;
 use crate::debugger::dap_types::VariablesResponse;
 use crate::debugger::disasm::disassemble;
 use crate::debugger::disasm::seek_instruction;
+use std::cmp::min;
 use std::sync::mpsc::TryRecvError;
 use ya6502::cpu::MachineInspector;
 
@@ -117,6 +120,7 @@ impl<A: DebugAdapter> Debugger<A> {
             Request::Scopes(args) => self.scopes(args),
             Request::Variables(_) => self.variables(inspector),
             Request::Disassemble(args) => self.disassemble(inspector, args),
+            Request::ReadMemory(args) => self.read_memory(inspector, args),
 
             Request::Continue {} => self.resume(),
             Request::Pause {} => self.pause(),
@@ -150,6 +154,7 @@ impl<A: DebugAdapter> Debugger<A> {
             Response::Initialize(Capabilities {
                 supports_disassemble_request: true,
                 supports_instruction_breakpoints: true,
+                supports_read_memory_request: true,
             }),
             Some(Box::new(|me| me.send_event(Event::Initialized))),
         )
@@ -260,6 +265,7 @@ impl<A: DebugAdapter> Debugger<A> {
                         name: "PC".to_string(),
                         value: format_word(inspector.reg_pc()),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                     byte_variable("FLAGS", inspector.flags()),
                 ],
@@ -273,7 +279,6 @@ impl<A: DebugAdapter> Debugger<A> {
         inspector: &impl MachineInspector,
         args: DisassembleArguments,
     ) -> RequestOutcome<A> {
-        // TODO: So far, we just return dummy data.
         let mem_reference =
             i64::from_str_radix(&args.memory_reference.strip_prefix("0x").unwrap(), 16).unwrap();
         let origin = (mem_reference + args.offset.unwrap_or(0)) as u16;
@@ -291,6 +296,28 @@ impl<A: DebugAdapter> Debugger<A> {
         );
         (
             Response::Disassemble(DisassembleResponse { instructions }),
+            None,
+        )
+    }
+
+    fn read_memory(
+        &self,
+        inspector: &impl MachineInspector,
+        args: ReadMemoryArguments,
+    ) -> RequestOutcome<A> {
+        let start_address =
+            i64::from_str_radix(&args.memory_reference.strip_prefix("0x").unwrap(), 16).unwrap()
+                + args.offset.unwrap_or(0);
+        let end_address = min(start_address + args.count, 0x10000);
+        let mem_dump: Vec<u8> = (start_address..end_address)
+            .map(|a| inspector.inspect_memory(a as u16))
+            .collect();
+        let data = base64::encode(mem_dump);
+        (
+            Response::ReadMemory(ReadMemoryResponse {
+                address: format!("0x{:04X}", start_address),
+                data,
+            }),
             None,
         )
     }
@@ -361,6 +388,7 @@ fn byte_variable(name: &str, value: u8) -> Variable {
         name: name.to_string(),
         value: format_byte(value),
         variables_reference: 0,
+        memory_reference: None,
     }
 }
 
@@ -381,6 +409,7 @@ mod tests {
     use ya6502::cpu::MockMachineInspector;
     use ya6502::cpu_with_code;
     use ya6502::memory::Ram;
+    use ya6502::test_utils::cpu_with_program;
 
     fn pop_response(adapter: &FakeDebugAdapter) -> Response {
         match adapter.pop_outgoing() {
@@ -498,6 +527,7 @@ mod tests {
             Response::Initialize(Capabilities {
                 supports_disassemble_request: true,
                 supports_instruction_breakpoints: true,
+                supports_read_memory_request: true,
             }),
         );
         assert_emitted(&adapter, Event::Initialized);
@@ -722,6 +752,91 @@ mod tests {
         assert_eq!(adapter.pop_outgoing(), None);
     }
 
+    #[test]
+    fn read_memory() {
+        let cpu = cpu_with_program(&[0x8B, 0xAD, 0xF0, 0x0D]);
+        let adapter = FakeDebugAdapter::default();
+        let mut debugger = Debugger::new(adapter.clone());
+        debugger.update(&cpu).unwrap();
+
+        adapter.push_request(Request::ReadMemory(ReadMemoryArguments {
+            memory_reference: "0xF000".to_string(),
+            offset: None,
+            count: 4,
+        }));
+        adapter.push_request(Request::ReadMemory(ReadMemoryArguments {
+            memory_reference: "0xF001".to_string(),
+            offset: None,
+            count: 2,
+        }));
+        debugger.process_messages(&cpu);
+
+        assert_responded_with(
+            &adapter,
+            Response::ReadMemory(ReadMemoryResponse {
+                address: "0xF000".to_string(),
+                data: "i63wDQ==".to_string(),
+            }),
+        );
+        assert_responded_with(
+            &adapter,
+            Response::ReadMemory(ReadMemoryResponse {
+                address: "0xF001".to_string(),
+                data: "rfA=".to_string(),
+            }),
+        );
+        assert_eq!(adapter.pop_outgoing(), None);
+    }
+
+    #[test]
+    fn read_memory_with_offset() {
+        let cpu = cpu_with_program(&[0x8B, 0xAD, 0xF0, 0x0D]);
+        let adapter = FakeDebugAdapter::default();
+        let mut debugger = Debugger::new(adapter.clone());
+        debugger.update(&cpu).unwrap();
+
+        adapter.push_request(Request::ReadMemory(ReadMemoryArguments {
+            memory_reference: "0xF003".to_string(),
+            offset: Some(-2),
+            count: 2,
+        }));
+        debugger.process_messages(&cpu);
+
+        assert_responded_with(
+            &adapter,
+            Response::ReadMemory(ReadMemoryResponse {
+                address: "0xF001".to_string(),
+                data: "rfA=".to_string(),
+            }),
+        );
+        assert_eq!(adapter.pop_outgoing(), None);
+    }
+
+    #[test]
+    fn read_memory_truncates_after_last_bytes() {
+        let mut cpu = cpu_with_program(&[]);
+        cpu.mut_memory().bytes[0xFFFE..=0xFFFF].copy_from_slice(&[0xF0, 0x0D]);
+        let adapter = FakeDebugAdapter::default();
+        let mut debugger = Debugger::new(adapter.clone());
+        debugger.update(&cpu).unwrap();
+
+        adapter.push_request(Request::ReadMemory(ReadMemoryArguments {
+            memory_reference: "0xFFFE".to_string(),
+            offset: Some(0),
+            count: 10,
+        }));
+        debugger.process_messages(&cpu);
+
+        assert_responded_with(
+            &adapter,
+            Response::ReadMemory(ReadMemoryResponse {
+                address: "0xFFFE".to_string(),
+                data: "8A0=".to_string(),
+            }),
+        );
+        assert_eq!(adapter.pop_outgoing(), None);
+    }
+
     fn get_stack_frames(
         adapter: &FakeDebugAdapter,
         debugger: &mut Debugger<FakeDebugAdapter>,
@@ -818,31 +933,37 @@ mod tests {
                         name: "A".to_string(),
                         value: "$AB".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                     Variable {
                         name: "X".to_string(),
                         value: "$FE".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                     Variable {
                         name: "Y".to_string(),
                         value: "$12".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                     Variable {
                         name: "SP".to_string(),
                         value: "$FF".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                     Variable {
                         name: "PC".to_string(),
                         value: "$F008".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                     Variable {
                         name: "FLAGS".to_string(),
                         value: "$00".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                 ],
             }),
@@ -879,31 +1000,37 @@ mod tests {
                         name: "A".to_string(),
                         value: "$AB".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                     Variable {
                         name: "X".to_string(),
                         value: "$FF".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                     Variable {
                         name: "Y".to_string(),
                         value: "$11".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                     Variable {
                         name: "SP".to_string(),
                         value: "$FD".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                     Variable {
                         name: "PC".to_string(),
                         value: "$F010".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                     Variable {
                         name: "FLAGS".to_string(),
                         value: "$00".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     },
                 ],
             }),

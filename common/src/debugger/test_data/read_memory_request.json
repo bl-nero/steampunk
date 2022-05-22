@@ -1,0 +1,10 @@
+{
+    "command": "readMemory",
+    "arguments": {
+        "count": 131072,
+        "memoryReference": "0xFCE2",
+        "offset": 0
+    },
+    "type": "request",
+    "seq": 15
+}

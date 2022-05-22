@@ -1,0 +1,11 @@
+{
+    "seq": 76,
+    "request_seq": 83,
+    "type": "response",
+    "command": "readMemory",
+    "success": true,
+    "body": {
+        "address": "0xDEAD",
+        "data": "vu8="
+    }
+}

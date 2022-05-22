@@ -42,6 +42,7 @@ pub enum Request {
     Scopes(ScopesArguments),
     Variables(VariablesArguments),
     Disassemble(DisassembleArguments),
+    ReadMemory(ReadMemoryArguments),
 
     Continue {},
     Pause {},
@@ -94,6 +95,14 @@ pub struct DisassembleArguments {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadMemoryArguments {
+    pub memory_reference: String,
+    pub offset: Option<i64>,
+    pub count: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct ResponseEnvelope {
     pub request_seq: i64,
     pub success: bool,
@@ -114,6 +123,7 @@ pub enum Response {
     Scopes(ScopesResponse),
     Variables(VariablesResponse),
     Disassemble(DisassembleResponse),
+    ReadMemory(ReadMemoryResponse),
 
     Continue {},
     Pause,
@@ -129,6 +139,7 @@ pub enum Response {
 pub struct Capabilities {
     pub supports_disassemble_request: bool,
     pub supports_instruction_breakpoints: bool,
+    pub supports_read_memory_request: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -185,6 +196,13 @@ pub struct DisassembleResponse {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct ReadMemoryResponse {
+    pub address: String,
+    pub data: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct DisassembledInstruction {
     /// The instruction address; if it's preceded by "0x", it's treated as
     /// hexadecimal.
@@ -199,6 +217,7 @@ pub struct Variable {
     pub name: String,
     pub value: String,
     pub variables_reference: i64,
+    pub memory_reference: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -349,6 +368,14 @@ mod tests {
                 instruction_count: 400,
             })),
         },
+        read_memory_request: MessageEnvelope {
+            seq: 15,
+            message: Message::Request(Request::ReadMemory(ReadMemoryArguments {
+                memory_reference: "0xFCE2".to_string(),
+                offset: Some(0),
+                count: 131072,
+            })),
+        },
         continue_request: MessageEnvelope {
             seq: 10,
             message: Message::Request(Request::Continue {}),
@@ -386,6 +413,7 @@ mod tests {
                 response: Response::Initialize(Capabilities {
                     supports_disassemble_request: true,
                     supports_instruction_breakpoints: true,
+                    supports_read_memory_request: true,
                 }),
             }),
         },
@@ -475,6 +503,7 @@ mod tests {
                         name: "A".to_string(),
                         value: "$43".to_string(),
                         variables_reference: 0,
+                        memory_reference: None,
                     }]
                 }),
             }),
@@ -497,6 +526,17 @@ mod tests {
                             instruction: "STA $C94F".to_string(),
                         },
                     ],
+                }),
+            }),
+        },
+        read_memory_response: MessageEnvelope {
+            seq: 76,
+            message: Message::Response(ResponseEnvelope {
+                request_seq: 83,
+                success: true,
+                response: Response::ReadMemory(ReadMemoryResponse {
+                    address: "0xDEAD".to_string(),
+                    data: "vu8=".to_string(),
                 }),
             }),
         },

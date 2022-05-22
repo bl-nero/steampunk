@@ -6,6 +6,7 @@
     "success": true,
     "body": {
         "supportsDisassembleRequest": true,
-        "supportsInstructionBreakpoints": true
+        "supportsInstructionBreakpoints": true,
+        "supportsReadMemoryRequest": true
     }
 }
