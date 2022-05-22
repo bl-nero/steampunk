@@ -61,6 +61,35 @@ fn tick_while_running<A: DebugAdapter>(debugger: &mut Debugger<A>, cpu: &mut Cpu
     panic!("CPU still running at PC={:04X}", cpu.reg_pc());
 }
 
+fn get_stack_frames(
+    adapter: &FakeDebugAdapter,
+    debugger: &mut Debugger<FakeDebugAdapter>,
+    cpu: &Cpu<Ram>,
+) -> Vec<StackFrame> {
+    adapter.push_request(Request::StackTrace {});
+    debugger.process_messages(cpu);
+    let stack_trace_response = pop_response(&adapter);
+    return match stack_trace_response {
+        Response::StackTrace(StackTraceResponse { stack_frames, .. }) => stack_frames,
+        other => panic!("Expected StackTraceResponse, got {:?}", other),
+    };
+}
+
+fn get_scopes(
+    adapter: &FakeDebugAdapter,
+    debugger: &mut Debugger<FakeDebugAdapter>,
+    cpu: &Cpu<Ram>,
+    frame_id: i64,
+) -> Vec<Scope> {
+    adapter.push_request(Request::Scopes(ScopesArguments { frame_id }));
+    debugger.process_messages(cpu);
+    let scopes_response = pop_response(&adapter);
+    return match scopes_response {
+        Response::Scopes(ScopesResponse { scopes }) => scopes,
+        other => panic!("Expected a ScopesResponse, got {:?}", other),
+    };
+}
+
 #[test]
 fn uses_sequence_numbers() {
     let inspector = MockMachineInspector::new();
@@ -441,35 +470,6 @@ fn read_memory_truncates_after_last_bytes() {
         }),
     );
     assert_eq!(adapter.pop_outgoing(), None);
-}
-
-fn get_stack_frames(
-    adapter: &FakeDebugAdapter,
-    debugger: &mut Debugger<FakeDebugAdapter>,
-    cpu: &Cpu<Ram>,
-) -> Vec<StackFrame> {
-    adapter.push_request(Request::StackTrace {});
-    debugger.process_messages(cpu);
-    let stack_trace_response = pop_response(&adapter);
-    return match stack_trace_response {
-        Response::StackTrace(StackTraceResponse { stack_frames, .. }) => stack_frames,
-        other => panic!("Expected StackTraceResponse, got {:?}", other),
-    };
-}
-
-fn get_scopes(
-    adapter: &FakeDebugAdapter,
-    debugger: &mut Debugger<FakeDebugAdapter>,
-    cpu: &Cpu<Ram>,
-    frame_id: i64,
-) -> Vec<Scope> {
-    adapter.push_request(Request::Scopes(ScopesArguments { frame_id }));
-    debugger.process_messages(cpu);
-    let scopes_response = pop_response(&adapter);
-    return match scopes_response {
-        Response::Scopes(ScopesResponse { scopes }) => scopes,
-        other => panic!("Expected a ScopesResponse, got {:?}", other),
-    };
 }
 
 // And the prize for the uglies test in this entire codebase goes to...
