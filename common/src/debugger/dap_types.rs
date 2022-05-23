@@ -199,6 +199,7 @@ pub struct DisassembleResponse {
 pub struct ReadMemoryResponse {
     pub address: String,
     pub data: String,
+    pub unreadable_bytes: i64,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -537,6 +538,7 @@ mod tests {
                 response: Response::ReadMemory(ReadMemoryResponse {
                     address: "0xDEAD".to_string(),
                     data: "vu8=".to_string(),
+                    unreadable_bytes: 0,
                 }),
             }),
         },

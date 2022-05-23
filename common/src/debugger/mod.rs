@@ -40,6 +40,7 @@ use crate::debugger::dap_types::VariablesArguments;
 use crate::debugger::dap_types::VariablesResponse;
 use crate::debugger::disasm::disassemble;
 use crate::debugger::disasm::seek_instruction;
+use std::cmp::max;
 use std::cmp::min;
 use std::sync::mpsc::TryRecvError;
 use ya6502::cpu::MachineInspector;
@@ -331,7 +332,8 @@ impl<A: DebugAdapter> Debugger<A> {
         let start_address =
             i64::from_str_radix(&args.memory_reference.strip_prefix("0x").unwrap(), 16).unwrap()
                 + args.offset.unwrap_or(0);
-        let end_address = min(start_address + args.count, 0x10000);
+        let requested_end_address = start_address + args.count;
+        let end_address = min(requested_end_address, 0x10000);
         let mem_dump: Vec<u8> = (start_address..end_address)
             .map(|a| inspector.inspect_memory(a as u16))
             .collect();
@@ -340,6 +342,7 @@ impl<A: DebugAdapter> Debugger<A> {
             Response::ReadMemory(ReadMemoryResponse {
                 address: format!("0x{:04X}", start_address),
                 data,
+                unreadable_bytes: max(requested_end_address - 0x10000, 0),
             }),
             None,
         )

@@ -411,6 +411,7 @@ fn read_memory() {
         Response::ReadMemory(ReadMemoryResponse {
             address: "0xF000".to_string(),
             data: "i63wDQ==".to_string(),
+            unreadable_bytes: 0,
         }),
     );
     assert_responded_with(
@@ -418,6 +419,7 @@ fn read_memory() {
         Response::ReadMemory(ReadMemoryResponse {
             address: "0xF001".to_string(),
             data: "rfA=".to_string(),
+            unreadable_bytes: 0,
         }),
     );
     assert_eq!(adapter.pop_outgoing(), None);
@@ -442,6 +444,7 @@ fn read_memory_with_offset() {
         Response::ReadMemory(ReadMemoryResponse {
             address: "0xF001".to_string(),
             data: "rfA=".to_string(),
+            unreadable_bytes: 0,
         }),
     );
     assert_eq!(adapter.pop_outgoing(), None);
@@ -467,6 +470,7 @@ fn read_memory_truncates_after_last_bytes() {
         Response::ReadMemory(ReadMemoryResponse {
             address: "0xFFFE".to_string(),
             data: "8A0=".to_string(),
+            unreadable_bytes: 8,
         }),
     );
     assert_eq!(adapter.pop_outgoing(), None);

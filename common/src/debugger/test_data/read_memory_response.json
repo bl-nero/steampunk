@@ -6,6 +6,7 @@
     "success": true,
     "body": {
         "address": "0xDEAD",
-        "data": "vu8="
+        "data": "vu8=",
+        "unreadableBytes": 0
     }
 }
