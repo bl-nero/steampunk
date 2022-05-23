@@ -36,6 +36,7 @@ use crate::debugger::dap_types::StoppedEvent;
 use crate::debugger::dap_types::Thread;
 use crate::debugger::dap_types::ThreadsResponse;
 use crate::debugger::dap_types::Variable;
+use crate::debugger::dap_types::VariablesArguments;
 use crate::debugger::dap_types::VariablesResponse;
 use crate::debugger::disasm::disassemble;
 use crate::debugger::disasm::seek_instruction;
@@ -49,6 +50,9 @@ use ya6502::cpu::MachineInspector;
 /// disassembling the preceding instruction's argument as opcode). We then simply
 /// discard this amount of instructions before serving the result.
 const DISASSEMBLY_MARGIN: usize = 20;
+
+const REGISTERS_VARIABLES_REFERENCE: i64 = 1;
+const MEMORY_VARIABLES_REFERENCE: i64 = 2;
 
 /// A debugger for 6502-based machines. Uses Debug Adapter Protocol internally
 /// to communicate with a debugger UI.
@@ -119,7 +123,7 @@ impl<A: DebugAdapter> Debugger<A> {
             Request::Threads => self.threads(),
             Request::StackTrace {} => self.stack_trace(inspector),
             Request::Scopes(args) => self.scopes(args),
-            Request::Variables(_) => self.variables(inspector),
+            Request::Variables(args) => self.variables(inspector, args),
             Request::Disassemble(args) => self.disassemble(inspector, args),
             Request::ReadMemory(args) => self.read_memory(inspector, args),
 
@@ -241,38 +245,56 @@ impl<A: DebugAdapter> Debugger<A> {
     }
 
     fn scopes(&self, args: ScopesArguments) -> RequestOutcome<A> {
-        let scopes = if args.frame_id == self.core.stack_depth() as i64 {
+        let mut scopes = if args.frame_id == self.core.stack_depth() as i64 {
             vec![Scope {
                 name: "Registers".to_string(),
-                presentation_hint: ScopePresentationHint::Registers,
-                variables_reference: 1,
+                presentation_hint: Some(ScopePresentationHint::Registers),
+                variables_reference: REGISTERS_VARIABLES_REFERENCE,
                 expensive: false,
             }]
         } else {
             vec![]
         };
+        scopes.push(Scope {
+            name: "Memory".to_string(),
+            presentation_hint: None,
+            variables_reference: MEMORY_VARIABLES_REFERENCE,
+            expensive: false,
+        });
         return (Response::Scopes(ScopesResponse { scopes }), None);
     }
 
-    fn variables(&self, inspector: &impl MachineInspector) -> RequestOutcome<A> {
-        (
-            Response::Variables(VariablesResponse {
-                variables: vec![
-                    byte_variable("A", inspector.reg_a()),
-                    byte_variable("X", inspector.reg_x()),
-                    byte_variable("Y", inspector.reg_y()),
-                    byte_variable("SP", inspector.reg_sp()),
-                    Variable {
-                        name: "PC".to_string(),
-                        value: format_word(inspector.reg_pc()),
-                        variables_reference: 0,
-                        memory_reference: None,
-                    },
-                    byte_variable("FLAGS", inspector.flags()),
-                ],
-            }),
+    fn variables(
+        &self,
+        inspector: &impl MachineInspector,
+        args: VariablesArguments,
+    ) -> RequestOutcome<A> {
+        let vars = match args.variables_reference {
+            REGISTERS_VARIABLES_REFERENCE => vec![
+                byte_variable("A", inspector.reg_a()),
+                byte_variable("X", inspector.reg_x()),
+                byte_variable("Y", inspector.reg_y()),
+                byte_variable("SP", inspector.reg_sp()),
+                Variable {
+                    name: "PC".to_string(),
+                    value: format_word(inspector.reg_pc()),
+                    variables_reference: 0,
+                    memory_reference: None,
+                },
+                byte_variable("FLAGS", inspector.flags()),
+            ],
+            MEMORY_VARIABLES_REFERENCE => vec![Variable {
+                name: "Memory".to_string(),
+                value: "$0000".to_string(),
+                variables_reference: 0,
+                memory_reference: Some("0x0000".to_string()),
+            }],
+            _ => vec![],
+        };
+        return (
+            Response::Variables(VariablesResponse { variables: vars }),
             None,
-        )
+        );
     }
 
     fn disassemble(

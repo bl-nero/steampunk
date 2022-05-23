@@ -171,7 +171,7 @@ pub struct ScopesResponse {
 #[serde(rename_all = "camelCase")]
 pub struct Scope {
     pub name: String,
-    pub presentation_hint: ScopePresentationHint,
+    pub presentation_hint: Option<ScopePresentationHint>,
     pub variables_reference: i64,
     pub expensive: bool,
 }
@@ -486,7 +486,7 @@ mod tests {
                 response: Response::Scopes(ScopesResponse {
                     scopes: vec![Scope {
                         name: "Registers".to_string(),
-                        presentation_hint: ScopePresentationHint::Registers,
+                        presentation_hint: Some(ScopePresentationHint::Registers),
                         variables_reference: 1,
                         expensive: false,
                     }]

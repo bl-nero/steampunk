@@ -518,17 +518,21 @@ fn variables() {
     let stack_frames = get_stack_frames(&adapter, &mut debugger, &cpu);
     let frame_1_id = stack_frames[0].id;
     let scopes = get_scopes(&adapter, &mut debugger, &cpu, frame_1_id);
-    assert_eq!(scopes.len(), 1);
+    assert_eq!(scopes.len(), 2);
     assert_eq!(scopes[0].name, "Registers");
     assert_eq!(
         scopes[0].presentation_hint,
-        ScopePresentationHint::Registers,
+        Some(ScopePresentationHint::Registers),
     );
     assert_eq!(scopes[0].expensive, false);
-    let variables_reference = scopes[0].variables_reference;
+    let registers_reference = scopes[0].variables_reference;
+    assert_eq!(scopes[1].name, "Memory");
+    assert_eq!(scopes[1].presentation_hint, None);
+    assert_eq!(scopes[1].expensive, false);
+    let memory_reference = scopes[1].variables_reference;
 
     adapter.push_request(Request::Variables(VariablesArguments {
-        variables_reference,
+        variables_reference: registers_reference,
     }));
     debugger.process_messages(&cpu);
     assert_responded_with(
@@ -575,6 +579,22 @@ fn variables() {
         }),
     );
 
+    adapter.push_request(Request::Variables(VariablesArguments {
+        variables_reference: memory_reference,
+    }));
+    debugger.process_messages(&cpu);
+    assert_responded_with(
+        &adapter,
+        Response::Variables(VariablesResponse {
+            variables: vec![Variable {
+                name: "Memory".to_string(),
+                value: "$0000".to_string(),
+                variables_reference: 0,
+                memory_reference: Some("0x0000".to_string()),
+            }],
+        }),
+    );
+
     adapter.push_request(Request::Continue {});
     debugger.process_messages(&cpu);
     tick_while_running(&mut debugger, &mut cpu);
@@ -585,17 +605,35 @@ fn variables() {
     assert_eq!(stack_frames.len(), 2);
     let frame_2_id = stack_frames[0].id;
     let scopes = get_scopes(&adapter, &mut debugger, &cpu, frame_2_id);
-    assert_eq!(scopes.len(), 1);
+    assert_eq!(scopes.len(), 2);
     assert_eq!(scopes[0].name, "Registers");
     assert_eq!(
         scopes[0].presentation_hint,
-        ScopePresentationHint::Registers,
+        Some(ScopePresentationHint::Registers),
     );
     assert_eq!(scopes[0].expensive, false);
-    let variables_reference = scopes[0].variables_reference;
+    let registers_reference = scopes[0].variables_reference;
+    assert_eq!(scopes[1].name, "Memory");
+    let memory_reference = scopes[1].variables_reference;
 
     adapter.push_request(Request::Variables(VariablesArguments {
-        variables_reference,
+        variables_reference: memory_reference,
+    }));
+    debugger.process_messages(&cpu);
+    assert_responded_with(
+        &adapter,
+        Response::Variables(VariablesResponse {
+            variables: vec![Variable {
+                name: "Memory".to_string(),
+                value: "$0000".to_string(),
+                variables_reference: 0,
+                memory_reference: Some("0x0000".to_string()),
+            }],
+        }),
+    );
+
+    adapter.push_request(Request::Variables(VariablesArguments {
+        variables_reference: registers_reference,
     }));
     debugger.process_messages(&cpu);
     assert_responded_with(
@@ -644,7 +682,25 @@ fn variables() {
 
     assert_eq!(stack_frames[1].id, frame_1_id);
     let scopes = get_scopes(&adapter, &mut debugger, &cpu, frame_1_id);
-    assert_eq!(scopes.len(), 0);
+    assert_eq!(scopes.len(), 1);
+    assert_eq!(scopes[0].name, "Memory");
+    let memory_reference = scopes[0].variables_reference;
+
+    adapter.push_request(Request::Variables(VariablesArguments {
+        variables_reference: memory_reference,
+    }));
+    debugger.process_messages(&cpu);
+    assert_responded_with(
+        &adapter,
+        Response::Variables(VariablesResponse {
+            variables: vec![Variable {
+                name: "Memory".to_string(),
+                value: "$0000".to_string(),
+                variables_reference: 0,
+                memory_reference: Some("0x0000".to_string()),
+            }],
+        }),
+    );
 }
 
 #[test]
