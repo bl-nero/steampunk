@@ -43,6 +43,8 @@ use crate::debugger::disasm::seek_instruction;
 use std::cmp::max;
 use std::cmp::min;
 use std::sync::mpsc::TryRecvError;
+use ya6502::cpu::flags::flags_to_string;
+use ya6502::cpu::flags::FlagRepresentation;
 use ya6502::cpu::MachineInspector;
 
 /// Default margin for disassembling code. Whenever a disassembly request comes
@@ -282,7 +284,12 @@ impl<A: DebugAdapter> Debugger<A> {
                     variables_reference: 0,
                     memory_reference: None,
                 },
-                byte_variable("FLAGS", inspector.flags()),
+                Variable {
+                    name: "FLAGS".to_string(),
+                    value: flags_to_string(inspector.flags(), FlagRepresentation::Letters),
+                    variables_reference: 0,
+                    memory_reference: None,
+                },
             ],
             MEMORY_VARIABLES_REFERENCE => vec![Variable {
                 name: "Memory".to_string(),

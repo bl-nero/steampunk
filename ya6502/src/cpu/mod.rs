@@ -1,10 +1,11 @@
 mod bcd;
-mod flags;
+pub mod flags;
 pub mod opcodes;
 mod tests;
 
 use crate::memory::Inspect;
 use crate::memory::{Memory, ReadError, ReadResult};
+use flags::FlagRepresentation;
 use mockall::automock;
 use rand::Rng;
 use std::error;
@@ -1582,7 +1583,7 @@ impl<M: Memory> fmt::Display for Cpu<M> {
             self.reg_y,
             self.reg_sp,
             self.reg_pc,
-            flags::flags_to_string(self.flags)
+            flags::flags_to_string(self.flags, FlagRepresentation::Stars)
         )
     }
 }

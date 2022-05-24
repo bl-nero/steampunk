@@ -490,9 +490,10 @@ fn variables() {
             jmp loop       // 0xF00B
 
         subroutine:
-            inx            // 0xF00E
-            dey            // 0xF00F
-            rts            // 0xF010
+            dey            // 0xF00E
+            inx            // 0xF00F
+            inx            // 0xF010
+            rts            // 0xF011
     };
 
     let adapter = FakeDebugAdapter::default();
@@ -507,7 +508,7 @@ fn variables() {
                     offset: None,
                 },
                 InstructionBreakpoint {
-                    instruction_reference: "0xF010".to_string(),
+                    instruction_reference: "0xF011".to_string(),
                     offset: None,
                 },
             ],
@@ -575,7 +576,7 @@ fn variables() {
                 },
                 Variable {
                     name: "FLAGS".to_string(),
-                    value: "$00".to_string(),
+                    value: "..-.....".to_string(),
                     variables_reference: 0,
                     memory_reference: None,
                 },
@@ -603,7 +604,7 @@ fn variables() {
     debugger.process_messages(&cpu);
     tick_while_running(&mut debugger, &mut cpu);
     purge_messages(&adapter);
-    assert_eq!(cpu.reg_pc(), 0xF010);
+    assert_eq!(cpu.reg_pc(), 0xF011);
 
     let stack_frames = get_stack_frames(&adapter, &mut debugger, &cpu);
     assert_eq!(stack_frames.len(), 2);
@@ -652,7 +653,7 @@ fn variables() {
                 },
                 Variable {
                     name: "X".to_string(),
-                    value: "$FF".to_string(),
+                    value: "$00".to_string(),
                     variables_reference: 0,
                     memory_reference: None,
                 },
@@ -670,13 +671,13 @@ fn variables() {
                 },
                 Variable {
                     name: "PC".to_string(),
-                    value: "$F010".to_string(),
+                    value: "$F011".to_string(),
                     variables_reference: 0,
                     memory_reference: None,
                 },
                 Variable {
                     name: "FLAGS".to_string(),
-                    value: "$00".to_string(),
+                    value: "..-...Z.".to_string(),
                     variables_reference: 0,
                     memory_reference: None,
                 },
