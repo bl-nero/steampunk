@@ -49,6 +49,9 @@ where
     /// A shift register for graphics byte, responsible for generating the
     /// graphics pixel by pixel.
     graphics_shifter: u8,
+
+    /// For now, allow one-time initialization of certain registers to 0.
+    reg_initialized: [bool; 0x2F],
 }
 
 impl<GrMem, ChrMem> Vic<GrMem, ChrMem>
@@ -75,6 +78,8 @@ where
             graphics_buffer: 0,
             color_buffer: 0,
             graphics_shifter: 0,
+
+            reg_initialized: [false; 0x2F],
         }
     }
 
@@ -272,9 +277,8 @@ impl<GrMem: Read, ChrMem: Read> Write for Vic<GrMem, ChrMem> {
                 self.reg_control_2 = value | flags::CONTROL_2_UNUSED;
             }
             registers::INTERRUPT => {
-                if value & !(flags::INTERRUPT_UNUSED | flags::INTERRUPT_RASTER) != 0 {
-                    return Err(WriteError { address, value });
-                }
+                // TODO: For now, we just ignore acknowledging interrupts that
+                // we don't yet support in the first place.
                 if value & flags::INTERRUPT_RASTER != 0 {
                     self.reg_interrupt = flags::INTERRUPT_UNUSED;
                 }
@@ -290,7 +294,17 @@ impl<GrMem: Read, ChrMem: Read> Write for Vic<GrMem, ChrMem> {
             registers::BACKGROUND_COLOR_0 => {
                 self.reg_background_color = value | flags::COLOR_UNUSED
             }
-            _ => return Err(WriteError { address, value }),
+
+            // We don't support ECM text mode or sprites just yet; for now,
+            // ignore all writes.
+            registers::BACKGROUND_COLOR_1..=registers::SPRITE_7_COLOR => {}
+
+            _ => {
+                if self.reg_initialized[(address - registers::BASE) as usize] {
+                    return Err(WriteError { address, value });
+                }
+                self.reg_initialized[(address - registers::BASE) as usize] = true;
+            }
         }
         Ok(())
     }
@@ -338,6 +352,7 @@ pub const VISIBLE_LINES: usize = TOP_BORDER_HEIGHT + DISPLAY_WINDOW_HEIGHT + BOT
 pub const TOTAL_HEIGHT: usize = 262; // Including vertical blank
 
 mod registers {
+    pub const BASE: u16 = 0xD000;
     pub const CONTROL_1: u16 = 0xD011;
     pub const RASTER: u16 = 0xD012;
     pub const CONTROL_2: u16 = 0xD016;
@@ -345,6 +360,8 @@ mod registers {
     pub const INTERRUPT_MASK: u16 = 0xD01A;
     pub const BORDER_COLOR: u16 = 0xD020;
     pub const BACKGROUND_COLOR_0: u16 = 0xD021;
+    pub const BACKGROUND_COLOR_1: u16 = 0xD022;
+    pub const SPRITE_7_COLOR: u16 = 0xD02E;
 }
 
 #[allow(dead_code)]
