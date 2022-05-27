@@ -214,7 +214,7 @@ enum Argument {
     Accumulator,
     Immediate(u8),
     Implied,
-    Relative(u8),
+    Relative { arg: u8, resolved: u16 },
     Absolute(u16),
     ZeroPage(u8),
     Indirect(u16),
@@ -233,7 +233,7 @@ impl Display for Argument {
             Accumulator => write!(f, "A"),
             Immediate(arg) => write!(f, "#${:02X}", arg),
             Implied => Ok(()),
-            Relative(arg) => write!(f, "{}", *arg as i8),
+            Relative { resolved, .. } => write!(f, "${:04X}", resolved),
             Absolute(arg) => write!(f, "${:04X}", arg),
             ZeroPage(arg) => write!(f, "${:02X}", arg),
             Indirect(arg) => write!(f, "(${:04X})", arg),
@@ -254,7 +254,7 @@ impl Argument {
         match self {
             Accumulator | Implied => vec![],
             Immediate(arg)
-            | Relative(arg)
+            | Relative { arg, .. }
             | ZeroPage(arg)
             | ZeroPageIndexedX(arg)
             | ZeroPageIndexedY(arg)
@@ -277,7 +277,11 @@ impl AddressingMode {
             AddressingMode::Accumulator => Argument::Accumulator,
             AddressingMode::Immediate => Argument::Immediate(stream.read_byte()),
             AddressingMode::Implied => Argument::Implied,
-            AddressingMode::Relative => Argument::Relative(stream.read_byte()),
+            AddressingMode::Relative => {
+                let arg = stream.read_byte();
+                let resolved = stream.ptr.wrapping_add(arg as i8 as u16);
+                Argument::Relative { arg, resolved }
+            }
             AddressingMode::Absolute => Argument::Absolute(stream.read_word()),
             AddressingMode::ZeroPage => Argument::ZeroPage(stream.read_byte()),
             AddressingMode::Indirect => Argument::Indirect(stream.read_word()),
@@ -739,17 +743,17 @@ mod tests {
             disassemble(&cpu, 0xF000, 0xF000, 0, 5),
             vec![
                 disassembled("0xF000", "A5 45", "LDA $45"),
-                disassembled("0xF002", "A2 04", "LDX #$04",),
-                disassembled("0xF004", "9D EF BE", "STA $BEEF,X",),
-                disassembled("0xF007", "CA", "DEX",),
-                disassembled("0xF008", "D0 F8", "BNE -8",)
+                disassembled("0xF002", "A2 04", "LDX #$04"),
+                disassembled("0xF004", "9D EF BE", "STA $BEEF,X"),
+                disassembled("0xF007", "CA", "DEX"),
+                disassembled("0xF008", "D0 F8", "BNE $F002")
             ]
         );
         assert_eq!(
             disassemble(&cpu, 0xF002, 0xF002, 0, 2),
             vec![
-                disassembled("0xF002", "A2 04", "LDX #$04",),
-                disassembled("0xF004", "9D EF BE", "STA $BEEF,X",),
+                disassembled("0xF002", "A2 04", "LDX #$04"),
+                disassembled("0xF004", "9D EF BE", "STA $BEEF,X"),
             ]
         );
     }
@@ -760,9 +764,9 @@ mod tests {
         assert_eq!(
             disassemble(&cpu, 0xF000, 0xF000, 0, 3),
             vec![
-                disassembled("0xF000", "EA", "NOP",),
-                disassembled("0xF001", "67", "",),
-                disassembled("0xF002", "EA", "NOP",),
+                disassembled("0xF000", "EA", "NOP"),
+                disassembled("0xF001", "67", ""),
+                disassembled("0xF002", "EA", "NOP"),
             ]
         );
     }
@@ -778,18 +782,18 @@ mod tests {
         assert_eq!(
             disassemble(&cpu, 0xF002, 0xF000, 0, 3),
             vec![
-                disassembled("0xF000", "A5 45", "LDA $45",),
-                disassembled("0xF002", "85 EA", "STA $EA",),
-                disassembled("0xF004", "85 AE", "STA $AE",),
+                disassembled("0xF000", "A5 45", "LDA $45"),
+                disassembled("0xF002", "85 EA", "STA $EA"),
+                disassembled("0xF004", "85 AE", "STA $AE"),
             ]
         );
         assert_eq!(
             disassemble(&cpu, 0xF003, 0xF000, 0, 4),
             vec![
-                disassembled("0xF000", "A5 45", "LDA $45",),
-                disassembled("0xF002", "85", "",),
-                disassembled("0xF003", "EA", "NOP",),
-                disassembled("0xF004", "85 AE", "STA $AE",),
+                disassembled("0xF000", "A5 45", "LDA $45"),
+                disassembled("0xF002", "85", ""),
+                disassembled("0xF003", "EA", "NOP"),
+                disassembled("0xF004", "85 AE", "STA $AE"),
             ]
         )
     }
@@ -804,8 +808,8 @@ mod tests {
         assert_eq!(
             disassemble(&cpu, 0xF003, 0xF000, 1, 2),
             vec![
-                disassembled("0xF002", "E8", "INX",),
-                disassembled("0xF003", "86 46", "STX $46",),
+                disassembled("0xF002", "E8", "INX"),
+                disassembled("0xF003", "86 46", "STX $46"),
             ]
         )
     }
