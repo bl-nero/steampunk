@@ -5,6 +5,7 @@ use crate::tia::VideoOutput;
 use crate::Atari;
 use crate::AtariAddressSpace;
 use crate::FrameRendererBuilder;
+use common::app::AppController;
 use common::app::Machine;
 use common::test_utils::as_single_hex_digit;
 use image::DynamicImage;
@@ -125,6 +126,19 @@ pub fn assert_images_equal(actual: DynamicImage, expected: DynamicImage, test_na
         test_name,
         &Path::new(env!("OUT_DIR")).join("test_results"),
     )
+}
+
+pub fn assert_current_frame(
+    controller: &mut impl AppController,
+    test_image_name: &str,
+    test_name: &str,
+) {
+    common::test_utils::assert_current_frame(
+        controller,
+        test_image_name,
+        test_name,
+        &Path::new(env!("OUT_DIR")).join("test_results"),
+    );
 }
 
 mod tests {

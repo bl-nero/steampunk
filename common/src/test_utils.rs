@@ -1,3 +1,4 @@
+use crate::app::AppController;
 use image::DynamicImage;
 use std::fs::create_dir_all;
 use std::path::Path;
@@ -57,4 +58,15 @@ pub fn assert_images_equal(
         actual_path.display(),
         diff_path.display(),
     );
+}
+
+pub fn assert_current_frame(
+    controller: &mut impl AppController,
+    test_image_name: &str,
+    test_name: &str,
+    results_dir_path: &Path,
+) {
+    let actual_image = DynamicImage::ImageRgba8(controller.frame_image().clone());
+    let expected_image = read_test_image(test_image_name);
+    assert_images_equal(actual_image, expected_image, test_name, results_dir_path);
 }

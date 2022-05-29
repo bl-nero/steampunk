@@ -23,3 +23,6 @@ clap = { version = "3.1.0", features = ["derive"] }
 ya6502 = { path = "../ya6502" }
 bounded-vec-deque = "0.1.1"
 base64 = "0.13.0"
+
+[dependencies.pistoncore-sdl2_window]
+git = "https://github.com/PistonDevelopers/sdl2_window"

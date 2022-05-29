@@ -2,7 +2,11 @@ use crate::address_space::AddressSpace;
 use crate::address_space::Cartridge;
 use crate::address_space::VicAddressSpace;
 use crate::cia::Cia;
+use crate::cia::PortName;
 use crate::frame_renderer::FrameRenderer;
+use crate::keyboard::Key;
+use crate::keyboard::KeyState;
+use crate::keyboard::Keyboard;
 use crate::sid::Sid;
 use crate::Vic;
 use common::app::FrameStatus;
@@ -28,15 +32,25 @@ pub struct C64 {
     cpu_clock_divider: u32,
     cia1_irq: bool,
     cia2_irq: bool,
+
+    keyboard: Keyboard,
 }
 
 impl Machine for C64 {
     fn reset(&mut self) {
+        let mem = self.cpu.mut_memory();
+        mem.mut_cia1().write_port(PortName::A, 0b1111_1111);
+        mem.mut_cia1().write_port(PortName::B, 0b1111_1111);
+        mem.mut_cia2().write_port(PortName::A, 0b1111_1111);
+        mem.mut_cia2().write_port(PortName::B, 0b1111_1111);
         self.cpu.reset();
     }
 
     fn tick(&mut self) -> Result<FrameStatus, Box<dyn Error>> {
         let vic_result = self.cpu.mut_memory().mut_vic().tick()?;
+        let cia1 = self.cpu.mut_memory().mut_cia1();
+        let keyboard_scan_result = self.keyboard.scan(cia1.read_port(PortName::A));
+        cia1.write_port(PortName::B, keyboard_scan_result);
         if self.at_cpu_cycle() {
             self.cpu.tick()?;
             self.cia1_irq = self.cpu.mut_memory().mut_cia1().tick();
@@ -57,7 +71,7 @@ impl Machine for C64 {
     }
 
     fn display_state(&self) -> String {
-        format!("{}\n{}", self.cpu, self.cpu.memory())
+        format!("{}\n{}", self.cpu(), self.cpu().memory())
     }
 }
 
@@ -108,6 +122,8 @@ impl C64 {
             cpu_clock_divider: 0,
             cia1_irq: false,
             cia2_irq: false,
+
+            keyboard: Keyboard::new(),
         })
     }
 
@@ -118,31 +134,24 @@ impl C64 {
     pub fn set_cartridge(&mut self, cartridge: Option<Cartridge>) {
         self.cpu.mut_memory().cartridge = cartridge;
     }
+
+    pub fn set_key_state(&mut self, key: Key, state: KeyState) {
+        self.keyboard.set_key_state(key, state);
+    }
+
+    pub fn cpu(&self) -> &Cpu<C64AddressSpace> {
+        &self.cpu
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::address_space::CartridgeMode;
+    use crate::test_utils::c64_with_cartridge;
+    use crate::test_utils::c64_with_cartridge_uninitialized;
+    use crate::test_utils::next_frame;
     use common::test_utils::read_test_image;
     use image::DynamicImage;
-    use std::error::Error;
-
-    fn next_frame(c64: &mut C64) -> Result<RgbaImage, Box<dyn Error>> {
-        loop {
-            match c64.tick() {
-                Ok(FrameStatus::Pending) => {}
-                Ok(FrameStatus::Complete) => break,
-                Err(e) => {
-                    eprintln!("ERROR: {}. Machine halted.", e);
-                    eprintln!("{}", c64.cpu);
-                    eprintln!("{}", c64.cpu.memory());
-                    return Err(e);
-                }
-            }
-        }
-        return Ok(c64.frame_renderer.frame_image().clone());
-    }
 
     pub fn assert_images_equal(actual: DynamicImage, expected: DynamicImage, test_name: &str) {
         common::test_utils::assert_images_equal(
@@ -157,26 +166,6 @@ mod tests {
         let actual_image = DynamicImage::ImageRgba8(next_frame(c64).unwrap());
         let expected_image = read_test_image(test_image_name);
         assert_images_equal(actual_image, expected_image, test_name);
-    }
-
-    pub fn read_test_rom(name: &str) -> Vec<u8> {
-        std::fs::read(Path::new(env!("OUT_DIR")).join("test_roms").join(name)).unwrap()
-    }
-
-    pub fn c64_with_cartridge_uninitialized(file_name: &str) -> C64 {
-        let mut c64 = C64::new().unwrap();
-        c64.set_cartridge(Some(Cartridge {
-            mode: CartridgeMode::Ultimax,
-            rom: Rom::new(&read_test_rom(file_name)).unwrap(),
-        }));
-        c64.reset();
-        return c64;
-    }
-
-    pub fn c64_with_cartridge(file_name: &str) -> C64 {
-        let mut c64 = c64_with_cartridge_uninitialized(file_name);
-        next_frame(&mut c64).unwrap(); // Skip the first partial frame.
-        return c64;
     }
 
     #[test]
@@ -215,5 +204,27 @@ mod tests {
         }
         c64.tick().unwrap();
         assert!(!c64.at_instruction_start());
+    }
+
+    #[test]
+    fn keyboard() {
+        let mut c64 = c64_with_cartridge("keyboard.bin");
+        next_frame(&mut c64).unwrap();
+        next_frame(&mut c64).unwrap();
+        assert_produces_frame(&mut c64, "c64_keyboard_1.png", "c64_keyboard_1");
+
+        c64.set_key_state(Key::C, KeyState::Pressed);
+        next_frame(&mut c64).unwrap();
+        assert_produces_frame(&mut c64, "c64_keyboard_2.png", "c64_keyboard_2");
+
+        c64.set_key_state(Key::C, KeyState::Released);
+        c64.set_key_state(Key::D6, KeyState::Pressed);
+        next_frame(&mut c64).unwrap();
+        assert_produces_frame(&mut c64, "c64_keyboard_3.png", "c64_keyboard_3");
+
+        c64.set_key_state(Key::D6, KeyState::Released);
+        c64.set_key_state(Key::D4, KeyState::Pressed);
+        next_frame(&mut c64).unwrap();
+        assert_produces_frame(&mut c64, "c64_keyboard_4.png", "c64_keyboard_4");
     }
 }

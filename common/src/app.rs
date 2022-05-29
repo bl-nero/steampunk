@@ -6,6 +6,7 @@ use piston::{Event, EventLoop, WindowSettings};
 use piston_window::{
     Filter, G2d, G2dTexture, G2dTextureContext, GfxDevice, PistonWindow, Texture, TextureSettings,
 };
+use sdl2_window::Sdl2Window;
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -131,7 +132,7 @@ pub trait AppController {
 }
 
 pub struct Application<C: AppController> {
-    window: PistonWindow,
+    window: PistonWindow<Sdl2Window>,
     controller: C,
     view: View,
 }
@@ -143,9 +144,9 @@ impl<C: AppController> Application<C> {
         let initial_frame_image = controller.frame_image();
         let window_width = initial_frame_image.width() * pixel_width;
         let window_height = initial_frame_image.height() * pixel_height;
-        let window_settings =
-            WindowSettings::new(window_title, [window_width, window_height]).exit_on_esc(true);
-        let mut window: PistonWindow = window_settings.build().expect("Could not build a window");
+        let window_settings = WindowSettings::new(window_title, [window_width, window_height]);
+        let mut window: PistonWindow<Sdl2Window> =
+            window_settings.build().expect("Could not build a window");
         window.set_ups(60);
         let texture_context = window.create_texture_context();
         let view = View::new(texture_context, initial_frame_image);

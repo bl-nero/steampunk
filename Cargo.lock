@@ -376,6 +376,7 @@ dependencies = [
  "piston",
  "piston2d-graphics",
  "piston_window",
+ "pistoncore-sdl2_window",
  "regex",
  "rustasm6502",
  "serde",
@@ -1854,6 +1855,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pistoncore-sdl2_window"
+version = "0.68.0"
+source = "git+https://github.com/PistonDevelopers/sdl2_window#ba59f895c049d512abbb667c122b788268979d5b"
+dependencies = [
+ "gl",
+ "pistoncore-input",
+ "pistoncore-window",
+ "sdl2",
+ "shader_version",
+]
+
+[[package]]
 name = "pistoncore-window"
 version = "0.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2165,6 +2178,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
 
 [[package]]
+name = "sdl2"
+version = "0.35.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7959277b623f1fb9e04aea73686c3ca52f01b2145f8ea16f4ff30d8b7623b1a"
+dependencies = [
+ "bitflags",
+ "lazy_static",
+ "libc",
+ "sdl2-sys",
+]
+
+[[package]]
+name = "sdl2-sys"
+version = "0.35.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3586be2cf6c0a8099a79a12b4084357aa9b3e0b0d7980e3b67aaf7a9d55f9f0"
+dependencies = [
+ "cfg-if 1.0.0",
+ "libc",
+ "version-compare",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.134"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2397,6 +2433,12 @@ checksum = "956ae1e0d85bca567dee1dcf87fb1ca2e792792f66f87dced8381f99cd91156a"
 dependencies = [
  "piston-float",
 ]
+
+[[package]]
+name = "version-compare"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe88247b92c1df6b6de80ddc290f3976dbdf2f5f5d3fd049a9fb598c6dd5ca73"
 
 [[package]]
 name = "version_check"

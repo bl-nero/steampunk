@@ -50,14 +50,12 @@ impl Cia {
     }
 
     /// Writes a given value to the pins of a given port.
-    #[cfg(test)]
     pub fn write_port(&mut self, port_name: PortName, value: u8) {
         self.ports[port_name].pins = value;
     }
 
     /// Reads a value from the pins of a given port. The value takes into
     /// consideration the direction configuration for each particular bit.
-    #[cfg(test)]
     pub fn read_port(&self, port_name: PortName) -> u8 {
         self.ports[port_name].read()
     }

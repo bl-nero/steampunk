@@ -122,24 +122,12 @@ impl<'a, A: DebugAdapter> AppController for AtariController<'a, A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::assert_images_equal;
+    use crate::test_utils::assert_current_frame;
     use crate::test_utils::atari_with_rom;
     use common::debugger::adapter::TcpDebugAdapter;
-    use common::test_utils::read_test_image;
-    use image::DynamicImage;
     use piston_window::ButtonArgs;
     use piston_window::UpdateArgs;
     use std::sync::atomic::Ordering;
-
-    fn assert_current_frame<A: DebugAdapter>(
-        controller: &mut AtariController<A>,
-        test_image_name: &str,
-        test_name: &str,
-    ) {
-        let actual_image = DynamicImage::ImageRgba8(controller.frame_image().clone());
-        let expected_image = read_test_image(test_image_name);
-        assert_images_equal(actual_image, expected_image, test_name);
-    }
 
     #[test]
     fn controller_produces_images_until_interrupted() {

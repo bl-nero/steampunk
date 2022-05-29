@@ -5,10 +5,13 @@ mod app;
 mod c64;
 mod cia;
 mod frame_renderer;
+mod keyboard;
 mod port;
 mod sid;
 mod timer;
 mod vic;
+
+mod test_utils;
 
 use crate::address_space::Cartridge;
 use crate::address_space::CartridgeMode;
