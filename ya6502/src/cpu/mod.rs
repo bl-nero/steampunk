@@ -126,7 +126,7 @@ impl<M: Memory + Debug> Cpu<M> {
             reg_x: rng.gen(),
             reg_y: rng.gen(),
             reg_sp: rng.gen(),
-            flags: rng.gen(),
+            flags: rng.gen::<u8>() & !flags::B | flags::UNUSED,
 
             sequence_state: SequenceState::Reset(0),
             // adh: rng.gen(),

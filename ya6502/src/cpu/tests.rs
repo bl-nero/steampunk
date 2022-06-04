@@ -1488,6 +1488,28 @@ fn irq() {
 }
 
 #[test]
+fn irq_right_after_init_pushes_b_flag_unset() {
+    // This test assures that the B flag is never set to 1 internally.
+    let mut cpu = cpu_with_code! {
+            ldx #0xFF
+            txs
+            cli
+        loop:
+            jmp loop
+
+        interrupt:        // 0xF007
+            jmp interrupt
+    };
+    cpu.mut_memory().bytes[0xFFFE..=0xFFFF].copy_from_slice(&[0x07, 0xF0]);
+    cpu.ticks(2 + 2 + 2).unwrap();
+    cpu.set_irq_pin(true);
+    cpu.ticks(7).unwrap();
+    let flags = cpu.memory.bytes[0x01FD];
+    assert_eq!(flags & flags::UNUSED, flags::UNUSED);
+    assert_eq!(flags & flags::B, 0);
+}
+
+#[test]
 fn nmi() {
     let mut cpu = cpu_with_interrupt_test_code();
     cpu.mut_memory().bytes[0xFFFA..=0xFFFB].copy_from_slice(&[0x03, 0xF0]);
