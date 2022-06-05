@@ -1188,6 +1188,101 @@ fn bne() {
 }
 
 #[test]
+fn branching_with_flags_cleared() {
+    let mut cpu = cpu_with_code! {
+            lda #0x00
+            pha
+            plp
+            // 9 cycles
+
+            bmi fail
+            bvs fail
+            bcs fail
+            beq fail
+            // 8 cycles, <=9 cycles if failed
+
+            bpl continue1
+            jmp fail
+        continue1:
+            bvc continue2
+            jmp fail
+        continue2:
+            bcc continue3
+            jmp fail
+        continue3:
+            bne success
+            jmp fail
+            // 12 cycles, <=14 cycles if failed
+
+        success:
+            lda #1
+            sta 1
+            // 5 cycles
+
+            jmp loop
+
+        fail:
+            lda #2
+            sta 1
+            // 5 cycles
+
+        loop:
+            jmp loop
+    };
+    // Worst case scenario: fail at the last test (14 cycles), then write the
+    // result (5 cycles).
+    cpu.ticks(9 + 8 + 14 + 5).unwrap();
+    assert_eq!(cpu.memory().bytes[1], 1);
+}
+
+#[test]
+fn branching_with_flags_set() {
+    let mut cpu = cpu_with_code! {
+            lda #0xFF
+            pha
+            plp
+            // 9 cycles
+
+            bpl fail
+            bvc fail
+            bcc fail
+            bne fail
+            // 8 cycles, <=9 cycles if failed
+
+            bmi continue1
+            jmp fail
+        continue1:
+            bvs continue2
+            jmp fail
+        continue2:
+            bcs continue3
+            jmp fail
+        continue3:
+            beq success
+            jmp fail
+            // 12 cycles, <=14 cycles if failed
+        success:
+            lda #1
+            sta 1
+            // 5 cycles
+
+            jmp loop
+
+        fail:
+            lda #2
+            sta 1
+            // 5 cycles
+
+        loop:
+            jmp loop
+    };
+    // Worst case scenario: fail at the last test (14 cycles), then write the
+    // result (5 cycles).
+    cpu.ticks(9 + 8 + 14 + 5).unwrap();
+    assert_eq!(cpu.memory().bytes[1], 1);
+}
+
+#[test]
 fn branching_across_pages_adds_one_cpu_cycle() {
     let memory = Box::new(Ram::with_test_program_at(
         0xF0FB,

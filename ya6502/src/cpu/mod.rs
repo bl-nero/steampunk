@@ -751,7 +751,7 @@ impl<M: Memory + Debug> Cpu<M> {
                 self.tick_branch_if_flag(flags::N, flags::N)?;
             }
             SequenceState::Opcode(opcodes::BVS, _) => {
-                self.tick_branch_if_flag(flags::V, flags::C)?;
+                self.tick_branch_if_flag(flags::V, flags::V)?;
             }
             SequenceState::Opcode(opcodes::BVC, _) => {
                 self.tick_branch_if_flag(flags::V, 0)?;
