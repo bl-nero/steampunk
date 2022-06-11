@@ -1544,9 +1544,12 @@ fn cpu_with_interrupt_test_code() -> Cpu<Ram> {
         interrupt:
             lda 10
             sta 11,x
+            php
+            pla
+            sta 100,x
             inx
             rti
-            // 18 cycles (including JMP in 0xF003) + 7 cycles of interrupt
+            // 29 cycles (including JMP in 0xF003) + 7 cycles of interrupt
             // sequence
     }
 }
@@ -1562,7 +1565,7 @@ fn irq() {
     assert_eq!(cpu.memory.bytes[10..=14], [2, 0, 0, 0, 0]);
 
     cpu.set_irq_pin(true);
-    cpu.ticks(7 + 18).unwrap();
+    cpu.ticks(7 + 29).unwrap();
     // No B flag expected on the stack this time.
     assert_eq!(cpu.memory.bytes[0x1FD], flags::UNUSED);
     assert_eq!(cpu.memory.bytes[10..=14], [2, 2, 0, 0, 0]);
@@ -1578,7 +1581,7 @@ fn irq() {
     // processed, increasing cell 10 to 6!
     cpu.ticks(2).unwrap();
     cpu.set_irq_pin(true);
-    cpu.ticks(3 + 2 * (7 + 18)).unwrap();
+    cpu.ticks(3 + 2 * (7 + 29)).unwrap();
     assert_eq!(cpu.memory.bytes[10..=14], [6, 2, 6, 6, 0]);
 }
 
@@ -1613,7 +1616,7 @@ fn nmi() {
     assert_eq!(cpu.memory.bytes[10..=15], [2, 0, 0, 0, 0, 0]);
 
     cpu.set_nmi_pin(true);
-    cpu.ticks(7 + 18).unwrap();
+    cpu.ticks(7 + 29).unwrap();
     assert_eq!(cpu.memory.bytes[10..=15], [2, 2, 0, 0, 0, 0]);
 
     // Since NMI is edge-triggered, this shouldn't result in another interrupt.
@@ -1631,7 +1634,7 @@ fn nmi() {
     cpu.set_nmi_pin(true);
     cpu.ticks(1).unwrap();
     cpu.set_nmi_pin(false);
-    cpu.ticks(7 + 18 - 2).unwrap();
+    cpu.ticks(7 + 29 - 2).unwrap();
     assert_eq!(cpu.memory.bytes[10..=15], [8, 2, 8, 0, 0, 0]);
 }
 
@@ -1652,6 +1655,57 @@ fn irq_masking() {
     cpu.set_irq_pin(true);
     cpu.ticks(7 + 11).unwrap();
     assert_eq!(cpu.memory.bytes[5], 0);
+}
+
+#[test]
+fn i_flag_inside_interrupt_handlers() {
+    let mut cpu = cpu_with_code! {
+            jmp start
+            // 3 cycles
+            jmp interrupt // 0xF003
+
+        start:
+            ldx #0
+            cli
+            brk
+            nop  // Skipped
+            // 11 cycles
+
+        loop:
+            php
+            pla
+            sta 10,x
+            inx
+            jmp loop
+            // 16 cycles
+
+        interrupt:
+            php
+            pla
+            sta 10,x
+            inx
+            rti
+            // 22 cycles (including JMP in 0xF003) + 7 cycles of interrupt
+            // sequence (BRK already accounted for in another place).
+    };
+    cpu.mut_memory().bytes[0xFFFA..=0xFFFF].copy_from_slice(&[0x03, 0xF0, 0x00, 0xF0, 0x03, 0xF0]);
+    cpu.mut_memory().bytes[10..21].copy_from_slice(&[
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    ]);
+    cpu.ticks(3 + 11 + 22 + 16).unwrap();
+    cpu.set_irq_pin(true);
+    cpu.tick().unwrap();
+    cpu.set_irq_pin(false);
+    cpu.ticks(7 - 1 + 22 + 16).unwrap();
+    cpu.set_nmi_pin(true);
+    cpu.tick().unwrap();
+    cpu.set_nmi_pin(false);
+    cpu.ticks(7 - 1 + 22 + 16).unwrap();
+
+    itertools::assert_equal(
+        cpu.memory().bytes[10..=15].iter().map(|p| p & flags::I),
+        [flags::I, 0, flags::I, 0, flags::I, 0],
+    );
 }
 
 #[test]

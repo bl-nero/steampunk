@@ -821,34 +821,11 @@ impl<M: Memory + Debug> Cpu<M> {
                 }
             },
 
-            // Yeah, I know: BRK is so similar to the interrupt sequence, it's
-            // realized with the same bits of silicon. However, the subtle
-            // differences make it not worth to generalize.
             SequenceState::Opcode(opcodes::BRK, subcycle) => match subcycle {
                 1 => {
                     self.consume_program_byte()?;
                 }
-                2 => {
-                    self.memory
-                        .write(self.stack_pointer(), (self.reg_pc >> 8) as u8)?;
-                    self.reg_sp = self.reg_sp.wrapping_sub(1);
-                }
-                3 => {
-                    self.memory.write(self.stack_pointer(), self.reg_pc as u8)?;
-                    self.reg_sp = self.reg_sp.wrapping_sub(1);
-                }
-                4 => {
-                    self.memory
-                        .write(self.stack_pointer(), self.flags | flags::PUSHED)?;
-                    self.reg_sp = self.reg_sp.wrapping_sub(1);
-                }
-                5 => {
-                    self.reg_pc = self.reg_pc & 0xFF00 | (self.memory.read(0xFFFE)? as u16);
-                }
-                _ => {
-                    self.reg_pc = self.reg_pc & 0xFF | ((self.memory.read(0xFFFF)? as u16) << 8);
-                    self.sequence_state = SequenceState::Ready;
-                }
+                _ => self.tick_interrupt_sequence(subcycle, 0xFFFE, flags::PUSHED)?,
             },
             SequenceState::Opcode(opcodes::RTI, subcycle) => match subcycle {
                 1 => self.phantom_read(self.reg_pc),
@@ -904,8 +881,12 @@ impl<M: Memory + Debug> Cpu<M> {
                 }
             },
 
-            SequenceState::Irq(subcycle) => self.tick_interrupt_sequence(subcycle, 0xFFFE)?,
-            SequenceState::Nmi(subcycle) => self.tick_interrupt_sequence(subcycle, 0xFFFA)?,
+            SequenceState::Irq(subcycle) => {
+                self.tick_interrupt_sequence(subcycle, 0xFFFE, flags::UNUSED)?
+            }
+            SequenceState::Nmi(subcycle) => {
+                self.tick_interrupt_sequence(subcycle, 0xFFFA, flags::UNUSED)?
+            }
         }
 
         // Now move on to the next subcycle.
@@ -1361,7 +1342,7 @@ impl<M: Memory + Debug> Cpu<M> {
         Ok(())
     }
 
-    fn tick_interrupt_sequence(&mut self, subcycle: u32, vector: u16) -> TickResult {
+    fn tick_interrupt_sequence(&mut self, subcycle: u32, vector: u16, flag_mask: u8) -> TickResult {
         match subcycle {
             1 => self.phantom_read(self.reg_pc),
             2 => {
@@ -1375,7 +1356,7 @@ impl<M: Memory + Debug> Cpu<M> {
             }
             4 => {
                 self.memory
-                    .write(self.stack_pointer(), self.flags | flags::UNUSED)?;
+                    .write(self.stack_pointer(), self.flags | flag_mask)?;
                 self.reg_sp = self.reg_sp.wrapping_sub(1);
             }
             5 => self.reg_pc = self.reg_pc & 0xFF00 | (self.memory.read(vector)? as u16),
