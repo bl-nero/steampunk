@@ -170,6 +170,11 @@ impl<M: Memory + Debug> Cpu<M> {
         self.nmi_pin = nmi_pin;
     }
 
+    pub fn jump_to(&mut self, address: u16) {
+        self.reg_pc = address;
+        self.sequence_state = SequenceState::Ready;
+    }
+
     /// Performs a single CPU cycle.
     pub fn tick(&mut self) -> TickResult {
         // Detect transition on the NMI pin.

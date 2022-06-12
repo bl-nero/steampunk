@@ -1,0 +1,11 @@
+[package]
+name = "cpu_test_machine"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ya6502 = { path = "../ya6502" }
+common = { path = "../common" }
+clap = { version = "3.1.0", features = ["derive"] }

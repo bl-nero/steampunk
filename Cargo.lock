@@ -512,6 +512,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cpu_test_machine"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "common",
+ "ya6502",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

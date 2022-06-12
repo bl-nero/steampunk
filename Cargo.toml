@@ -1,5 +1,5 @@
 [workspace]
-members = ["atari2600", "c64", "common", "ya6502"]
+members = ["atari2600", "c64", "common", "ya6502", "cpu_test_machine"]
 
 # The "image" crate and some of its dependencies (especially "inflate" and
 # "adler32") are particularly slow in the debug mode. To avoid multi-second
