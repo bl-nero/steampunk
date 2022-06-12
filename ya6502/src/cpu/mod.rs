@@ -1489,28 +1489,36 @@ impl<M: Memory + Debug> Cpu<M> {
 
     fn shift_left(&mut self, value: u8) -> u8 {
         let carry = (value & (1 << 7)) >> 7;
+        let new_value = value << 1;
         self.flags = (self.flags & !flags::C) | carry;
-        return value << 1;
+        self.update_flags_nz(new_value);
+        return new_value;
     }
 
     fn shift_right(&mut self, value: u8) -> u8 {
         let carry = value & 1;
+        let new_value = value >> 1;
         self.flags = (self.flags & !flags::C) | carry;
-        return value >> 1;
+        self.update_flags_nz(new_value);
+        return new_value;
     }
 
     fn rotate_left(&mut self, value: u8) -> u8 {
         let prev_carry = self.flags & flags::C;
         let carry = (value & (1 << 7)) >> 7;
+        let new_value = (value << 1) | prev_carry;
         self.flags = (self.flags & !flags::C) | carry;
-        return (value << 1) | prev_carry;
+        self.update_flags_nz(new_value);
+        return new_value;
     }
 
     fn rotate_right(&mut self, value: u8) -> u8 {
         let prev_carry = self.flags & flags::C;
         let carry = value & 1;
+        let new_value = (value >> 1) | (prev_carry << 7);
         self.flags = (self.flags & !flags::C) | carry;
-        return (value >> 1) | (prev_carry << 7);
+        self.update_flags_nz(new_value);
+        return new_value;
     }
 
     fn compare(&mut self, register: u8, value: u8) {

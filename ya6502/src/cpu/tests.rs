@@ -1032,6 +1032,109 @@ fn ror() {
 }
 
 #[test]
+fn asl_flags() {
+    let mut cpu = cpu_with_code! {
+            ldx #0xFE
+            txs
+            plp
+            // 8 cycles
+
+            lda #0b1010_0000
+            sta 10
+            // 5 cycles
+
+        loop:
+            asl 10
+            php
+            jmp loop
+            // 11 cycles
+    };
+    cpu.ticks(8 + 5 + 4 * 11).unwrap();
+    assert_eq!(
+        reversed_stack(&cpu),
+        [
+            flags::PUSHED | flags::C,
+            flags::PUSHED | flags::N,
+            flags::PUSHED | flags::C | flags::Z,
+            flags::PUSHED | flags::Z
+        ]
+    );
+}
+
+#[test]
+fn lsr_flags() {
+    let mut cpu = cpu_with_code! {
+            ldx #0xFE
+            txs
+            plp
+            // 8 cycles
+
+            lda #0b0000_0101
+            sta 10
+            lda #0b1000_0000  // Turn on the N flag
+            // 7 cycles
+
+        loop:
+            lsr 10
+            php
+            jmp loop
+            // 11 cycles
+    };
+    cpu.ticks(8 + 7 + 4 * 11).unwrap();
+    assert_eq!(
+        reversed_stack(&cpu),
+        [
+            flags::PUSHED | flags::C,
+            flags::PUSHED,
+            flags::PUSHED | flags::C | flags::Z,
+            flags::PUSHED | flags::Z
+        ]
+    );
+}
+
+#[test]
+fn rol_ror_flags() {
+    let mut cpu = cpu_with_code! {
+            ldx #0xFE
+            txs
+            plp
+            // 8 cycles
+
+            lda #0b0100_0000
+            sta 10
+            // 5 cycles
+
+            rol 10
+            php
+            rol 10
+            php
+            rol 10
+            php
+            // 24 cycles
+
+            ror 10
+            php
+            ror 10
+            php
+            ror 10
+            php
+            // 24 cycles
+    };
+    cpu.ticks(8 + 5 + 24 + 24).unwrap();
+    assert_eq!(
+        reversed_stack(&cpu),
+        [
+            flags::PUSHED | flags::N,
+            flags::PUSHED | flags::C | flags::Z,
+            flags::PUSHED,
+            flags::PUSHED | flags::C | flags::Z,
+            flags::PUSHED | flags::N,
+            flags::PUSHED,
+        ]
+    );
+}
+
+#[test]
 fn inc_dec() {
     let mut cpu = cpu_with_code! {
             inc 10
