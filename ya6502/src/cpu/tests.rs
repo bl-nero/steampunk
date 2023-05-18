@@ -673,6 +673,7 @@ fn overflow_flag() {
             clv
             php
             // 8 cycles
+
         fail:
             jmp fail
     };
@@ -682,6 +683,38 @@ fn overflow_flag() {
         [
             flags::PUSHED | flags::V | flags::C,
             flags::PUSHED | flags::C
+        ]
+    );
+}
+
+#[test]
+fn carry_cancelling_overflow() {
+    // This is an edge case where an operation that doesn't take carry into
+    // consideration overflows, but if you consider carry, it doesn't.
+    let mut cpu = cpu_with_code! {
+            ldx #0xFE
+            txs
+            plp
+            // 8 cycles
+
+            sec
+            lda #0x7F
+            sbc #0xFF
+            php
+            // 9 cycles
+
+            clc
+            lda #0x7F
+            sbc #0xFF
+            php
+            // 9 cycles
+    };
+    cpu.ticks(8+9+9).unwrap();
+    assert_eq!(
+        reversed_stack(&cpu),
+        [
+            flags::PUSHED | flags::V | flags::N,
+            flags::PUSHED
         ]
     );
 }

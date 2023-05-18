@@ -1483,7 +1483,7 @@ impl<M: Memory + Debug> Cpu<M> {
         if self.flags & flags::C == 0 {
             let (signed_diff_2, signed_overflow_2) = signed_diff.overflowing_sub(1);
             signed_diff = signed_diff_2;
-            signed_overflow |= signed_overflow_2;
+            signed_overflow ^= signed_overflow_2;
         }
         debug_assert_eq!(unsigned_diff, signed_diff as u8); // sanity check
         self.flags = (self.flags & !(flags::C | flags::V))
