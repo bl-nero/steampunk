@@ -1,13 +1,6 @@
 .macpack cbm                            ; for scrcode macro
 .include "c64.inc"
-
-SCREEN_START   = $0400
-COLOR_START    = $D800
-COL_WHITE      = 1
-COL_BLUE       = 6
-COL_BROWN      = 9
-COL_LIGHT_BLUE = 14
-COL_LIGHT_GREY = 15
+.include "common.inc"
 
 ; ==============================================================================
 
@@ -22,6 +15,7 @@ Counter:        .res 2  ; 4-digit BCD counter
 
 .code
 
+.import Init
 .import FillScreen
 
 ; ------------------------------------------------------------------------------
@@ -80,12 +74,11 @@ Measure:    clc                         ; 2 Increase counter by 1
 
 ; ------------------------------------------------------------------------------
 
-Reset:      lda #COL_LIGHT_GREY
+Reset:      jsr Init
+            lda #COL_LIGHT_GREY
             sta VIC_BG_COLOR0
             lda #COL_BROWN
             sta VIC_BORDERCOLOR
-            lda #%00001000
-            sta VIC_CTRL2
 
             lda #>SCREEN_START
             sta FillScreenPage+1

@@ -1,26 +1,17 @@
 .macpack cbm                            ; for scrcode macro
 .include "c64.inc"
-
-SCREEN_START   = $0400
-COLOR_START    = $D800
-COL_WHITE      = 1
-COL_BLUE       = 6
-COL_LIGHT_BLUE = 14
+.include "common.inc"
 
 .zeropage
 
+.import Init
 .import FillScreenPage
 
 .code
 
 .import FillScreen
 
-Reset:      lda #COL_BLUE
-            sta VIC_BG_COLOR0
-            lda #COL_LIGHT_BLUE
-            sta VIC_BORDERCOLOR
-            lda #%00001000
-            sta VIC_CTRL2
+Reset:      jsr Init
 
             lda #>SCREEN_START
             sta FillScreenPage+1

@@ -1417,7 +1417,7 @@ impl<M: Memory + Debug> Cpu<M> {
 
     fn test_bits(&mut self, value: u8) {
         // Clear N, V, and Z. Then load N and V (bits 7 and 6) directly from the
-        // value, and update Z by performing an AND with the accumolator.
+        // value, and update Z by performing an AND with the accumulator.
         self.flags = self.flags & !(flags::N | flags::V | flags::Z)
             | (value & (flags::N | flags::V))
             | if value & self.reg_a == 0 { flags::Z } else { 0 };

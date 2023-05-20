@@ -195,6 +195,7 @@ dependencies = [
  "piston_window",
  "rand",
  "rodio 0.14.0",
+ "thiserror",
  "ya6502",
 ]
 

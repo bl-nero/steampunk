@@ -1,4 +1,5 @@
 #![feature(test)]
+#![feature(assert_matches)]
 
 mod address_space;
 mod app;
@@ -8,6 +9,7 @@ mod frame_renderer;
 mod keyboard;
 mod port;
 mod sid;
+mod tape;
 mod timer;
 mod vic;
 
@@ -21,7 +23,11 @@ use clap::Parser;
 use common::app::Application;
 use common::app::CommonCliArguments;
 use common::debugger::adapter::TcpDebugAdapter;
+use std::fs::File;
+use std::io;
 use std::sync::atomic::Ordering;
+use tape::read_tap_file;
+use tape::Datasette;
 use vic::Vic;
 use ya6502::memory::Rom;
 
@@ -29,7 +35,12 @@ use ya6502::memory::Rom;
 struct Args {
     #[clap(flatten)]
     common: CommonCliArguments,
-    cartridge_file: Option<String>,
+
+    #[clap(long)]
+    cartridge: Option<String>,
+
+    #[clap(long)]
+    tape: Option<String>,
 }
 
 fn main() {
@@ -39,12 +50,20 @@ fn main() {
 
     // Load the cartridge ROM image, if specified. So far, only Ultimax mode is
     // supported.
-    if let Some(file) = args.cartridge_file {
+    if let Some(file) = args.cartridge {
         let cartridge_bytes = std::fs::read(file).expect("Unable to read the cartridge file");
         c64.set_cartridge(Some(Cartridge {
             mode: CartridgeMode::Ultimax,
             rom: Rom::new(&cartridge_bytes).expect("Unable to create ROM cartridge"),
         }));
+    }
+
+    if let Some(file) = args.tape {
+        let tape_data = read_tap_file(io::BufReader::new(
+            File::open(file).expect("Unable to open the tape file"),
+        ))
+        .expect("Unable to read the tape file");
+        c64.set_datasette(Some(Datasette::new(tape_data)));
     }
 
     let debugger_adapter = if args.common.debugger {

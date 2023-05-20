@@ -30,23 +30,15 @@ impl Cia {
         Self::default()
     }
 
+    /// Performs a tick and returns `true` if an interrupt was triggered.
     pub fn tick(&mut self) -> bool {
         if self.timer_a.tick() {
-            self.process_timer_underflow(flags::ICR_TIMER_A);
+            self.set_interrupt_flag(flags::ICR_TIMER_A);
         }
         if self.timer_b.tick() {
-            self.process_timer_underflow(flags::ICR_TIMER_B);
+            self.set_interrupt_flag(flags::ICR_TIMER_B);
         }
         return self.reg_interrupt_status & flags::ICR_TRIGGERED != 0;
-    }
-
-    fn process_timer_underflow(&mut self, icr_flag: u8) {
-        let bits_to_set = if self.reg_interrupt_control & icr_flag != 0 {
-            icr_flag | flags::ICR_TRIGGERED
-        } else {
-            icr_flag
-        };
-        self.reg_interrupt_status |= bits_to_set;
     }
 
     /// Writes a given value to the pins of a given port.
@@ -58,6 +50,24 @@ impl Cia {
     /// consideration the direction configuration for each particular bit.
     pub fn read_port(&self, port_name: PortName) -> u8 {
         self.ports[port_name].read()
+    }
+
+    /// Indicates a falling edge happening on the /FLAG pin.
+    pub fn set_flag(&mut self) {
+        self.set_interrupt_flag(flags::ICR_FLAG_SIGNAL);
+    }
+
+    /// Indicates that an interrupt condition indicated by the `icr_flag`
+    /// parameter has been triggered. If the flag is allowed to trigger an
+    /// interrupt, it will be triggered by setting appropriate bit in the
+    /// interrupt status register.
+    fn set_interrupt_flag(&mut self, icr_flag: u8) {
+        let bits_to_set = if self.reg_interrupt_control & icr_flag != 0 {
+            icr_flag | flags::ICR_TRIGGERED
+        } else {
+            icr_flag
+        };
+        self.reg_interrupt_status |= bits_to_set;
     }
 }
 
@@ -115,8 +125,12 @@ impl Write for Cia {
             registers::ICR => {
                 if value & flags::ICR_SOURCE_BIT != 0 {
                     // Set mask bits.
-                    // For now, only allow turning on timer IRQs.
-                    if value & !(flags::ICR_TIMER_A | flags::ICR_TIMER_B | flags::ICR_SOURCE_BIT)
+                    // For now, only allow turning on timer and FLAG IRQs.
+                    if value
+                        & !(flags::ICR_TIMER_A
+                            | flags::ICR_TIMER_B
+                            | flags::ICR_FLAG_SIGNAL
+                            | flags::ICR_SOURCE_BIT)
                         != 0
                     {
                         return Err(WriteError { address, value });
@@ -160,10 +174,11 @@ mod registers {
 }
 
 mod flags {
-    pub const ICR_SOURCE_BIT: u8 = 1 << 7;
     pub const ICR_TIMER_A: u8 = 1 << 0;
     pub const ICR_TIMER_B: u8 = 1 << 1;
+    pub const ICR_FLAG_SIGNAL: u8 = 1 << 4;
     pub const ICR_TRIGGERED: u8 = 1 << 7;
+    pub const ICR_SOURCE_BIT: u8 = 1 << 7;
 }
 
 #[cfg(test)]
@@ -345,4 +360,34 @@ mod tests {
         registers::CRB,
         flags::ICR_TIMER_B
     );
+
+    #[test]
+    fn test_flag() {
+        let mut cia = Cia::new();
+        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+        cia.set_flag();
+        assert_eq!(cia.read(registers::ICR).unwrap(), flags::ICR_FLAG_SIGNAL);
+        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_flag_interrupt() {
+        let mut cia = Cia::new();
+        cia.write(
+            registers::ICR,
+            flags::ICR_SOURCE_BIT | flags::ICR_FLAG_SIGNAL,
+        )
+        .unwrap();
+        assert_eq!(cia.tick(), false);
+
+        cia.set_flag();
+        assert_eq!(cia.tick(), true);
+        assert_eq!(cia.tick(), true); // Report IRQ until acknowledged.
+        assert_eq!(
+            cia.read(registers::ICR).unwrap(),
+            flags::ICR_TRIGGERED | flags::ICR_FLAG_SIGNAL
+        );
+        assert_eq!(cia.tick(), false);
+        assert_eq!(cia.read(registers::ICR).unwrap(), 0);
+    }
 }

@@ -4,10 +4,14 @@ use super::*;
 use common::test_utils::as_single_hex_digit;
 use ya6502::memory::Ram;
 
-/// Creates a VIC backed by a simple RAM architecture and runs enough raster
-/// lines to end up at the beginning of the first visible border line.
+const CONTROL_1_DEFAULT: u8 = flags::CONTROL_1_SCREEN_ON | flags::CONTROL_1_RSEL | 3;
+
+/// Creates a VIC backed by a simple RAM architecture, makes the screen visible,
+/// and runs enough raster lines to end up at the beginning of the first visible
+/// border line.
 fn initialized_vic_for_testing() -> Vic<Ram, Ram> {
     let mut vic = vic_for_testing();
+    vic.write(registers::CONTROL_1, CONTROL_1_DEFAULT).unwrap();
     for _ in 0..RASTER_LENGTH * TOP_BORDER_FIRST_LINE {
         vic.tick().unwrap();
     }
@@ -59,6 +63,16 @@ fn grab_raster_line<GM: Read, CM: Read>(
 /// Skips a given number of full raster lines and discards results.
 fn skip_raster_lines<GM: Read, CM: Read>(vic: &mut Vic<GM, CM>, n: usize) {
     for _ in 0..n * RASTER_LENGTH {
+        vic.tick().unwrap();
+    }
+}
+
+/// Skips to a beginning of a given raster line and discards results.
+fn skip_to_raster_line<GM: Read, CM: Read>(vic: &mut Vic<GM, CM>, n: usize) {
+    while vic.raster_counter == n {
+        vic.tick().unwrap();
+    }
+    while vic.raster_counter != n {
         vic.tick().unwrap();
     }
 }
@@ -408,7 +422,6 @@ fn raster_counter() {
 
 #[test]
 fn raster_irq() {
-    const CONTROL_1_DEFAULT: u8 = flags::CONTROL_1_SCREEN_ON | flags::CONTROL_1_RSEL | 3;
     let mut vic = initialized_vic_for_testing();
     vic.write(registers::INTERRUPT, flags::INTERRUPT_RASTER)
         .unwrap(); // No IRQs expected, but acknowledge just in case.
@@ -461,7 +474,6 @@ fn raster_irq() {
 
 #[test]
 fn raster_irq_bit_8() {
-    const CONTROL_1_DEFAULT: u8 = flags::CONTROL_1_SCREEN_ON | flags::CONTROL_1_RSEL | 3;
     let mut vic = initialized_vic_for_testing();
     vic.write(registers::INTERRUPT, flags::INTERRUPT_RASTER)
         .unwrap(); // No IRQs expected, but acknowledge just in case.
@@ -489,4 +501,46 @@ fn raster_irq_bit_8() {
     vic.write(registers::CONTROL_1, CONTROL_1_DEFAULT).unwrap();
     let vic_output = tick_until_irq(&mut vic);
     assert_eq!(vic_output.video_output.raster_line, 1);
+}
+
+#[test]
+fn screen_on_off() {
+    let mut vic = initialized_vic_for_testing();
+    vic.write(registers::BORDER_COLOR, 0x08).unwrap();
+    vic.write(registers::BACKGROUND_COLOR_0, 0x00).unwrap();
+    vic.write(
+        registers::CONTROL_1,
+        CONTROL_1_DEFAULT & !flags::CONTROL_1_SCREEN_ON,
+    )
+    .unwrap();
+
+    assert_eq!(
+        encode_video_lines(grab_frame(&mut vic, 160, 100, 1, 1)),
+        ["8"],
+        "Displays border color in the middle of the screen"
+    );
+}
+
+#[test]
+fn screen_on_off_decides_on_raster_line_48() {
+    let mut vic = initialized_vic_for_testing();
+    vic.write(registers::BORDER_COLOR, 0x0A).unwrap();
+    vic.write(registers::BACKGROUND_COLOR_0, 0x00).unwrap();
+    skip_to_raster_line(&mut vic, 49);
+    vic.write(
+        registers::CONTROL_1,
+        CONTROL_1_DEFAULT & !flags::CONTROL_1_SCREEN_ON,
+    )
+    .unwrap();
+    assert_eq!(
+        encode_video_lines(grab_frame(&mut vic, 160, 100, 1, 1)),
+        ["."],
+        "Displays screen color before switching screen off on line 48",
+    );
+
+    assert_eq!(
+        encode_video_lines(grab_frame(&mut vic, 160, 100, 1, 1)),
+        ["A"],
+        "Displays border color after seeing the screen switched off on line 48",
+    );
 }

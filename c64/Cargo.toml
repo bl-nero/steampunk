@@ -17,6 +17,7 @@ ctrlc = "3.1.9"
 image-diff = "0.1.13"
 enum-map = "1.1.1"
 rodio = "0.14.0"
+thiserror = "1.0.30"
 
 common = { path = "../common" }
 ya6502 = { path = "../ya6502" }

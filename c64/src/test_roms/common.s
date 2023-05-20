@@ -1,3 +1,6 @@
+.include "c64.inc"
+.include "common.inc"
+
 .zeropage
 
 .export FillScreenPage
@@ -6,6 +9,22 @@ FillScreenPage: .res 2
 ; ==============================================================================
 
 .code
+
+; ------------------------------------------------------------------------------
+
+; Initializes the VIC chip and sets the screen to blue.
+.export Init
+.proc Init
+            lda #COL_BLUE
+            sta VIC_BG_COLOR0
+            lda #COL_LIGHT_BLUE
+            sta VIC_BORDERCOLOR
+            lda #%00011011
+            sta VIC_CTRL1
+            lda #%00001000
+            sta VIC_CTRL2
+            rts
+.endproc
 
 ; ------------------------------------------------------------------------------
 

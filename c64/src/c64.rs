@@ -8,6 +8,7 @@ use crate::keyboard::Key;
 use crate::keyboard::KeyState;
 use crate::keyboard::Keyboard;
 use crate::sid::Sid;
+use crate::tape::Datasette;
 use crate::Vic;
 use common::app::FrameStatus;
 use common::app::Machine;
@@ -34,6 +35,7 @@ pub struct C64 {
     cia2_irq: bool,
 
     keyboard: Keyboard,
+    datasette: Option<Datasette>,
 }
 
 impl Machine for C64 {
@@ -55,6 +57,22 @@ impl Machine for C64 {
             self.cpu.tick()?;
             self.cia1_irq = self.cpu.mut_memory().mut_cia1().tick();
             self.cia2_irq = self.cpu.mut_memory().mut_cia2().tick();
+            if let Some(datasette) = self.datasette.as_mut() {
+                let port_value = self.cpu.mut_memory().mut_cpu_port().read();
+                let motor_on = port_value & flags::CPU_PORT_CASS_MOTOR == 0;
+                let ds_tick_result = datasette.tick(motor_on);
+                if ds_tick_result.pulse {
+                    use std::io::Write;
+                    print!(".");
+                    std::io::stdout().flush().unwrap();
+                    self.cpu.mut_memory().mut_cia1().set_flag();
+                }
+                if ds_tick_result.button_pressed {
+                    self.cpu.mut_memory().mut_cpu_port().pins &= !flags::CPU_PORT_CASS_SENSE
+                } else {
+                    self.cpu.mut_memory().mut_cpu_port().pins |= flags::CPU_PORT_CASS_SENSE
+                };
+            }
         }
         self.cpu
             .set_irq_pin(vic_result.irq | self.cia1_irq | self.cia2_irq);
@@ -124,6 +142,7 @@ impl C64 {
             cia2_irq: false,
 
             keyboard: Keyboard::new(),
+            datasette: None,
         })
     }
 
@@ -142,6 +161,19 @@ impl C64 {
     pub fn cpu(&self) -> &Cpu<C64AddressSpace> {
         &self.cpu
     }
+
+    pub fn set_datasette(&mut self, datasette: Option<Datasette>) {
+        self.datasette = datasette;
+    }
+
+    pub fn datasette(&mut self) -> Option<&mut Datasette> {
+        self.datasette.as_mut()
+    }
+}
+
+mod flags {
+    pub const CPU_PORT_CASS_MOTOR: u8 = 0b0010_0000;
+    pub const CPU_PORT_CASS_SENSE: u8 = 0b0001_0000;
 }
 
 #[cfg(test)]

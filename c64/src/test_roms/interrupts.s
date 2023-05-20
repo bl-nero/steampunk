@@ -8,13 +8,7 @@
 
 .macpack cbm                            ; for scrcode macro
 .include "c64.inc"
-
-SCREEN_START   = $0400
-COLOR_START    = $D800
-COL_WHITE      = 1
-COL_BLUE       = 6
-COL_LIGHT_BLUE = 14
-COL_LIGHT_GREY = 15
+.include "common.inc"
 
 ; Offset to the center of the screen.
 TEXT_OFFSET = (25 / 2) * 40 + 20 - (HELLO_LEN + 1) / 2
@@ -23,6 +17,7 @@ TEXT_OFFSET = (25 / 2) * 40 + 20 - (HELLO_LEN + 1) / 2
 
 .zeropage
 
+.import Init
 .import FillScreenPage
 
 ; ==============================================================================
@@ -31,12 +26,11 @@ TEXT_OFFSET = (25 / 2) * 40 + 20 - (HELLO_LEN + 1) / 2
 
 .import FillScreen
 
-Reset:      lda #COL_WHITE
+Reset:      jsr Init
+            lda #COL_WHITE
             sta VIC_BG_COLOR0
             lda #COL_LIGHT_GREY
             sta VIC_BORDERCOLOR
-            lda #%00001000
-            sta VIC_CTRL2
 
             lda #>SCREEN_START
             sta FillScreenPage+1

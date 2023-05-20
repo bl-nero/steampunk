@@ -18,6 +18,8 @@ use std::sync::Arc;
 
 pub struct C64Controller<'a, A: DebugAdapter> {
     machine_controller: MachineController<'a, C64, A>,
+    l_gui_key_pressed: bool,
+    r_gui_key_pressed: bool,
 }
 
 impl<'a, A: DebugAdapter> C64Controller<'a, A> {
@@ -25,6 +27,8 @@ impl<'a, A: DebugAdapter> C64Controller<'a, A> {
         let debugger = debugger_adapter.map(Debugger::new);
         Self {
             machine_controller: MachineController::new(c64, debugger),
+            l_gui_key_pressed: false,
+            r_gui_key_pressed: false,
         }
     }
 }
@@ -53,7 +57,14 @@ impl<'a, A: DebugAdapter> AppController for C64Controller<'a, A> {
                 _timestamp,
             ) => {
                 // println!("Key {:?}, state {:?}", key, state);
-                if let Some(c64_key) = map_key(*key) {
+                if (self.l_gui_key_pressed || self.r_gui_key_pressed)
+                    && key == &Key::P
+                    && state == &ButtonState::Press
+                {
+                    self.machine_controller.mut_machine().datasette().map(|d| {
+                        d.set_play_pressed(true);
+                    });
+                } else if let Some(c64_key) = map_key(*key) {
                     let c64_key_state = match state {
                         ButtonState::Press => KeyState::Pressed,
                         ButtonState::Release => KeyState::Released,
@@ -61,6 +72,10 @@ impl<'a, A: DebugAdapter> AppController for C64Controller<'a, A> {
                     self.machine_controller
                         .mut_machine()
                         .set_key_state(c64_key, c64_key_state);
+                } else if key == &Key::LGui {
+                    self.l_gui_key_pressed = state == &ButtonState::Press;
+                } else if key == &Key::RGui {
+                    self.r_gui_key_pressed = state == &ButtonState::Press;
                 }
             }
             Event::Loop(Loop::Update(_)) => self.machine_controller.run_until_end_of_frame(),

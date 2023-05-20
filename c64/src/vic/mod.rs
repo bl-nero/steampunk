@@ -41,6 +41,7 @@ where
     /// Raster number that will trigger IRQ (if raster IRQ is enabled).
     irq_raster_line: usize,
     x_counter: usize,
+    screen_on: bool,
 
     /// A buffer for graphics byte to be displayed next.
     graphics_buffer: u8,
@@ -74,6 +75,7 @@ where
             raster_counter: 0,
             irq_raster_line: 0,
             x_counter: 0,
+            screen_on: true,
 
             graphics_buffer: 0,
             color_buffer: 0,
@@ -92,15 +94,30 @@ where
         const DISPLAY_WINDOW_END: usize = RIGHT_BORDER_START - 1;
         const NARROW_DISPLAY_WINDOW_START: usize = DISPLAY_WINDOW_START + 8;
         const NARROW_DISPLAY_WINDOW_END: usize = DISPLAY_WINDOW_END - 8;
+
+        // We only sense and latch the `screen_on` flag during raster line 48.
+        if self.raster_counter == 48 {
+            if self.x_counter == 0 {
+                self.screen_on = false;
+            }
+            self.screen_on |= self.reg_control_1 & flags::CONTROL_1_SCREEN_ON != 0;
+        }
+
         let graphics_color = self.graphics_tick()?;
 
         let color = match self.raster_counter {
             DISPLAY_WINDOW_FIRST_LINE..=DISPLAY_WINDOW_LAST_LINE => {
-                match (self.reg_control_2 & flags::CONTROL_2_CSEL, self.x_counter) {
-                    (flags::CONTROL_2_CSEL, DISPLAY_WINDOW_START..=DISPLAY_WINDOW_END) => {
+                match (
+                    self.screen_on,
+                    self.reg_control_2 & flags::CONTROL_2_CSEL,
+                    self.x_counter,
+                ) {
+                    (true, flags::CONTROL_2_CSEL, DISPLAY_WINDOW_START..=DISPLAY_WINDOW_END) => {
                         graphics_color
                     }
-                    (0, NARROW_DISPLAY_WINDOW_START..=NARROW_DISPLAY_WINDOW_END) => graphics_color,
+                    (true, 0, NARROW_DISPLAY_WINDOW_START..=NARROW_DISPLAY_WINDOW_END) => {
+                        graphics_color
+                    }
                     _ => self.reg_border_color,
                 }
             }
@@ -258,8 +275,8 @@ impl<GrMem: Read, ChrMem: Read> Write for Vic<GrMem, ChrMem> {
     fn write(&mut self, address: u16, value: u8) -> WriteResult {
         match address {
             registers::CONTROL_1 => {
-                if value & !flags::CONTROL_1_RASTER_8
-                    != 3 | flags::CONTROL_1_RSEL | flags::CONTROL_1_SCREEN_ON
+                if value & !(flags::CONTROL_1_RASTER_8 | flags::CONTROL_1_SCREEN_ON)
+                    != 3 | flags::CONTROL_1_RSEL
                 {
                     return Err(WriteError { address, value });
                 }

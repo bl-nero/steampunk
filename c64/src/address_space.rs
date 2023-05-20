@@ -53,6 +53,9 @@ where
     pub fn mut_cia2(&mut self) -> &mut Cia {
         &mut self.cia2
     }
+    pub fn mut_cpu_port(&mut self) -> &mut Port {
+        &mut self.cpu_port
+    }
 }
 
 impl<Vic, Sid, Cia> AddressSpace<Vic, Sid, Cia>
@@ -182,9 +185,8 @@ where
         match address {
             0x0000 => Ok(self.cpu_port.direction = value),
             0x0001 => {
-                // For now, only allow one memory layout and don't allow turning
-                // Datasette on.
-                if value & 0b0010_0111 == 0b0010_0111 {
+                // For now, only allow one memory layout.
+                if value & 0b0000_0111 == 0b0000_0111 {
                     Ok(self.cpu_port.register = value)
                 } else {
                     Err(WriteError { address, value })

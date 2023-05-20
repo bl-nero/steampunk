@@ -7,13 +7,7 @@
 
 .macpack cbm                            ; for scrcode macro
 .include "c64.inc"
-
-SCREEN_START   = $0400
-COLOR_START    = $D800
-COL_WHITE      = 1
-COL_BLUE       = 6
-COL_LIGHT_BLUE = 14
-COL_LIGHT_GREY = 15
+.include "common.inc"
 
 CIRCLE_EMPTY = $57
 CIRCLE_FULL  = $51
@@ -22,6 +16,7 @@ CIRCLE_FULL  = $51
 
 .zeropage
 
+.import Init
 .import FillScreenPage
 
 ScanResult: .res 8
@@ -40,7 +35,8 @@ ResultMask: .res 1
 
 .import FillScreen
 
-Reset:      sei
+Reset:      jsr Init
+            sei
             lda #COL_BLUE
             sta VIC_BG_COLOR0
             lda #COL_LIGHT_BLUE
