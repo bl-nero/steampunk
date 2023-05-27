@@ -1,5 +1,7 @@
 # Steampunk
 
+[![CI](https://github.com/bl-nero/steampunk/actions/workflows/ci.yml/badge.svg)](https://github.com/bl-nero/steampunk/actions/workflows/ci.yml)
+
 Because what the world needs right now is yet another retro computing emulator. So yeah, here it is. This started as a "father and son" hobby project. It's built with no particular agenda other than having fun (and learning Rust). Currently, the project contains an Atari 2600 emulator based on a cycle-based 6502 implementation, as well as some humble beginnings of a Commodore 64 emulator.
 
 # Installing requirements
