@@ -21,7 +21,7 @@ jobs:
       with:
         toolchain: nightly
     - name: Install dependencies
-      run: apt-get install libasound2-dev
+      run: sudo apt-get install libasound2-dev
     - name: Build
       uses: actions-rs/cargo@v1
       with:
