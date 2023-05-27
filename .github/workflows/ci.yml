@@ -23,10 +23,12 @@ jobs:
     - name: Build
       uses: actions-rs/cargo@v1
       with:
+        toolchain: nightly
         command: build
         args: --verbose
     - name: Run tests
       uses: actions-rs/cargo@v1
       with:
+        toolchain: nightly
         command: test
         args: --verbose
