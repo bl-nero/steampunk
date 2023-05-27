@@ -13,7 +13,7 @@ piston_window = "0.120.0"
 piston = "0.53.0"
 rand = "0.8.3"
 itertools = "0.10.0"
-ctrlc = "3.1.9"
+ctrlc = "3.3.1"
 enum-map = "1.1.1"
 rodio = "0.15.0"
 clap = { version = "3.1.0", features = ["derive"] }
