@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install the nightly toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+
+    - name: Install dependencies
+      run: |
+        echo 'deb http://download.opensuse.org/repositories/home:/strik/Debian_11/ /' | sudo tee /etc/apt/sources.list.d/home:strik.list
+        curl -fsSL https://download.opensuse.org/repositories/home:strik/Debian_11/Release.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/home_strik.gpg > /dev/null
+        sudo apt update
+        sudo apt install libasound2-dev
+        sudo apt install libsdl2-dev
+        sudo apt install cc65
+
+    - name: Build
+      uses: actions-rs/cargo@v1
+      with:
+        toolchain: nightly
+        command: build
+        args: --verbose
+
+    - name: Run tests
+      uses: actions-rs/cargo@v1
+      with:
+        toolchain: nightly
+        command: test
+        args: --verbose
