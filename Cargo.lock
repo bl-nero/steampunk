@@ -82,7 +82,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "common",
- "ctrlc",
  "delegate",
  "enum-map",
  "image",
@@ -91,6 +90,7 @@ dependencies = [
  "piston_window",
  "rand",
  "rodio 0.15.0",
+ "signal-hook",
  "ya6502",
 ]
 
@@ -184,7 +184,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "common",
- "ctrlc",
  "delegate",
  "enum-map",
  "image",
@@ -195,6 +194,7 @@ dependencies = [
  "piston_window",
  "rand",
  "rodio 0.14.0",
+ "signal-hook",
  "thiserror",
  "ya6502",
 ]
@@ -571,16 +571,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c063cd8cc95f5c377ed0d4b49a4b21f632396ff690e8470c29b3359b346984b"
 dependencies = [
  "cfg-if 1.0.0",
-]
-
-[[package]]
-name = "ctrlc"
-version = "3.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "232295399409a8b7ae41276757b5a1cc21032848d42bff2352261f958b3ca29a"
-dependencies = [
- "nix 0.20.0",
- "winapi 0.3.9",
 ]
 
 [[package]]
@@ -2263,6 +2253,25 @@ name = "shlex"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fdf1b9db47230893d76faad238fd6097fd6d6a9245cd7a4d90dbd639536bbd2"
+
+[[package]]
+name = "signal-hook"
+version = "0.3.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "732768f1176d21d09e076c23a93123d40bba92d50c4058da34d45c8de8e682b9"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook-registry"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8229b473baa5980ac72ef434c4415e70c4b5e71b423043adb4ba059f89c99a1"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "slab"

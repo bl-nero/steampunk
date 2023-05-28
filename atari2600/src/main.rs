@@ -62,11 +62,8 @@ fn main() {
     );
     let interrupted = app.interrupted();
 
-    ctrlc::set_handler(move || {
-        eprintln!("Terminating.");
-        interrupted.store(true, Ordering::Relaxed);
-    })
-    .expect("Unable to set interrupt signal handler");
+    signal_hook::flag::register(signal_hook::consts::SIGINT, interrupted)
+        .expect("Unable to set interrupt signal handler");
 
     app.run();
 
